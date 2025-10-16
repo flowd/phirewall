@@ -1,0 +1,37 @@
+Copyright (c) 2025 Flowd GmbH
+
+This software package (“the Software”) is made available under a dual license:
+
+1. **Open Source License (LGPLv3)**
+   The Software may be used, modified, and distributed under the terms of the
+   GNU Lesser General Public License, version 3 (LGPLv3), as published by the
+   Free Software Foundation.
+
+   A copy of the license is provided in the file LICENSE.LGPL or can be found at:
+   <https://www.gnu.org/licenses/lgpl-3.0.html>
+
+   This license allows use of the Software in GPLv3-compatible open source projects.
+
+2. **Commercial License**
+   If you wish to use the Software in a proprietary, closed-source, or otherwise
+   non-GPL-compatible project, or if you require a commercial license, please contact:
+
+   Sascha Egerer
+   E-mail: hello@flowd.de
+
+   A commercial license grants rights to use the Software under customized terms
+   without the obligations imposed by the LGPLv3.
+
+3. **Disclaimer of Warranty**
+   THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+   INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+   PARTICULAR PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+   HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION
+   OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+----------------------------------------------
+Summary:
+- Open-source use (GPLv3-compatible) → allowed under LGPLv3.
+- Commercial use → requires a separate commercial license.
+----------------------------------------------
