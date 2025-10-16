@@ -265,6 +265,27 @@ This normalization affects only internal cache keys. It does not alter headers, 
 ### Rule evaluation order
 The middleware evaluates rules in this order: safelist → blocklist → fail2ban → throttles.
 
+### Configuration flags & options
+- enableRateLimitHeaders(bool $enabled = true): opt-in standard X-RateLimit-* headers on pass-through and throttled responses.
+- setKeyPrefix(string $prefix): set a global prefix for all generated counter/ban/track keys (default: flowd-firewall).
+- blocklistedResponse(Closure $factory): customize 403/fail2ban responses while middleware still ensures X-Flowd-Firewall headers.
+- throttledResponse(Closure $factory): customize 429 responses; middleware ensures Retry-After if missing.
+- Event dispatcher (PSR-14): pass a dispatcher to Config’s constructor to receive observability events.
+- Cache backend (PSR-16): pass any PSR-16 implementation to Config; CounterStoreInterface improves window accuracy.
+
+### Redis setup
+- Install Predis: composer require predis/predis
+- Provide a client URL via REDIS_URL or construct client manually.
+- Use RedisCache to wrap the client and pass it to Config. See examples/redis_setup.php.
+- Notes: Redis is optional; in-memory/APCu backends work without Redis.
+
+### Security guidelines
+- Do not trust client-provided IP headers unless behind trusted proxies. Use TrustedProxyResolver and KeyExtractors::clientIp().
+- Be mindful of logging privacy: keys may include IPs or identifiers; avoid storing sensitive data in logs/metrics.
+- Key normalization prevents cache poisoning and key explosion by restricting characters and capping length.
+- Prefer per-endpoint/method throttles for sensitive actions (login, password reset) and stricter limits on writes.
+- Validate and sanitize user inputs in your application in addition to rate limiting (OWASP ASVS guidance applies).
+
 ## Examples
 
 Real-world configuration snippets are available in the examples directory:
@@ -280,11 +301,32 @@ You can include any of these files from your bootstrap to obtain a configured mi
 $firewall = require __DIR__ . '/examples/api_rate_limiting.php';
 ```
 
+### Benchmarks
+
+A simple micro-benchmark script is provided to gauge counter store performance.
+
+Run in-memory benchmarks:
+
+```
+php examples/benchmarks_counters.php
+```
+
+Include Redis (optional) if Predis is installed and a Redis server is available:
+
+```
+REDIS_URL=redis://localhost:6379 php examples/benchmarks_counters.php
+```
+
+Outputs operations per second for increment and ttlRemaining.
+
 ## Development
 
 - Run unit tests: `XDEBUG_MODE=coverage vendor/bin/phpunit`
 - Static analysis: `vendor/bin/phpstan`
 - Code style: `vendor/bin/php-cs-fixer fix`
+- Mutation testing (optional): `vendor/bin/infection` or `composer test:mutation`
+  - With coverage pre-enabled: `composer test:mutation:coverage`
+  - Reports are written to `.build/infection.html` and logs under `.build/`
 
 ## License
 This software package (“the Software”) is made available under a dual license. See the LICENSE file for details.
