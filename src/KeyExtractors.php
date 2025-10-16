@@ -84,8 +84,6 @@ final class KeyExtractors
      */
     public static function clientIp(TrustedProxyResolver $resolver): Closure
     {
-        return static function (ServerRequestInterface $request) use ($resolver): ?string {
-            return $resolver->resolve($request);
-        };
+        return static fn(ServerRequestInterface $request): ?string => $resolver->resolve($request);
     }
 }

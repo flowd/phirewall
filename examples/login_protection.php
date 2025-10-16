@@ -34,17 +34,13 @@ $config->setKeyPrefix('myapp');
 
 // Track login failures by client IP for 60-second windows
 $config->track('login_failed', 60,
-    filter: function (ServerRequestInterface $request): bool {
-        return $request->getUri()->getPath() === '/login' && $request->getHeaderLine('X-Login-Failed') === '1';
-    },
+    filter: fn(ServerRequestInterface $request): bool => $request->getUri()->getPath() === '/login' && $request->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::clientIp($resolver)
 );
 
 // Fail2Ban: 5 failed attempts in 5 minutes => ban IP for 1 hour
 $config->fail2ban('login_abuse', threshold: 5, period: 300, ban: 3600,
-    filter: function (ServerRequestInterface $request): bool {
-        return $request->getUri()->getPath() === '/login' && $request->getHeaderLine('X-Login-Failed') === '1';
-    },
+    filter: fn(ServerRequestInterface $request): bool => $request->getUri()->getPath() === '/login' && $request->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::clientIp($resolver)
 );
 
@@ -52,12 +48,10 @@ $config->fail2ban('login_abuse', threshold: 5, period: 300, ban: 3600,
 $config->throttle('login_submit', limit: 10, period: 60, key: KeyExtractors::clientIp($resolver));
 
 // Optional: customize blocklisted/fail2ban response
-$config->blocklistedResponse(function (string $rule, string $type, ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface {
-    return new Response(403, ['Content-Type' => 'application/json', 'X-Flow' => 'blocked'], json_encode([
-        'blocked' => $rule,
-        'type' => $type,
-    ], JSON_THROW_ON_ERROR));
-});
+$config->blocklistedResponse(fn(string $rule, string $type, ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface => new Response(403, ['Content-Type' => 'application/json', 'X-Flow' => 'blocked'], json_encode([
+    'blocked' => $rule,
+    'type' => $type,
+], JSON_THROW_ON_ERROR)));
 
 $middleware = new Middleware($config);
 

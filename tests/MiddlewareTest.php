@@ -28,9 +28,7 @@ final class MiddlewareTest extends TestCase
     {
         $cache = new InMemoryCache();
         $config = new Config($cache);
-        $config->safelist('healthcheck', function ($request): bool {
-            return $request->getUri()->getPath() === '/health';
-        });
+        $config->safelist('healthcheck', fn($request): bool => $request->getUri()->getPath() === '/health');
         $config->blocklist('block-all', function ($request): bool {
             return true; // should be bypassed by safelist
         });
@@ -46,9 +44,7 @@ final class MiddlewareTest extends TestCase
     {
         $cache = new InMemoryCache();
         $config = new Config($cache);
-        $config->blocklist('blockedPath', function ($request): bool {
-            return $request->getUri()->getPath() === '/admin';
-        });
+        $config->blocklist('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
 
         $middleware = new Middleware($config);
         $request = new ServerRequest('GET', '/admin');
@@ -62,9 +58,7 @@ final class MiddlewareTest extends TestCase
     {
         $cache = new InMemoryCache();
         $config = new Config($cache);
-        $config->throttle('ip', 2, 10, function ($request): string {
-            return $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1';
-        });
+        $config->throttle('ip', 2, 10, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
         $middleware = new Middleware($config);
         $handler = $this->handler();
 
@@ -86,12 +80,8 @@ final class MiddlewareTest extends TestCase
             2,
             5,
             10,
-            filter: function ($request): bool {
-                return $request->getHeaderLine('X-Login-Failed') === '1';
-            },
-            key: function ($request): string {
-                return $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1';
-            }
+            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1'
         );
         $middleware = new Middleware($config);
         $handler = $this->handler();

@@ -31,7 +31,8 @@
     "phpunit/phpunit": "^11.4",
     "phpstan/phpstan": "^1.11",
     "friendsofphp/php-cs-fixer": "^3.64",
-    "infection/infection": "^0.29"
+    "infection/infection": "^0.29",
+    "rector/rector": "^1.2"
   },
   "autoload": {
     "psr-4": {
@@ -45,9 +46,15 @@
     },
   "scripts": {
     "test": "XDEBUG_MODE=coverage vendor/bin/phpunit",
-    "stan": "vendor/bin/phpstan",
+    "phpstan": "vendor/bin/phpstan",
+    "rector": "vendor/bin/rector",
     "cs": "vendor/bin/php-cs-fixer fix --diff --verbose",
     "test:mutation": "vendor/bin/infection --threads=4 --logger-html=.build/infection.html --min-msi=0 --min-covered-msi=0",
     "test:mutation:coverage": "XDEBUG_MODE=coverage vendor/bin/infection --threads=4 --logger-html=.build/infection.html --initial-tests-php-options=\"-dxdebug.mode=coverage\" --min-msi=0 --min-covered-msi=0"
+  },
+  "config": {
+    "allow-plugins": {
+      "infection/extension-installer": false
+    }
   }
 }

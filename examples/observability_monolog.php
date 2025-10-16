@@ -35,7 +35,7 @@ $dispatcher = new class ($logger) implements EventDispatcherInterface {
     public function __construct(private readonly ?object $logger) {}
     public function dispatch(object $event): object
     {
-        $type = get_class($event);
+        $type = $event::class;
         $context = method_exists($event, '__debugInfo') ? $event->__debugInfo() : get_object_vars($event);
         if ($this->logger instanceof \Monolog\Logger) {
             $this->logger->info('Firewall event', ['type' => $type, 'context' => $context]);

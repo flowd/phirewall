@@ -14,11 +14,11 @@ use Psr\SimpleCache\CacheInterface;
  *
  * Requires a Predis ClientInterface (pure PHP, no server extension required).
  */
-final class RedisCache implements CacheInterface, CounterStoreInterface
+final readonly class RedisCache implements CacheInterface, CounterStoreInterface
 {
     public function __construct(
-        private readonly ClientInterface $redis,
-        private readonly string $namespace = 'flowd-firewall:'
+        private ClientInterface $redis,
+        private string $namespace = 'flowd-firewall:'
     ) {
     }
 

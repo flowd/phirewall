@@ -32,7 +32,7 @@ $dispatcher = new class ($tracer, $meter) implements EventDispatcherInterface {
     public function __construct(private readonly ?object $tracer, private readonly ?object $meter) {}
     public function dispatch(object $event): object
     {
-        $type = get_class($event);
+        $type = $event::class;
         // Record a metric counter if available
         if ($this->meter && method_exists($this->meter, 'counter')) {
             // Counter API is SDK-specific; adjust accordingly

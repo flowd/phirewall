@@ -16,10 +16,10 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 
-final class Middleware implements MiddlewareInterface
+final readonly class Middleware implements MiddlewareInterface
 {
     public function __construct(
-        private readonly Config $config,
+        private Config $config,
     ) {
     }
 

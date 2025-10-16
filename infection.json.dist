@@ -3,12 +3,10 @@
     "source": {
         "directories": [
             "src"
-        ],
-        "excludes": []
+        ]
     },
     "phpUnit": {
-        "configDir": ".",
-        "customPath": null
+        "configDir": "."
     },
     "timeout": 10,
     "logs": {

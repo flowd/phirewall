@@ -56,9 +56,7 @@ final class CustomResponsesTest extends TestCase
             filter: fn ($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
             key: fn ($request): string => 'ip-1'
         );
-        $config->blocklistedResponse(function (string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface {
-            return new Response(499, ['X-Custom' => $type]);
-        });
+        $config->blocklistedResponse(fn(string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface => new Response(499, ['X-Custom' => $type]));
         $middleware = new Middleware($config);
         $handler = $this->handler();
         // One failure to trigger ban
@@ -79,9 +77,7 @@ final class CustomResponsesTest extends TestCase
         $config->throttle('ip', 0, 30, fn ($request): string => '1.2.3.4');
 
         // Custom throttled response without Retry-After header
-        $config->throttledResponse(function (string $rule, int $retryAfter, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface {
-            return new Response(429, ['X-Custom' => 'yes']);
-        });
+        $config->throttledResponse(fn(string $rule, int $retryAfter, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface => new Response(429, ['X-Custom' => 'yes']));
 
         $middleware = new Middleware($config);
         $handler = $this->handler();

@@ -56,7 +56,7 @@ $config->blocklist('admin_external', function (ServerRequestInterface $r) use ($
     // Allow RFC1918 private ranges only
     foreach (['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'] as $cidr) {
         // Simple check via PHP's ip2long masking
-        if (strpos($cidr, '/') !== false) {
+        if (str_contains($cidr, '/')) {
             [$subnet, $mask] = explode('/', $cidr, 2);
             $mask = (int)$mask;
             $ipLong = ip2long($ip);

@@ -90,21 +90,15 @@ final class EventsTest extends TestCase
         };
 
         $config = new Config($cache, $dispatcher);
-        $config->throttle('ip', 1, 30, function ($request): ?string {
-            return $request->getServerParams()['REMOTE_ADDR'] ?? null;
-        });
+        $config->throttle('ip', 1, 30, fn($request): ?string => $request->getServerParams()['REMOTE_ADDR'] ?? null);
 
         $config->fail2ban(
             'login',
             2,
             10,
             60,
-            filter: function ($request): bool {
-                return $request->getHeaderLine('X-Login-Failed') === '1';
-            },
-            key: function ($request): ?string {
-                return $request->getServerParams()['REMOTE_ADDR'] ?? null;
-            }
+            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            key: fn($request): ?string => $request->getServerParams()['REMOTE_ADDR'] ?? null
         );
 
         $middleware = new Middleware($config);

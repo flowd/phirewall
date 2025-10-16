@@ -55,9 +55,7 @@ final class KeyExtractorsTest extends TestCase
         $config->track(
             'hits',
             60,
-            filter: function ($request): bool {
-                return KeyExtractors::method()($request) === 'GET' && KeyExtractors::path()($request) === '/metrics';
-            },
+            filter: fn($request): bool => KeyExtractors::method()($request) === 'GET' && KeyExtractors::path()($request) === '/metrics',
             key: KeyExtractors::path()
         );
         $middleware = new Middleware($config);

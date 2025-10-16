@@ -17,14 +17,14 @@ use Psr\Http\Message\ServerRequestInterface;
  * Notes:
  * - IPv4 CIDR ranges are supported (e.g., 10.0.0.0/8). IPv6 CIDR is not implemented; exact IPv6 matches work.
  */
-final class TrustedProxyResolver
+final readonly class TrustedProxyResolver
 {
     /**
      * @param list<string> $trustedProxies List of trusted proxies as IPv4/IPv6 addresses or IPv4 CIDR ranges
      */
     public function __construct(
-        private readonly array $trustedProxies,
-        private readonly string $xffHeader = 'X-Forwarded-For',
+        private array $trustedProxies,
+        private string $xffHeader = 'X-Forwarded-For',
     ) {
     }
 
