@@ -100,11 +100,81 @@ Notes:
 
 ### Events (optional)
 If you pass a PSR-14 EventDispatcher to Config, the middleware emits domain-specific events you can observe:
-- Events\SafelistMatched
-- Events\BlocklistMatched
-- Events\ThrottleExceeded
-- Events\Fail2BanBanned
-- Events\TrackHit
+- Events\SafelistMatched (fields: rule, request)
+- Events\BlocklistMatched (fields: rule, request)
+- Events\ThrottleExceeded (fields: rule, key, limit, period, count, retryAfter, request)
+- Events\Fail2BanBanned (fields: rule, key, threshold, period, banSeconds, count, request)
+- Events\TrackHit (fields: rule, key, period, count, request)
+
+Basic wiring with a minimal dispatcher:
+
+```php
+use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Middleware;
+use Flowd\Phirewall\Store\InMemoryCache;
+use Psr\EventDispatcher\EventDispatcherInterface;
+
+// Very small dispatcher example (replace with your framework's dispatcher)
+$dispatcher = new class () implements EventDispatcherInterface {
+    public function dispatch(object $event): object
+    {
+        // Forward to your logging/metrics here
+        error_log('Firewall event: ' . get_class($event));
+        return $event;
+    }
+};
+
+$config = new Config(new InMemoryCache(), $dispatcher);
+$middleware = new Middleware($config);
+```
+
+Monolog integration example (no extra dependency required to use the library; this is optional):
+
+```php
+use Monolog\Logger;
+use Monolog\Handler\StreamHandler;
+use Psr\EventDispatcher\EventDispatcherInterface;
+
+$logger = new Logger('firewall');
+$logger->pushHandler(new StreamHandler('php://stdout'));
+
+$dispatcher = new class ($logger) implements EventDispatcherInterface {
+    public function __construct(private Logger $logger) {}
+    public function dispatch(object $event): object
+    {
+        $context = get_object_vars($event);
+        $this->logger->info('Firewall event', ['type' => get_class($event), 'context' => $context]);
+        return $event;
+    }
+};
+```
+
+OpenTelemetry sketch (keep handlers lightweight; emit counters/spans as appropriate):
+
+```php
+// Pseudocode — integrate with your OTEL SDK setup
+$dispatcher = new class ($tracer, $meter) implements Psr\\EventDispatcher\\EventDispatcherInterface {
+    public function __construct(private $tracer, private $meter) {}
+    public function dispatch(object $event): object
+    {
+        // Convert to metrics
+        $this->meter->counter('firewall.events.total')->add(1, ['type' => get_class($event)]);
+        // Optionally create spans for throttling decisions
+        // $span = $this->tracer->spanBuilder('firewall.' . basename(str_replace('\\\\', '/', get_class($event))))->startSpan();
+        // $span->end();
+        return $event;
+    }
+};
+```
+
+Best practices:
+- Keep event handlers fast; offload heavy work to async/queues.
+- Avoid logging sensitive data (keys may include IPs or user identifiers).
+- Consider sampling high-volume events like TrackHit.
+
+See also example scripts:
+- examples/observability_monolog.php — Monolog logger wiring
+- examples/observability_opentelemetry.php — OpenTelemetry sketch
 
 ### Tracking hooks (optional)
 Track custom conditions for observability without affecting request flow. Useful for counting login failures, suspicious paths, etc.
