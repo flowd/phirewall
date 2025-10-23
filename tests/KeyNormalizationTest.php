@@ -29,8 +29,8 @@ final class KeyNormalizationTest extends TestCase
         $config->track(
             'hits weird name',
             period: 60,
-            filter: fn ($request): bool => true,
-            key: fn ($request): string => "/weird path\t\n<>#?"
+            filter: fn($request): bool => true,
+            key: fn($request): string => "/weird path\t\n<>#?"
         );
 
         $middleware = new Middleware($config);
@@ -59,8 +59,8 @@ final class KeyNormalizationTest extends TestCase
         $config->track(
             'long',
             period: 60,
-            filter: fn ($request): bool => true,
-            key: fn ($request) => $veryLong
+            filter: fn($request): bool => true,
+            key: fn($request) => $veryLong
         );
         $middleware = new Middleware($config);
         $handler = $this->handler();

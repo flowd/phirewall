@@ -30,7 +30,7 @@ final class RateLimitHeadersTest extends TestCase
         $config = new Config($cache);
         $config->enableRateLimitHeaders(true);
         // Limit 3 requests per 30s by IP
-        $config->throttle('ip', 3, 30, fn ($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
+        $config->throttle('ip', 3, 30, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
         $middleware = new Middleware($config);
         $handler = $this->handler();
 
@@ -52,7 +52,7 @@ final class RateLimitHeadersTest extends TestCase
         $config = new Config($cache);
         $config->enableRateLimitHeaders(true);
         // Limit 1 per 10s by IP
-        $config->throttle('ip', 1, 10, fn ($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
+        $config->throttle('ip', 1, 10, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
         $middleware = new Middleware($config);
         $handler = $this->handler();
 
@@ -75,7 +75,7 @@ final class RateLimitHeadersTest extends TestCase
         $cache = new InMemoryCache();
         $config = new Config($cache);
         $config->enableRateLimitHeaders(false);
-        $config->throttle('ip', 10, 60, fn ($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
+        $config->throttle('ip', 10, 60, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
         $middleware = new Middleware($config);
 
         $response = $middleware->process(new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '3.3.3.3']), $this->handler());

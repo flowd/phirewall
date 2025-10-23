@@ -29,7 +29,7 @@ final class CustomResponsesTest extends TestCase
         $config = new Config($cache);
 
         // Block everything via blocklist
-        $config->blocklist('all', fn ($request): bool => true);
+        $config->blocklist('all', fn($request): bool => true);
 
         // Custom blocklisted response factory
         $config->blocklistedResponse(function (string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface {
@@ -53,8 +53,8 @@ final class CustomResponsesTest extends TestCase
             1,
             60,
             600,
-            filter: fn ($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
-            key: fn ($request): string => 'ip-1'
+            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            key: fn($request): string => 'ip-1'
         );
         $config->blocklistedResponse(fn(string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface => new Response(499, ['X-Custom' => $type]));
         $middleware = new Middleware($config);
@@ -74,7 +74,7 @@ final class CustomResponsesTest extends TestCase
     {
         $cache = new InMemoryCache();
         $config = new Config($cache);
-        $config->throttle('ip', 0, 30, fn ($request): string => '1.2.3.4');
+        $config->throttle('ip', 0, 30, fn($request): string => '1.2.3.4');
 
         // Custom throttled response without Retry-After header
         $config->throttledResponse(fn(string $rule, int $retryAfter, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface => new Response(429, ['X-Custom' => 'yes']));

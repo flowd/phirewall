@@ -41,8 +41,8 @@ final class TrackTest extends TestCase
         $config->track(
             'login_failed',
             period: 60,
-            filter: fn ($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
-            key: fn ($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '0.0.0.0'
+            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '0.0.0.0'
         );
 
         $middleware = new Middleware($config);
@@ -57,7 +57,7 @@ final class TrackTest extends TestCase
         $this->assertSame(200, $secondResponse->getStatusCode());
 
         // Collect TrackHit events
-        $hits = array_values(array_filter($events->events, fn ($e) => $e instanceof TrackHit));
+        $hits = array_values(array_filter($events->events, fn($e) => $e instanceof TrackHit));
         $this->assertCount(2, $hits);
         $this->assertInstanceOf(TrackHit::class, $hits[0]);
         $this->assertSame('login_failed', $hits[0]->rule);
@@ -84,14 +84,14 @@ final class TrackTest extends TestCase
         $config->track(
             'any',
             period: 30,
-            filter: fn ($request): bool => false,
-            key: fn ($request): string => 'k'
+            filter: fn($request): bool => false,
+            key: fn($request): string => 'k'
         );
 
         $middleware = new Middleware($config);
         $response = $middleware->process(new ServerRequest('GET', '/'), $this->handler());
         $this->assertSame(200, $response->getStatusCode());
-        $hits = array_values(array_filter($events->events, fn ($e) => $e instanceof TrackHit));
+        $hits = array_values(array_filter($events->events, fn($e) => $e instanceof TrackHit));
         $this->assertCount(0, $hits);
     }
 }

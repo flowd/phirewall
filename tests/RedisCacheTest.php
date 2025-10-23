@@ -58,7 +58,7 @@ final class RedisCacheTest extends TestCase
         $cache = new RedisCache($client, 'flowd-firewall:test:');
 
         $config = new Config($cache);
-        $config->throttle('ip', 1, 5, fn ($request): string => '1.2.3.4');
+        $config->throttle('ip', 1, 5, fn($request): string => '1.2.3.4');
         $middleware = new Middleware($config);
 
         $request = new ServerRequest('GET', '/');

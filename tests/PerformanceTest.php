@@ -45,7 +45,7 @@ final class PerformanceTest extends TestCase
             }
         };
         $config = new Config($cache, $events);
-        $config->safelist('all', fn ($request): bool => true);
+        $config->safelist('all', fn($request): bool => true);
         $middleware = new Middleware($config);
         $events->start = microtime(true);
         $response = $middleware->process(new ServerRequest('GET', '/'), $this->handler());
@@ -75,7 +75,7 @@ final class PerformanceTest extends TestCase
             }
         };
         $config = new Config($cache, $events);
-        $config->throttle('ip', 0, 10, fn ($request): string => '1.1.1.1');
+        $config->throttle('ip', 0, 10, fn($request): string => '1.1.1.1');
         $middleware = new Middleware($config);
         $events->start = microtime(true);
         $response = $middleware->process(new ServerRequest('GET', '/'), $this->handler());

@@ -32,8 +32,8 @@ final class KeyPrefixTest extends TestCase
         $config->track(
             'hits',
             period: 60,
-            filter: fn ($request): bool => true,
-            key: fn ($request): string => 'k'
+            filter: fn($request): bool => true,
+            key: fn($request): string => 'k'
         );
 
         $middleware = new Middleware($config);

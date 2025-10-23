@@ -18,4 +18,5 @@ return (new PhpCsFixer\Config())
         'ordered_imports' => ['sort_algorithm' => 'alpha'],
         'phpdoc_trim' => true,
         'phpdoc_align' => ['align' => 'left'],
+        'function_declaration' => ['closure_function_spacing' => 'one', 'closure_fn_spacing' => 'none', 'trailing_comma_single_line' => true]
     ]);

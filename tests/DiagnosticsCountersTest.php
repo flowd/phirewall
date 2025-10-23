@@ -27,8 +27,8 @@ final class DiagnosticsCountersTest extends TestCase
     public function testSafelistCounterIncrements(): void
     {
         $config = new Config(new InMemoryCache());
-        $config->safelist('health', fn ($req): bool => $req->getUri()->getPath() === '/health');
-        $config->blocklist('block-all', fn (): bool => true); // should be bypassed
+        $config->safelist('health', fn($req): bool => $req->getUri()->getPath() === '/health');
+        $config->blocklist('block-all', fn(): bool => true); // should be bypassed
 
         $middleware = new Middleware($config);
         $response = $middleware->process(new ServerRequest('GET', '/health'), $this->handler());
@@ -45,7 +45,7 @@ final class DiagnosticsCountersTest extends TestCase
     public function testBlocklistCounterIncrements(): void
     {
         $config = new Config(new InMemoryCache());
-        $config->blocklist('admin', fn ($req): bool => $req->getUri()->getPath() === '/admin');
+        $config->blocklist('admin', fn($req): bool => $req->getUri()->getPath() === '/admin');
         $middleware = new Middleware($config);
 
         $response = $middleware->process(new ServerRequest('GET', '/admin'), $this->handler());
@@ -59,7 +59,7 @@ final class DiagnosticsCountersTest extends TestCase
     public function testThrottleExceededCounterIncrements(): void
     {
         $config = new Config(new InMemoryCache());
-        $config->throttle('ip', 1, 10, fn ($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
+        $config->throttle('ip', 1, 10, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
         $middleware = new Middleware($config);
         $handler = $this->handler();
 
@@ -81,8 +81,8 @@ final class DiagnosticsCountersTest extends TestCase
             threshold: 2,
             period: 10,
             ban: 60,
-            filter: fn ($req): bool => $req->getHeaderLine('X-Login-Failed') === '1',
-            key: fn ($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null,
+            filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1',
+            key: fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null,
         );
         $middleware = new Middleware($config);
         $handler = $this->handler();
@@ -109,7 +109,7 @@ final class DiagnosticsCountersTest extends TestCase
     public function testTrackHitAndPassCountersIncrement(): void
     {
         $config = new Config(new InMemoryCache());
-        $config->track('all', period: 60, filter: fn (): bool => true, key: fn (): string => 'k');
+        $config->track('all', period: 60, filter: fn(): bool => true, key: fn(): string => 'k');
         $middleware = new Middleware($config);
         $handler = $this->handler();
 

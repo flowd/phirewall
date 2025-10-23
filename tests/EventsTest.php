@@ -41,8 +41,8 @@ final class EventsTest extends TestCase
         };
 
         $config = new Config($cache, $dispatcher);
-        $config->safelist('health', fn ($request) => $request->getUri()->getPath() === '/health');
-        $config->blocklist('admin', fn ($request) => $request->getUri()->getPath() === '/admin');
+        $config->safelist('health', fn($request) => $request->getUri()->getPath() === '/health');
+        $config->blocklist('admin', fn($request) => $request->getUri()->getPath() === '/admin');
 
         $middleware = new Middleware($config);
 
