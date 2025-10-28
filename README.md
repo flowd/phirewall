@@ -328,5 +328,9 @@ Outputs operations per second for increment and ttlRemaining.
   - With coverage pre-enabled: `composer test:mutation:coverage`
   - Reports are written to `.build/infection.html` and logs under `.build/`
 
+## Sponsors
+This project received funding from TYPO3 Association by its Community Budget program.
+https://typo3.org/article/members-have-selected-four-ideas-to-be-funded-in-quarter-4-2025
+
 ## License
 This software package (“the Software”) is made available under a dual license. See the LICENSE file for details.
