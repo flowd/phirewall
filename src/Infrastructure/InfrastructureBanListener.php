@@ -35,12 +35,12 @@ final class InfrastructureBanListener
          * Defaults to identity (assumes key is already an IP address).
          * @param callable(string):?string $keyToIp
          */
-        callable $keyToIp = null,
+        ?callable $keyToIp = null,
         /**
          * Extract IP address from a ServerRequestInterface. Defaults to REMOTE_ADDR.
          * @param callable(ServerRequestInterface):?string $requestToIp
          */
-        callable $requestToIp = null,
+        ?callable $requestToIp = null,
     ) {
         $this->keyToIp = $keyToIp ?? static fn(string $key): string => $key;
         $this->requestToIp = $requestToIp ?? static function (ServerRequestInterface $request): ?string {
