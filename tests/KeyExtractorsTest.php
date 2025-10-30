@@ -35,7 +35,7 @@ final class KeyExtractorsTest extends TestCase
         $this->assertSame(200, $middleware->process($request, $this->handler())->getStatusCode());
         $secondResponse = $middleware->process($request, $this->handler());
         $this->assertSame(429, $secondResponse->getStatusCode());
-        $this->assertSame('ip', $secondResponse->getHeaderLine('X-Flowd-Firewall-Matched'));
+        $this->assertSame('ip', $secondResponse->getHeaderLine('X-Phirewall-Matched'));
     }
 
     public function testTrackByPathAndMethodExtractors(): void

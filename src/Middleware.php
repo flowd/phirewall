@@ -51,7 +51,7 @@ final readonly class Middleware implements MiddlewareInterface
                 $this->dispatch(new SafelistMatched($name, $request));
                 $this->config->incrementDiagnosticsCounter('safelisted', $name);
                 $response = $handler->handle($request);
-                return $response->withHeader('X-Flowd-Firewall-Safelist', $name);
+                return $response->withHeader('X-Phirewall-Safelist', $name);
             }
         }
 
@@ -166,8 +166,8 @@ final readonly class Middleware implements MiddlewareInterface
         }
         // Ensure standard headers are present
         $response = $response
-            ->withHeader('X-Flowd-Firewall', $type)
-            ->withHeader('X-Flowd-Firewall-Matched', $rule);
+            ->withHeader('X-Phirewall', $type)
+            ->withHeader('X-Phirewall-Matched', $rule);
         return $response;
     }
 
@@ -182,8 +182,8 @@ final readonly class Middleware implements MiddlewareInterface
         }
         // Ensure standard headers are present
         $response = $response
-            ->withHeader('X-Flowd-Firewall', 'throttle')
-            ->withHeader('X-Flowd-Firewall-Matched', $rule);
+            ->withHeader('X-Phirewall', 'throttle')
+            ->withHeader('X-Phirewall-Matched', $rule);
         if ($response->getHeaderLine('Retry-After') === '') {
             $response = $response->withHeader('Retry-After', (string)max(1, $retryAfter));
         }

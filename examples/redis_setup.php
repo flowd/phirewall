@@ -55,8 +55,8 @@ if ($redisClient === null) {
     return $middleware;
 }
 
-// Use a namespaced prefix to avoid collisions (default is 'flowd-firewall:')
-$cache = new RedisCache($redisClient, 'flowd-firewall:demo:');
+// Use a namespaced prefix to avoid collisions (default is 'phirewall:')
+$cache = new RedisCache($redisClient, 'phirewall:demo:');
 
 $config = new Config($cache);
 
@@ -91,7 +91,7 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
         $response = $middleware->process($request, $handler);
         $addr = $server['REMOTE_ADDR'] ?? 'n/a';
         echo sprintf("%s %s from %s => %d\n", $method, $path, $addr, $response->getStatusCode());
-        foreach (['X-Flowd-Firewall','X-Flowd-Firewall-Matched','Retry-After'] as $h) {
+        foreach (['X-Phirewall','X-Phirewall-Matched','Retry-After'] as $h) {
             $val = $response->getHeaderLine($h);
             if ($val !== '') {
                 echo $h . ': ' . $val . "\n";

@@ -39,8 +39,8 @@ final class PortableConfigTest extends TestCase
 
         $request2 = $middleware->process(new ServerRequest('GET', '/admin'), $this->handler());
         $this->assertSame(403, $request2->getStatusCode());
-        $this->assertSame('blocklist', $request2->getHeaderLine('X-Flowd-Firewall'));
-        $this->assertSame('admin', $request2->getHeaderLine('X-Flowd-Firewall-Matched'));
+        $this->assertSame('blocklist', $request2->getHeaderLine('X-Phirewall'));
+        $this->assertSame('admin', $request2->getHeaderLine('X-Phirewall-Matched'));
     }
 
     public function testThrottleByIpAndRateLimitHeaders(): void
@@ -88,8 +88,8 @@ final class PortableConfigTest extends TestCase
         $this->assertSame(200, $middleware->process($fail, $handler)->getStatusCode());
         $b = $middleware->process($r, $handler);
         $this->assertSame(403, $b->getStatusCode());
-        $this->assertSame('fail2ban', $b->getHeaderLine('X-Flowd-Firewall'));
-        $this->assertSame('login', $b->getHeaderLine('X-Flowd-Firewall-Matched'));
+        $this->assertSame('fail2ban', $b->getHeaderLine('X-Phirewall'));
+        $this->assertSame('login', $b->getHeaderLine('X-Phirewall-Matched'));
     }
 
     public function testRoundTripExportImport(): void
@@ -114,7 +114,7 @@ final class PortableConfigTest extends TestCase
         // Safelist
         $resp = $middleware->process(new ServerRequest('GET', '/health'), $handler);
         $this->assertSame(200, $resp->getStatusCode());
-        $this->assertSame('health', $resp->getHeaderLine('X-Flowd-Firewall-Safelist'));
+        $this->assertSame('health', $resp->getHeaderLine('X-Phirewall-Safelist'));
         // Blocklist
         $blocked = $middleware->process(new ServerRequest('GET', '/admin'), $handler);
         $this->assertSame(403, $blocked->getStatusCode());

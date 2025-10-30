@@ -55,7 +55,7 @@ if ($redisUrl && class_exists(\Predis\Client::class)) {
         if ((string)$client->ping() !== 'PONG') {
             throw new RuntimeException('Redis PING failed');
         }
-        $redis = new RedisCache($client, 'flowd-firewall:bench:');
+        $redis = new RedisCache($client, 'Phirewall:bench:');
         $rkeyBase = 'bench:redis:' . bin2hex(random_bytes(4));
 
         bench('Redis increment', function (int $n) use ($redis, $period, $rkeyBase): void {

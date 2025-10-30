@@ -17,7 +17,7 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * Example: Observability with Monolog
  *
- * This example wires a simple PSR-14 dispatcher that forwards Flowd-Firewall events
+ * This example wires a simple PSR-14 dispatcher that forwards Phirewall events
  * to a Monolog logger. Monolog is optional; this library does not require it.
  */
 

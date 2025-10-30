@@ -1,6 +1,6 @@
-# Flowd-Firewall
+# Phirewall
 
-Flowd-Firewall is a PSR-15 middleware providing application-level firewall features for PHP applications.
+Phirewall is a PSR-15 middleware providing application-level firewall features for PHP applications.
 
 Features:
 - Safelists (allow lists) — allowlisted requests bypass other checks
@@ -73,9 +73,9 @@ Add `$middleware` to your PSR-15 middleware pipeline.
 
 ### Response headers
 
-- X-Flowd-Firewall: "blocklist" | "throttle" | "fail2ban"
-- X-Flowd-Firewall-Matched: rule name that triggered
-- X-Flowd-Firewall-Safelist: safelist name when bypass occurs
+- X-Phirewall: "blocklist" | "throttle" | "fail2ban"
+- X-Phirewall-Matched: rule name that triggered
+- X-Phirewall-Safelist: safelist name when bypass occurs
 - Retry-After: seconds remaining in throttle window (for 429)
 
 #### Optional: Standard rate-limit headers
@@ -243,7 +243,7 @@ $config->throttledResponse(function (string $rule, int $retryAfter, Psr\Http\Mes
 - Any PSR-16 cache will work; precision may be reduced without CounterStoreInterface.
 
 ### Key prefix (namespacing)
-By default, Flowd-Firewall prefixes all keys it creates with `flowd-firewall`. You can change this to avoid collisions when multiple applications share a cache:
+By default, Phirewall prefixes all keys it creates with `phirewall`. You can change this to avoid collisions when multiple applications share a cache:
 
 ```php
 $config->setKeyPrefix('myapp'); // Keys become: myapp:throttle:..., myapp:fail2ban:..., myapp:track:...
@@ -251,10 +251,10 @@ $config->setKeyPrefix('myapp'); // Keys become: myapp:throttle:..., myapp:fail2b
 
 Notes:
 - This affects keys created by the middleware regardless of the underlying cache.
-- If you use RedisCache, it also applies its own internal namespace prefix (default `flowd-firewall:`). This is independent of the key prefix above and is used to avoid cross-tenant collisions in Redis. You can customize it when constructing RedisCache if desired.
+- If you use RedisCache, it also applies its own internal namespace prefix (default `phirewall:`). This is independent of the key prefix above and is used to avoid cross-tenant collisions in Redis. You can customize it when constructing RedisCache if desired.
 
 ### Key normalization and safety
-To protect your cache from key poisoning and unbounded growth, Flowd-Firewall normalizes all dynamic key components (rule names and keys returned by your closures) before storing counters/bans:
+To protect your cache from key poisoning and unbounded growth, Phirewall normalizes all dynamic key components (rule names and keys returned by your closures) before storing counters/bans:
 
 - Allowed characters: A–Z, a–z, 0–9, dot (.), underscore (_), colon (:), and hyphen (-).
 - Any other characters are replaced with an underscore and consecutive underscores are collapsed.
@@ -267,8 +267,8 @@ The middleware evaluates rules in this order: safelist → blocklist → fail2ba
 
 ### Configuration flags & options
 - enableRateLimitHeaders(bool $enabled = true): opt-in standard X-RateLimit-* headers on pass-through and throttled responses.
-- setKeyPrefix(string $prefix): set a global prefix for all generated counter/ban/track keys (default: flowd-firewall).
-- blocklistedResponse(Closure $factory): customize 403/fail2ban responses while middleware still ensures X-Flowd-Firewall headers.
+- setKeyPrefix(string $prefix): set a global prefix for all generated counter/ban/track keys (default: phirewall).
+- blocklistedResponse(Closure $factory): customize 403/fail2ban responses while middleware still ensures X-Phirewall headers.
 - throttledResponse(Closure $factory): customize 429 responses; middleware ensures Retry-After if missing.
 - Event dispatcher (PSR-14): pass a dispatcher to Config’s constructor to receive observability events.
 - Cache backend (PSR-16): pass any PSR-16 implementation to Config; CounterStoreInterface improves window accuracy.
@@ -285,6 +285,194 @@ The middleware evaluates rules in this order: safelist → blocklist → fail2ba
 - Key normalization prevents cache poisoning and key explosion by restricting characters and capping length.
 - Prefer per-endpoint/method throttles for sensitive actions (login, password reset) and stricter limits on writes.
 - Validate and sanitize user inputs in your application in addition to rate limiting (OWASP ASVS guidance applies).
+
+## Infrastructure adapters (optional)
+
+### Apache .htaccess adapter
+This library includes an optional infrastructure adapter that can mirror application-level blocks to Apache by maintaining a managed section in an `.htaccess` file using `Require not ip` directives (Apache 2.4+).
+
+- Non-blocking: wire it through `InfrastructureBanListener` with a `NonBlockingRunnerInterface` implementation (e.g., `SyncNonBlockingRunner` or a custom async runner).
+- Safe by design: validates IPs, preserves unrelated `.htaccess` content, and uses atomic writes.
+- Extensible: third parties can implement `InfrastructureBlockerInterface` for other backends (nginx, WAF, firewall CLI).
+
+Minimal usage:
+
+```php
+use Flowd\Phirewall\Infrastructure\ApacheHtaccessAdapter;
+
+$adapter = new ApacheHtaccessAdapter('/var/www/app/.htaccess');
+$adapter->blockMany(['203.0.113.10', '2001:db8::1']);
+$adapter->unblockIp('203.0.113.10');
+```
+
+See a runnable example at `examples/apache_htaccess_adapter.php`.
+
+Security notes:
+- Only enable server-level blocking when you fully control deployment and permissions.
+- Ensure the process has write permissions to the `.htaccess` target.
+- This is opt-in and not required for the middleware to function.
+
+## Real-world use cases
+
+Below are copy-pasteable recipes you can adapt to your application. They are framework-agnostic and use PSR-7/15 types.
+
+### 1) API-wide rate limit by client IP with standard headers
+
+```php
+use Flowd\Phirewall\Config;
+use Flowd\Phirewall\KeyExtractors;
+use Flowd\Phirewall\Middleware;
+use Flowd\Phirewall\Store\InMemoryCache;
+
+$cache = new InMemoryCache();
+$config = new Config($cache);
+
+// Emit standard X-RateLimit-* headers
+$config->enableRateLimitHeaders();
+
+// 100 requests per minute per IP
+$config->throttle('api-ip-minute', limit: 100, period: 60, key: KeyExtractors::ip());
+
+$middleware = new Middleware($config);
+```
+
+Notes:
+- If you run behind a proxy, use `KeyExtractors::clientIp(TrustedProxyResolver)` instead of `ip()`.
+
+### 2) Login protection: Fail2Ban + throttle
+
+```php
+use Flowd\Phirewall\Config;
+use Flowd\Phirewall\KeyExtractors;
+use Flowd\Phirewall\Middleware;
+use Flowd\Phirewall\Store\RedisCache;
+use Predis\Client as PredisClient;
+
+$redis = new PredisClient(getenv('REDIS_URL') ?: 'redis://localhost:6379');
+$config = new Config(new RedisCache($redis));
+
+// Fail2Ban: if header X-Login-Failed=1 occurs >=5 times in 5 min, ban IP for 1 hour
+$config->fail2ban('login', threshold: 5, period: 300, ban: 3600,
+    filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1',
+    key: KeyExtractors::ip()
+);
+
+// Also throttle login submissions to 10/min per IP
+$config->throttle('login-ip-minute', limit: 10, period: 60, key: KeyExtractors::ip());
+
+$middleware = new Middleware($config);
+```
+
+### 3) Per-user limits (API key/JWT subject) + separate anonymous IP throttle
+
+```php
+use Flowd\Phirewall\KeyExtractors;
+
+$userKey = function ($req): ?string {
+    // Example: read user id from header injected by your auth layer
+    $uid = $req->getHeaderLine('X-User-Id');
+    return $uid !== '' ? $uid : null;
+};
+
+// Authenticated users: 600/min per user id
+$config->throttle('user-minute', limit: 600, period: 60, key: $userKey);
+
+// Anonymous traffic: 60/min per IP
+$config->throttle('anon-ip-minute', limit: 60, period: 60, key: KeyExtractors::ip());
+```
+
+### 4) Route-specific stricter throttle (e.g., POST /search) and by method
+
+```php
+$config->throttle('search-post', limit: 20, period: 60, key: function ($req): ?string {
+    if ($req->getMethod() !== 'POST' || $req->getUri()->getPath() !== '/search') {
+        return null; // skip rule for non-matching requests
+    }
+    // key by IP to bound abuse per client
+    return $req->getServerParams()['REMOTE_ADDR'] ?? null;
+});
+
+// Method-aware key, e.g., GET bucket separate from POST
+$config->throttle('method+ip', limit: 200, period: 60, key: function ($req): ?string {
+    $method = $req->getMethod();
+    $ip = $req->getServerParams()['REMOTE_ADDR'] ?? null;
+    return $ip ? $method . ':' . $ip : null;
+});
+```
+
+### 5) Burst + sustained combined limits on the same key
+
+```php
+$byIp = fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null;
+
+// Allow short burst: 30 in 10s
+$config->throttle('burst', limit: 30, period: 10, key: $byIp);
+// And a sustained limit: 300 in 5 min
+$config->throttle('sustained', limit: 300, period: 300, key: $byIp);
+```
+
+### 6) Safelist health checks and internal ranges
+
+```php
+$config->safelist('health', fn($req): bool => $req->getUri()->getPath() === '/health');
+$config->safelist('internal-cidr', function ($req): bool {
+    $ip = $req->getServerParams()['REMOTE_ADDR'] ?? '';
+    // Simple check example — replace with a real CIDR matcher for production
+    return str_starts_with($ip, '10.') || str_starts_with($ip, '192.168.');
+});
+```
+
+### 7) Webhook receiver hardening: blocklist invalid signatures + Fail2Ban
+
+```php
+$signatureInvalid = function ($req): bool {
+    // Replace with your real validation
+    return $req->getHeaderLine('X-Signature-Valid') === '0';
+};
+
+// Immediately 403 requests that look like targeted probing
+$config->blocklist('webhook-probe', fn($req): bool => $signatureInvalid($req) && $req->getMethod() !== 'POST');
+
+// Fail2Ban repeated invalid signatures by IP
+$config->fail2ban('webhook-invalid', threshold: 3, period: 120, ban: 900,
+    filter: fn($req): bool => $signatureInvalid($req),
+    key: fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null
+);
+```
+
+### 8) Protect admin area: block non-private networks + mirror to Apache .htaccess
+
+```php
+use Flowd\Phirewall\Infrastructure\ApacheHtaccessAdapter;
+use Flowd\Phirewall\Infrastructure\InfrastructureBanListener;
+use Flowd\Phirewall\Infrastructure\SyncNonBlockingRunner;
+use Psr\EventDispatcher\EventDispatcherInterface;
+
+// App-level blocklist for /admin if not from private ranges
+$config->blocklist('admin-non-private', function ($req): bool {
+    $path = $req->getUri()->getPath();
+    $ip = $req->getServerParams()['REMOTE_ADDR'] ?? '';
+    $isPrivate = str_starts_with($ip, '10.') || str_starts_with($ip, '192.168.') || str_starts_with($ip, '172.16.');
+    return str_starts_with($path, '/admin') && !$isPrivate;
+});
+
+// Optional: mirror Fail2Ban bans to Apache .htaccess without blocking requests
+$adapter = new ApacheHtaccessAdapter('/var/www/app/.htaccess');
+$runner = new SyncNonBlockingRunner();
+$listener = new InfrastructureBanListener($adapter, $runner, blockOnFail2Ban: true, blockOnBlocklist: false);
+
+// Register $listener methods with your PSR-14 dispatcher
+$dispatcher = /* your framework's dispatcher */ null; // pseudo-code
+if ($dispatcher instanceof EventDispatcherInterface) {
+    // e.g., using a mapping facility in your framework
+    // $dispatcher->listen(Fail2BanBanned::class, [$listener, 'onFail2BanBanned']);
+}
+```
+
+Security notes:
+- Treat IP-based decisions carefully when behind proxies (use `TrustedProxyResolver`).
+- Prefer Redis for multi-instance deployments.
+- Keep handlers fast; use queues or async for heavy tasks.
 
 ## Examples
 

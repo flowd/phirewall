@@ -10,7 +10,7 @@ use Predis\ClientInterface;
 use Psr\SimpleCache\CacheInterface;
 
 /**
- * Redis-backed PSR-16 cache with helpers for Flowd-Firewall fixed-window counters.
+ * Redis-backed PSR-16 cache with helpers for Phirewall fixed-window counters.
  *
  * Requires a Predis ClientInterface (pure PHP, no server extension required).
  */
@@ -18,7 +18,7 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
 {
     public function __construct(
         private ClientInterface $redis,
-        private string $namespace = 'flowd-firewall:'
+        private string $namespace = 'Phirewall:'
     ) {
     }
 

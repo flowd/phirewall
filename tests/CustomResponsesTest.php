@@ -33,7 +33,7 @@ final class CustomResponsesTest extends TestCase
 
         // Custom blocklisted response factory
         $config->blocklistedResponse(function (string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface {
-            // Return a JSON 451 just for testing; middleware should still add X-Flowd-Firewall headers
+            // Return a JSON 451 just for testing; middleware should still add X-Phirewall headers
             $body = json_encode(['blocked' => $rule, 'type' => $type], JSON_THROW_ON_ERROR);
             return new Response(451, ['Content-Type' => 'application/json'], $body);
         });
@@ -41,8 +41,8 @@ final class CustomResponsesTest extends TestCase
         $middleware = new Middleware($config);
         $response = $middleware->process(new ServerRequest('GET', '/'), $this->handler());
         $this->assertSame(451, $response->getStatusCode());
-        $this->assertSame('blocklist', $response->getHeaderLine('X-Flowd-Firewall'));
-        $this->assertSame('all', $response->getHeaderLine('X-Flowd-Firewall-Matched'));
+        $this->assertSame('blocklist', $response->getHeaderLine('X-Phirewall'));
+        $this->assertSame('all', $response->getHeaderLine('X-Phirewall-Matched'));
         $this->assertSame('application/json', $response->getHeaderLine('Content-Type'));
 
         // Now test fail2ban uses the same factory and attaches correct type
@@ -65,8 +65,8 @@ final class CustomResponsesTest extends TestCase
         // Next request should be banned with custom response
         $secondResponse = $middleware->process(new ServerRequest('GET', '/'), $handler);
         $this->assertSame(499, $secondResponse->getStatusCode());
-        $this->assertSame('fail2ban', $secondResponse->getHeaderLine('X-Flowd-Firewall'));
-        $this->assertSame('login', $secondResponse->getHeaderLine('X-Flowd-Firewall-Matched'));
+        $this->assertSame('fail2ban', $secondResponse->getHeaderLine('X-Phirewall'));
+        $this->assertSame('login', $secondResponse->getHeaderLine('X-Phirewall-Matched'));
         $this->assertSame('fail2ban', $secondResponse->getHeaderLine('X-Custom'));
     }
 
@@ -83,8 +83,8 @@ final class CustomResponsesTest extends TestCase
         $handler = $this->handler();
         $response = $middleware->process(new ServerRequest('GET', '/'), $handler);
         $this->assertSame(429, $response->getStatusCode());
-        $this->assertSame('throttle', $response->getHeaderLine('X-Flowd-Firewall'));
-        $this->assertSame('ip', $response->getHeaderLine('X-Flowd-Firewall-Matched'));
+        $this->assertSame('throttle', $response->getHeaderLine('X-Phirewall'));
+        $this->assertSame('ip', $response->getHeaderLine('X-Phirewall-Matched'));
         $this->assertSame('yes', $response->getHeaderLine('X-Custom'));
         $this->assertNotSame('', $response->getHeaderLine('Retry-After'), 'Retry-After header should be ensured by middleware');
     }

@@ -37,7 +37,7 @@ final class MiddlewareTest extends TestCase
         $request = new ServerRequest('GET', '/health');
         $response = $middleware->process($request, $this->handler());
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertSame('healthcheck', $response->getHeaderLine('X-Flowd-Firewall-Safelist'));
+        $this->assertSame('healthcheck', $response->getHeaderLine('X-Phirewall-Safelist'));
     }
 
     public function testBlocklistBlocks(): void
@@ -50,8 +50,8 @@ final class MiddlewareTest extends TestCase
         $request = new ServerRequest('GET', '/admin');
         $response = $middleware->process($request, $this->handler());
         $this->assertSame(403, $response->getStatusCode());
-        $this->assertSame('blocklist', $response->getHeaderLine('X-Flowd-Firewall'));
-        $this->assertSame('blockedPath', $response->getHeaderLine('X-Flowd-Firewall-Matched'));
+        $this->assertSame('blocklist', $response->getHeaderLine('X-Phirewall'));
+        $this->assertSame('blockedPath', $response->getHeaderLine('X-Phirewall-Matched'));
     }
 
     public function testThrottle429AndRetryAfter(): void
@@ -95,7 +95,7 @@ final class MiddlewareTest extends TestCase
         // Now even a normal request should be banned
         $response = $middleware->process($request, $handler);
         $this->assertSame(403, $response->getStatusCode());
-        $this->assertSame('fail2ban', $response->getHeaderLine('X-Flowd-Firewall'));
-        $this->assertSame('login', $response->getHeaderLine('X-Flowd-Firewall-Matched'));
+        $this->assertSame('fail2ban', $response->getHeaderLine('X-Phirewall'));
+        $this->assertSame('login', $response->getHeaderLine('X-Phirewall-Matched'));
     }
 }

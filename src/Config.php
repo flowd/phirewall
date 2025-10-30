@@ -35,7 +35,7 @@ final class Config
 
     private bool $rateLimitHeadersEnabled = false;
 
-    private string $keyPrefix = 'flowd-firewall';
+    private string $keyPrefix = 'phirewall';
 
     /**
      * Lightweight diagnostics counters for testing and observability.

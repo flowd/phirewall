@@ -66,7 +66,7 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
         $response = $middleware->process($request, $handler);
         $addr = $server['REMOTE_ADDR'] ?? 'n/a';
         echo sprintf("%s %s from %s => %d\n", $method, $path, $addr, $response->getStatusCode());
-        foreach (['X-Flowd-Firewall','X-Flowd-Firewall-Matched','Retry-After','X-RateLimit-Limit','X-RateLimit-Remaining','X-RateLimit-Reset'] as $h) {
+        foreach (['X-Phirewall','X-Phirewall-Matched','Retry-After','X-RateLimit-Limit','X-RateLimit-Remaining','X-RateLimit-Reset'] as $h) {
             $val = $response->getHeaderLine($h);
             if ($val !== '') {
                 echo $h . ': ' . $val . "\n";

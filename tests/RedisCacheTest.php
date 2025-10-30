@@ -55,7 +55,7 @@ final class RedisCacheTest extends TestCase
         $client->flushdb();
         // phpstan: Predis\Client may not be discoverable as implementing ClientInterface when predis is not installed
         // @phpstan-ignore-next-line
-        $cache = new RedisCache($client, 'flowd-firewall:test:');
+        $cache = new RedisCache($client, 'Phirewall:test:');
 
         $config = new Config($cache);
         $config->throttle('ip', 1, 5, fn($request): string => '1.2.3.4');
