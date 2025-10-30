@@ -46,7 +46,7 @@ final class KeyNormalizationTest extends TestCase
         // Only allowed characters should be present
         $this->assertSame(1, preg_match('/^[A-Za-z0-9._:-]+$/', $key), 'Key contains disallowed characters');
         // Starts with default prefix
-        $this->assertStringStartsWith('Phirewall:track:', $key);
+        $this->assertStringStartsWith('phirewall:track:', $key);
         // Counter present
         $this->assertSame(1, $cache->get($key, 0));
     }
