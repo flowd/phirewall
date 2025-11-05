@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Http\Firewall;
+use Flowd\Phirewall\Http\FirewallResult;
 use Flowd\Phirewall\KeyExtractors;
-use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
@@ -14,28 +15,18 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 
 final class KeyExtractorsTest extends TestCase
 {
-    private function handler(): \Psr\Http\Server\RequestHandlerInterface
-    {
-        return new class () implements \Psr\Http\Server\RequestHandlerInterface {
-            public function handle(\Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
-            {
-                return new \Nyholm\Psr7\Response(200);
-            }
-        };
-    }
-
     public function testThrottleByIpExtractor(): void
     {
         $cache = new InMemoryCache();
         $config = new Config($cache);
         $config->throttle('ip', 1, 30, KeyExtractors::ip());
-        $middleware = new Middleware($config);
+        $firewall = new Firewall($config);
 
         $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
-        $this->assertSame(200, $middleware->process($request, $this->handler())->getStatusCode());
-        $secondResponse = $middleware->process($request, $this->handler());
-        $this->assertSame(429, $secondResponse->getStatusCode());
-        $this->assertSame('ip', $secondResponse->getHeaderLine('X-Phirewall-Matched'));
+        $this->assertTrue($firewall->decide($request)->isPass());
+        $second = $firewall->decide($request);
+        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $second->outcome);
+        $this->assertSame('ip', $second->headers['X-Phirewall-Matched'] ?? '');
     }
 
     public function testTrackByPathAndMethodExtractors(): void
@@ -58,22 +49,19 @@ final class KeyExtractorsTest extends TestCase
             filter: fn($request): bool => KeyExtractors::method()($request) === 'GET' && KeyExtractors::path()($request) === '/metrics',
             key: KeyExtractors::path()
         );
-        $middleware = new Middleware($config);
-        $handler = $this->handler();
+        $firewall = new Firewall($config);
 
         $metricsRequest = new ServerRequest('GET', '/metrics');
-        $response = $middleware->process($metricsRequest, $handler);
-        $this->assertSame(200, $response->getStatusCode());
+        $result1 = $firewall->decide($metricsRequest);
+        $this->assertTrue($result1->isPass());
         // Second request to increment counter
-        $middleware->process($metricsRequest, $handler);
+        $firewall->decide($metricsRequest);
 
-        // Ensure counter incremented to 2 in cache under expected track key
-        $counterKey = (new \ReflectionClass(Middleware::class))->getMethod('trackKey');
-        $counterKey->setAccessible(true);
-        /** @var string $key */
-        $key = $counterKey->invoke(new Middleware($config), 'hits', '/metrics');
-        $count = $cache->get($key, 0);
-        $this->assertSame(2, $count);
+        // Ensure two TrackHit events were emitted with increasing counts
+        $hits = array_values(array_filter($events->events, fn($e) => $e instanceof \Flowd\Phirewall\Events\TrackHit));
+        $this->assertCount(2, $hits);
+        $this->assertSame(1, $hits[0]->count);
+        $this->assertSame(2, $hits[1]->count);
     }
 
     public function testHeaderAndUserAgentExtractors(): void

@@ -9,7 +9,8 @@ use Flowd\Phirewall\Events\BlocklistMatched;
 use Flowd\Phirewall\Events\Fail2BanBanned;
 use Flowd\Phirewall\Events\SafelistMatched;
 use Flowd\Phirewall\Events\ThrottleExceeded;
-use Flowd\Phirewall\Middleware;
+use Flowd\Phirewall\Http\Firewall;
+use Flowd\Phirewall\Http\FirewallResult;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
@@ -17,16 +18,6 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 
 final class EventsTest extends TestCase
 {
-    private function handler(): \Psr\Http\Server\RequestHandlerInterface
-    {
-        return new class () implements \Psr\Http\Server\RequestHandlerInterface {
-            public function handle(\Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
-            {
-                return new \Nyholm\Psr7\Response(200);
-            }
-        };
-    }
-
     public function testSafelistAndBlocklistEventsAreDispatched(): void
     {
         $cache = new InMemoryCache();
@@ -44,11 +35,11 @@ final class EventsTest extends TestCase
         $config->safelist('health', fn($request) => $request->getUri()->getPath() === '/health');
         $config->blocklist('admin', fn($request) => $request->getUri()->getPath() === '/admin');
 
-        $middleware = new Middleware($config);
+        $firewall = new Firewall($config);
 
         // Safelist path triggers safelist event and passes
-        $response = $middleware->process(new ServerRequest('GET', '/health'), $this->handler());
-        $this->assertSame(200, $response->getStatusCode());
+        $result = $firewall->decide(new ServerRequest('GET', '/health'));
+        $this->assertTrue($result->isPass());
         $this->assertNotEmpty($dispatcher->events);
         $found = false;
         foreach ($dispatcher->events as $event) {
@@ -61,12 +52,11 @@ final class EventsTest extends TestCase
 
         // Blocklist path triggers blocklist event
         $dispatcher->events = [];
-        $secondResponse = $middleware->process(new ServerRequest('GET', '/admin'), $this->handler());
-        $this->assertSame(403, $secondResponse->getStatusCode());
+        $second = $firewall->decide(new ServerRequest('GET', '/admin'));
+        $this->assertSame(FirewallResult::OUTCOME_BLOCKED, $second->outcome);
         $foundBlock = false;
-        $events = $dispatcher->events;
         /** @var list<object> $events */
-        $events = $events;
+        $events = $dispatcher->events;
         foreach ($events as $event) {
             if ($event instanceof BlocklistMatched) {
                 $foundBlock = true;
@@ -101,14 +91,13 @@ final class EventsTest extends TestCase
             key: fn($request): ?string => $request->getServerParams()['REMOTE_ADDR'] ?? null
         );
 
-        $middleware = new Middleware($config);
-        $handler = $this->handler();
+        $firewall = new Firewall($config);
 
         // Throttle: first ok, second should exceed
         $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
-        $this->assertSame(200, $middleware->process($request, $handler)->getStatusCode());
-        $secondResponse = $middleware->process($request, $handler);
-        $this->assertSame(429, $secondResponse->getStatusCode());
+        $this->assertTrue($firewall->decide($request)->isPass());
+        $second = $firewall->decide($request);
+        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $second->outcome);
         $this->assertNotEmpty($dispatcher->events);
         $foundThrottle = false;
         foreach ($dispatcher->events as $event) {
@@ -123,12 +112,11 @@ final class EventsTest extends TestCase
         $dispatcher->events = [];
         $loginRequest = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '8.8.8.8']))
             ->withHeader('X-Login-Failed', '1');
-        $this->assertSame(200, $middleware->process($loginRequest, $handler)->getStatusCode());
-        $middleware->process($loginRequest, $handler);
+        $this->assertTrue($firewall->decide($loginRequest)->isPass());
+        $firewall->decide($loginRequest);
         $foundBan = false;
-        $events = $dispatcher->events;
         /** @var list<object> $events */
-        $events = $events;
+        $events = $dispatcher->events;
         foreach ($events as $event) {
             if ($event instanceof Fail2BanBanned) {
                 $foundBan = true;

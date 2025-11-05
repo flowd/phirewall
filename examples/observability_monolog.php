@@ -8,6 +8,7 @@ use Flowd\Phirewall\Config;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
+use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -50,7 +51,7 @@ $dispatcher = new class ($logger) implements EventDispatcherInterface {
 $config = new Config($cache, $dispatcher);
 $config->throttle('ip', limit: 5, period: 60, key: KeyExtractors::ip());
 
-$middleware = new Middleware($config);
+$middleware = new Middleware($config, new Psr17Factory());
 
 // If executed directly, run a tiny demonstration
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {

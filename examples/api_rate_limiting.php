@@ -9,6 +9,7 @@ use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
+use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
 use Psr\Http\Message\ServerRequestInterface;
@@ -50,7 +51,7 @@ $config->throttle('api_write', 5, 60, function (ServerRequestInterface $request)
 // Per-authenticated user limit (assuming your app sets X-User-Id after auth)
 $config->throttle('api_user', 300, 900, KeyExtractors::header('X-User-Id'));
 
-$middleware = new Middleware($config);
+$middleware = new Middleware($config, new Psr17Factory());
 
 // If executed directly, run a small demonstration without relying on external code.
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {

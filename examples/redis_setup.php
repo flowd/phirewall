@@ -8,6 +8,7 @@ use Flowd\Phirewall\Config;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\RedisCache;
+use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
 use Psr\Http\Server\RequestHandlerInterface;
@@ -45,7 +46,7 @@ if ($redisClient === null) {
         public function deleteMultiple(iterable $keys): bool { return true; }
         public function has(string $key): bool { return false; }
     });
-    $middleware = new Middleware($config);
+    $middleware = new Middleware($config, new Psr17Factory());
 
     if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
         fwrite(STDERR, "Predis is not installed. Example cannot demonstrate Redis without it.\n");
@@ -63,7 +64,7 @@ $config = new Config($cache);
 // Simple throttle by direct IP (no proxy trust). For proxies, combine with TrustedProxyResolver.
 $config->throttle('ip', 1, 10, KeyExtractors::ip());
 
-$middleware = new Middleware($config);
+$middleware = new Middleware($config, new Psr17Factory());
 
 // If executed directly, run a small demonstration hitting the throttle quickly.
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {

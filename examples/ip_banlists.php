@@ -8,6 +8,7 @@ use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
+use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
 use Psr\Http\Message\ServerRequestInterface;
@@ -72,7 +73,7 @@ $config->blocklist('admin_external', function (ServerRequestInterface $r) use ($
     return true; // non-private => block
 });
 
-$middleware = new Middleware($config);
+$middleware = new Middleware($config, new Psr17Factory());
 
 // If executed directly, run a small demonstration with simulated requests.
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {

@@ -19,9 +19,9 @@
     "psr/http-message": "^1.1 || ^2.0",
     "psr/http-server-middleware": "^1.0",
     "psr/http-server-handler": "^1.0",
+    "psr/http-factory": "^1.1",
     "psr/simple-cache": "^3.0",
-    "psr/event-dispatcher": "^1.0",
-    "nyholm/psr7": "^1.8"
+    "psr/event-dispatcher": "^1.0"
   },
   "suggest": {
     "predis/predis": "Optional: use RedisCache for distributed counters",
@@ -32,7 +32,8 @@
     "phpstan/phpstan": "^1.12",
     "friendsofphp/php-cs-fixer": "^3.89",
     "infection/infection": "^0.29",
-    "rector/rector": "^1.2"
+    "rector/rector": "^1.2",
+    "nyholm/psr7": "^1.8"
   },
   "autoload": {
     "psr-4": {

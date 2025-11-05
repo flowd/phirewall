@@ -7,6 +7,7 @@ namespace Flowd\Phirewall\Tests;
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
+use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
@@ -38,7 +39,7 @@ final class CustomResponsesTest extends TestCase
             return new Response(451, ['Content-Type' => 'application/json'], $body);
         });
 
-        $middleware = new Middleware($config);
+        $middleware = new Middleware($config, new Psr17Factory());
         $response = $middleware->process(new ServerRequest('GET', '/'), $this->handler());
         $this->assertSame(451, $response->getStatusCode());
         $this->assertSame('blocklist', $response->getHeaderLine('X-Phirewall'));
@@ -57,7 +58,7 @@ final class CustomResponsesTest extends TestCase
             key: fn($request): string => 'ip-1'
         );
         $config->blocklistedResponse(fn(string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface => new Response(499, ['X-Custom' => $type]));
-        $middleware = new Middleware($config);
+        $middleware = new Middleware($config, new Psr17Factory());
         $handler = $this->handler();
         // One failure to trigger ban
         $request = (new ServerRequest('POST', '/login'))->withHeader('X-Login-Failed', '1');
@@ -79,7 +80,7 @@ final class CustomResponsesTest extends TestCase
         // Custom throttled response without Retry-After header
         $config->throttledResponse(fn(string $rule, int $retryAfter, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface => new Response(429, ['X-Custom' => 'yes']));
 
-        $middleware = new Middleware($config);
+        $middleware = new Middleware($config, new Psr17Factory());
         $handler = $this->handler();
         $response = $middleware->process(new ServerRequest('GET', '/'), $handler);
         $this->assertSame(429, $response->getStatusCode());

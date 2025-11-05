@@ -5,25 +5,14 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
-use Flowd\Phirewall\Middleware;
+use Flowd\Phirewall\Http\Firewall;
+use Flowd\Phirewall\Http\FirewallResult;
 use Flowd\Phirewall\Store\InMemoryCache;
-use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
-use Psr\Http\Server\RequestHandlerInterface;
 
 final class RateLimitHeadersTest extends TestCase
 {
-    private function handler(): RequestHandlerInterface
-    {
-        return new class () implements RequestHandlerInterface {
-            public function handle(\Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
-            {
-                return new Response(200);
-            }
-        };
-    }
-
     public function testHeadersPresentWhenEnabledAndNotExceeded(): void
     {
         $cache = new InMemoryCache();
@@ -31,16 +20,15 @@ final class RateLimitHeadersTest extends TestCase
         $config->enableRateLimitHeaders(true);
         // Limit 3 requests per 30s by IP
         $config->throttle('ip', 3, 30, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
-        $middleware = new Middleware($config);
-        $handler = $this->handler();
+        $firewall = new Firewall($config);
 
         $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '1.1.1.1']);
-        $response = $middleware->process($request, $handler);
-        $this->assertSame(200, $response->getStatusCode());
+        $result = $firewall->decide($request);
+        $this->assertTrue($result->isPass());
 
-        $limit = $response->getHeaderLine('X-RateLimit-Limit');
-        $remaining = $response->getHeaderLine('X-RateLimit-Remaining');
-        $reset = $response->getHeaderLine('X-RateLimit-Reset');
+        $limit = $result->headers['X-RateLimit-Limit'] ?? '';
+        $remaining = $result->headers['X-RateLimit-Remaining'] ?? '';
+        $reset = $result->headers['X-RateLimit-Reset'] ?? '';
         $this->assertSame('3', $limit);
         $this->assertSame('2', $remaining);
         $this->assertGreaterThanOrEqual(1, (int)$reset);
@@ -53,19 +41,18 @@ final class RateLimitHeadersTest extends TestCase
         $config->enableRateLimitHeaders(true);
         // Limit 1 per 10s by IP
         $config->throttle('ip', 1, 10, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
-        $middleware = new Middleware($config);
-        $handler = $this->handler();
+        $firewall = new Firewall($config);
 
         $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '2.2.2.2']);
         // First ok
-        $this->assertSame(200, $middleware->process($request, $handler)->getStatusCode());
+        $this->assertTrue($firewall->decide($request)->isPass());
         // Second should be throttled
-        $response = $middleware->process($request, $handler);
-        $this->assertSame(429, $response->getStatusCode());
-        $this->assertSame('1', $response->getHeaderLine('X-RateLimit-Limit'));
-        $this->assertSame('0', $response->getHeaderLine('X-RateLimit-Remaining'));
-        $reset = (int)$response->getHeaderLine('X-RateLimit-Reset');
-        $retry = (int)$response->getHeaderLine('Retry-After');
+        $result = $firewall->decide($request);
+        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $result->outcome);
+        $this->assertSame('1', $result->headers['X-RateLimit-Limit'] ?? '');
+        $this->assertSame('0', $result->headers['X-RateLimit-Remaining'] ?? '');
+        $reset = (int)($result->headers['X-RateLimit-Reset'] ?? '0');
+        $retry = (int)($result->headers['Retry-After'] ?? '0');
         $this->assertGreaterThanOrEqual(1, $retry);
         $this->assertSame($retry, $reset, 'Reset should match Retry-After when throttled');
     }
@@ -76,11 +63,11 @@ final class RateLimitHeadersTest extends TestCase
         $config = new Config($cache);
         $config->enableRateLimitHeaders(false);
         $config->throttle('ip', 10, 60, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
-        $middleware = new Middleware($config);
+        $firewall = new Firewall($config);
 
-        $response = $middleware->process(new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '3.3.3.3']), $this->handler());
-        $this->assertSame('', $response->getHeaderLine('X-RateLimit-Limit'));
-        $this->assertSame('', $response->getHeaderLine('X-RateLimit-Remaining'));
-        $this->assertSame('', $response->getHeaderLine('X-RateLimit-Reset'));
+        $result = $firewall->decide(new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '3.3.3.3']));
+        $this->assertSame('', $result->headers['X-RateLimit-Limit'] ?? '');
+        $this->assertSame('', $result->headers['X-RateLimit-Remaining'] ?? '');
+        $this->assertSame('', $result->headers['X-RateLimit-Reset'] ?? '');
     }
 }

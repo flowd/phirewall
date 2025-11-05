@@ -6,7 +6,7 @@ namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Events\TrackHit;
-use Flowd\Phirewall\Middleware;
+use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
@@ -14,16 +14,6 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 
 final class TrackTest extends TestCase
 {
-    private function handler(): \Psr\Http\Server\RequestHandlerInterface
-    {
-        return new class () implements \Psr\Http\Server\RequestHandlerInterface {
-            public function handle(\Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
-            {
-                return new \Nyholm\Psr7\Response(200);
-            }
-        };
-    }
-
     public function testTrackEmitsEventsAndDoesNotAffectOutcome(): void
     {
         $cache = new InMemoryCache();
@@ -45,16 +35,13 @@ final class TrackTest extends TestCase
             key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '0.0.0.0'
         );
 
-        $middleware = new Middleware($config);
-        $handler = $this->handler();
+        $firewall = new Firewall($config);
 
         $request = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']))
             ->withHeader('X-Login-Failed', '1');
 
-        $firstResponse = $middleware->process($request, $handler);
-        $this->assertSame(200, $firstResponse->getStatusCode());
-        $secondResponse = $middleware->process($request, $handler);
-        $this->assertSame(200, $secondResponse->getStatusCode());
+        $this->assertTrue($firewall->decide($request)->isPass());
+        $this->assertTrue($firewall->decide($request)->isPass());
 
         // Collect TrackHit events
         $hits = array_values(array_filter($events->events, fn($e) => $e instanceof TrackHit));
@@ -88,9 +75,8 @@ final class TrackTest extends TestCase
             key: fn($request): string => 'k'
         );
 
-        $middleware = new Middleware($config);
-        $response = $middleware->process(new ServerRequest('GET', '/'), $this->handler());
-        $this->assertSame(200, $response->getStatusCode());
+        $firewall = new Firewall($config);
+        $this->assertTrue($firewall->decide(new ServerRequest('GET', '/'))->isPass());
         $hits = array_values(array_filter($events->events, fn($e) => $e instanceof TrackHit));
         $this->assertCount(0, $hits);
     }

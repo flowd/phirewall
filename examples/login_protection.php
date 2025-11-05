@@ -9,6 +9,7 @@ use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
+use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
 use Psr\Http\Message\ServerRequestInterface;
@@ -53,7 +54,7 @@ $config->blocklistedResponse(fn(string $rule, string $type, ServerRequestInterfa
     'type' => $type,
 ], JSON_THROW_ON_ERROR)));
 
-$middleware = new Middleware($config);
+$middleware = new Middleware($config, new Psr17Factory());
 
 // If executed directly, run a small demonstration with simulated requests.
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {

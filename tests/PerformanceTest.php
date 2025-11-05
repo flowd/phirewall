@@ -7,7 +7,8 @@ namespace Flowd\Phirewall\Tests;
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Events\SafelistMatched;
 use Flowd\Phirewall\Events\ThrottleExceeded;
-use Flowd\Phirewall\Middleware;
+use Flowd\Phirewall\Http\Firewall;
+use Flowd\Phirewall\Http\FirewallResult;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
@@ -15,16 +16,6 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 
 final class PerformanceTest extends TestCase
 {
-    private function handler(): \Psr\Http\Server\RequestHandlerInterface
-    {
-        return new class () implements \Psr\Http\Server\RequestHandlerInterface {
-            public function handle(\Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
-            {
-                return new \Nyholm\Psr7\Response(200);
-            }
-        };
-    }
-
     public function testEventOnSafelistPass(): void
     {
         $cache = new InMemoryCache();
@@ -46,10 +37,10 @@ final class PerformanceTest extends TestCase
         };
         $config = new Config($cache, $events);
         $config->safelist('all', fn($request): bool => true);
-        $middleware = new Middleware($config);
+        $firewall = new Firewall($config);
         $events->start = microtime(true);
-        $response = $middleware->process(new ServerRequest('GET', '/'), $this->handler());
-        $this->assertSame(200, $response->getStatusCode());
+        $result = $firewall->decide(new ServerRequest('GET', '/'));
+        $this->assertTrue($result->isPass());
 
         $this->assertInstanceOf(SafelistMatched::class, $events->eventMatched);
         $this->assertGreaterThan(0, $events->durationMicros ?? 0);
@@ -76,10 +67,10 @@ final class PerformanceTest extends TestCase
         };
         $config = new Config($cache, $events);
         $config->throttle('ip', 0, 10, fn($request): string => '1.1.1.1');
-        $middleware = new Middleware($config);
+        $firewall = new Firewall($config);
         $events->start = microtime(true);
-        $response = $middleware->process(new ServerRequest('GET', '/'), $this->handler());
-        $this->assertSame(429, $response->getStatusCode());
+        $result = $firewall->decide(new ServerRequest('GET', '/'));
+        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $result->outcome);
 
         $this->assertInstanceOf(ThrottleExceeded::class, $events->eventMatched);
         $this->assertSame('ip', $events->eventMatched->rule);

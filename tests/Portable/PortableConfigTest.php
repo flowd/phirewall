@@ -4,43 +4,30 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Tests\Portable;
 
-use Flowd\Phirewall\Middleware;
+use Flowd\Phirewall\Http\Firewall;
+use Flowd\Phirewall\Http\FirewallResult;
 use Flowd\Phirewall\Portable\PortableConfig;
 use Flowd\Phirewall\Store\InMemoryCache;
-use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
-use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\ServerRequestInterface;
-use Psr\Http\Server\RequestHandlerInterface;
 
 final class PortableConfigTest extends TestCase
 {
-    private function handler(): RequestHandlerInterface
-    {
-        return new class () implements RequestHandlerInterface {
-            public function handle(ServerRequestInterface $request): ResponseInterface
-            {
-                return new Response(200);
-            }
-        };
-    }
-
     public function testBlocklistPathEquals(): void
     {
         $portableConfig = PortableConfig::create()
             ->blocklist('admin', PortableConfig::filterPathEquals('/admin')); // block /admin
 
         $config = $portableConfig->toConfig(new InMemoryCache());
-        $middleware = new Middleware($config);
+        $firewall = new Firewall($config);
 
-        $request1 = $middleware->process(new ServerRequest('GET', '/'), $this->handler());
-        $this->assertSame(200, $request1->getStatusCode());
+        $result1 = $firewall->decide(new ServerRequest('GET', '/'));
+        $this->assertTrue($result1->isPass());
 
-        $request2 = $middleware->process(new ServerRequest('GET', '/admin'), $this->handler());
-        $this->assertSame(403, $request2->getStatusCode());
-        $this->assertSame('blocklist', $request2->getHeaderLine('X-Phirewall'));
-        $this->assertSame('admin', $request2->getHeaderLine('X-Phirewall-Matched'));
+        $result2 = $firewall->decide(new ServerRequest('GET', '/admin'));
+        $this->assertSame(FirewallResult::OUTCOME_BLOCKED, $result2->outcome);
+        $this->assertSame('blocklist', $result2->headers['X-Phirewall'] ?? '');
+        $this->assertSame('admin', $result2->headers['X-Phirewall-Matched'] ?? '');
     }
 
     public function testThrottleByIpAndRateLimitHeaders(): void
@@ -50,20 +37,19 @@ final class PortableConfigTest extends TestCase
             ->throttle('ip', 1, 30, PortableConfig::keyIp());
 
         $config = $portableConfig->toConfig(new InMemoryCache());
-        $middleware = new Middleware($config);
-        $handler = $this->handler();
+        $firewall = new Firewall($config);
 
         $req = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.5']);
-        $ok = $middleware->process($req, $handler);
-        $this->assertSame(200, $ok->getStatusCode());
-        $this->assertSame('1', $ok->getHeaderLine('X-RateLimit-Limit'));
-        $this->assertSame('0', $ok->getHeaderLine('X-RateLimit-Remaining'));
+        $ok = $firewall->decide($req);
+        $this->assertTrue($ok->isPass());
+        $this->assertSame('1', $ok->headers['X-RateLimit-Limit'] ?? '');
+        $this->assertSame('0', $ok->headers['X-RateLimit-Remaining'] ?? '');
 
-        $throttled = $middleware->process($req, $handler);
-        $this->assertSame(429, $throttled->getStatusCode());
-        $this->assertSame('1', $throttled->getHeaderLine('X-RateLimit-Limit'));
-        $this->assertSame('0', $throttled->getHeaderLine('X-RateLimit-Remaining'));
-        $this->assertGreaterThanOrEqual(1, (int)$throttled->getHeaderLine('X-RateLimit-Reset'));
+        $throttled = $firewall->decide($req);
+        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $throttled->outcome);
+        $this->assertSame('1', $throttled->headers['X-RateLimit-Limit'] ?? '');
+        $this->assertSame('0', $throttled->headers['X-RateLimit-Remaining'] ?? '');
+        $this->assertGreaterThanOrEqual(1, (int)($throttled->headers['X-RateLimit-Reset'] ?? '0'));
     }
 
     public function testFail2BanWithHeaderFilterAndIpKey(): void
@@ -79,17 +65,16 @@ final class PortableConfigTest extends TestCase
             );
 
         $config = $portableConfig->toConfig(new InMemoryCache());
-        $middleware = new Middleware($config);
-        $handler = $this->handler();
+        $firewall = new Firewall($config);
 
         $r = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.20']);
         $fail = $r->withHeader('X-Login-Failed', '1');
-        $this->assertSame(200, $middleware->process($fail, $handler)->getStatusCode());
-        $this->assertSame(200, $middleware->process($fail, $handler)->getStatusCode());
-        $b = $middleware->process($r, $handler);
-        $this->assertSame(403, $b->getStatusCode());
-        $this->assertSame('fail2ban', $b->getHeaderLine('X-Phirewall'));
-        $this->assertSame('login', $b->getHeaderLine('X-Phirewall-Matched'));
+        $this->assertTrue($firewall->decide($fail)->isPass());
+        $this->assertTrue($firewall->decide($fail)->isPass());
+        $b = $firewall->decide($r);
+        $this->assertSame(FirewallResult::OUTCOME_BLOCKED, $b->outcome);
+        $this->assertSame('fail2ban', $b->headers['X-Phirewall'] ?? '');
+        $this->assertSame('login', $b->headers['X-Phirewall-Matched'] ?? '');
     }
 
     public function testRoundTripExportImport(): void
@@ -108,21 +93,20 @@ final class PortableConfigTest extends TestCase
         $portableConfig2 = PortableConfig::fromArray($data);
 
         $config = $portableConfig2->toConfig(new InMemoryCache());
-        $middleware = new Middleware($config);
-        $handler = $this->handler();
+        $firewall = new Firewall($config);
 
         // Safelist
-        $resp = $middleware->process(new ServerRequest('GET', '/health'), $handler);
-        $this->assertSame(200, $resp->getStatusCode());
-        $this->assertSame('health', $resp->getHeaderLine('X-Phirewall-Safelist'));
+        $resp = $firewall->decide(new ServerRequest('GET', '/health'));
+        $this->assertTrue($resp->isPass());
+        $this->assertSame('health', $resp->headers['X-Phirewall-Safelist'] ?? '');
         // Blocklist
-        $blocked = $middleware->process(new ServerRequest('GET', '/admin'), $handler);
-        $this->assertSame(403, $blocked->getStatusCode());
+        $blocked = $firewall->decide(new ServerRequest('GET', '/admin'));
+        $this->assertSame(FirewallResult::OUTCOME_BLOCKED, $blocked->outcome);
         // Throttle
         $req = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.77']);
-        $this->assertSame(200, $middleware->process($req, $handler)->getStatusCode());
-        $this->assertSame(200, $middleware->process($req, $handler)->getStatusCode());
-        $tooMany = $middleware->process($req, $handler);
-        $this->assertSame(429, $tooMany->getStatusCode());
+        $this->assertTrue($firewall->decide($req)->isPass());
+        $this->assertTrue($firewall->decide($req)->isPass());
+        $tooMany = $firewall->decide($req);
+        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $tooMany->outcome);
     }
 }
