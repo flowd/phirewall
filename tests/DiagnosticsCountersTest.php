@@ -6,7 +6,7 @@ namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\Http\FirewallResult;
+use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
@@ -54,7 +54,7 @@ final class DiagnosticsCountersTest extends TestCase
         $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
         $this->assertTrue($firewall->decide($request)->isPass());
         $resp2 = $firewall->decide($request);
-        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $resp2->outcome);
+        $this->assertSame(OUTCOME::THROTTLED, $resp2->outcome);
 
         $counters = $config->getDiagnosticsCounters();
         $this->assertSame(1, $counters['throttle_exceeded']['total'] ?? 0);

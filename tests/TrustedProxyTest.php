@@ -6,7 +6,7 @@ namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\Http\FirewallResult;
+use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -26,7 +26,7 @@ final class TrustedProxyTest extends TestCase
         $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.10']);
         $this->assertTrue($firewall->decide($request)->isPass());
         $second = $firewall->decide($request);
-        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $second->outcome, 'Throttle should use REMOTE_ADDR as key');
+        $this->assertSame(Outcome::THROTTLED, $second->outcome, 'Throttle should use REMOTE_ADDR as key');
     }
 
     public function testClientIpUsesXffWhenRemoteTrusted(): void
@@ -43,7 +43,7 @@ final class TrustedProxyTest extends TestCase
 
         $this->assertTrue($firewall->decide($request)->isPass());
         $second = $firewall->decide($request);
-        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $second->outcome);
+        $this->assertSame(Outcome::THROTTLED, $second->outcome);
         $this->assertSame('by_client', $second->headers['X-Phirewall-Matched'] ?? '');
     }
 
@@ -60,7 +60,7 @@ final class TrustedProxyTest extends TestCase
 
         $this->assertTrue($firewall->decide($request)->isPass());
         $second = $firewall->decide($request);
-        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $second->outcome, 'Should still throttle by REMOTE_ADDR, ignoring XFF');
+        $this->assertSame(Outcome::THROTTLED, $second->outcome, 'Should still throttle by REMOTE_ADDR, ignoring XFF');
     }
 
     public function testMultipleProxiesReturnsFirstUntrustedLeftOfTrustedChain(): void
@@ -77,6 +77,6 @@ final class TrustedProxyTest extends TestCase
 
         $this->assertTrue($firewall->decide($request)->isPass());
         $second = $firewall->decide($request);
-        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $second->outcome);
+        $this->assertSame(Outcome::THROTTLED, $second->outcome);
     }
 }

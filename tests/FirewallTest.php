@@ -6,7 +6,7 @@ namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\Http\FirewallResult;
+use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
@@ -26,7 +26,7 @@ final class FirewallTest extends TestCase
         $request = new ServerRequest('GET', '/health');
         $result = $firewall->decide($request);
         $this->assertTrue($result->isPass());
-        $this->assertSame(FirewallResult::OUTCOME_SAFELISTED, $result->outcome);
+        $this->assertSame(Outcome::SAFELISTED, $result->outcome);
         $this->assertSame('healthcheck', $result->headers['X-Phirewall-Safelist'] ?? '');
     }
 
@@ -40,7 +40,7 @@ final class FirewallTest extends TestCase
         $request = new ServerRequest('GET', '/admin');
         $result = $firewall->decide($request);
         $this->assertTrue($result->isBlocked());
-        $this->assertSame(FirewallResult::OUTCOME_BLOCKED, $result->outcome);
+        $this->assertSame(Outcome::BLOCKED, $result->outcome);
         $this->assertSame('blocklist', $result->headers['X-Phirewall'] ?? '');
         $this->assertSame('blockedPath', $result->headers['X-Phirewall-Matched'] ?? '');
     }
@@ -56,7 +56,7 @@ final class FirewallTest extends TestCase
         $this->assertTrue($firewall->decide($request)->isPass());
         $this->assertTrue($firewall->decide($request)->isPass());
         $third = $firewall->decide($request);
-        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $third->outcome);
+        $this->assertSame(Outcome::THROTTLED, $third->outcome);
         $retryAfter = (int)($third->headers['Retry-After'] ?? '0');
         $this->assertGreaterThanOrEqual(1, $retryAfter);
     }

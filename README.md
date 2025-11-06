@@ -1,6 +1,6 @@
 # Phirewall
 
-Phirewall is a PSR-15 middleware providing application-level firewall features for PHP applications.
+Phirewall is a PHP based application firewall that provides a PSR-15 middleware.
 
 Features:
 - Safelists (allow lists) — allowlisted requests bypass other checks

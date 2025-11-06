@@ -6,7 +6,7 @@ namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\Http\FirewallResult;
+use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
@@ -48,7 +48,7 @@ final class RateLimitHeadersTest extends TestCase
         $this->assertTrue($firewall->decide($request)->isPass());
         // Second should be throttled
         $result = $firewall->decide($request);
-        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $result->outcome);
+        $this->assertSame(Outcome::THROTTLED, $result->outcome);
         $this->assertSame('1', $result->headers['X-RateLimit-Limit'] ?? '');
         $this->assertSame('0', $result->headers['X-RateLimit-Remaining'] ?? '');
         $reset = (int)($result->headers['X-RateLimit-Reset'] ?? '0');

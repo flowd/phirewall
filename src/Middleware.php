@@ -27,7 +27,7 @@ final readonly class Middleware implements MiddlewareInterface
 
         if ($result->isBlocked()) {
             // Build a blocking response (403/429) using configured factories or PSR-17 if available
-            if ($result->outcome === Http\FirewallResult::OUTCOME_THROTTLED) {
+            if ($result->outcome === Http\Outcome::THROTTLED) {
                 $retryAfter = $result->retryAfter ?? 1;
                 $factory = $this->config->getThrottledResponseFactory();
                 if ($factory !== null) {

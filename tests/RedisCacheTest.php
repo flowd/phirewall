@@ -6,7 +6,7 @@ namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\Http\FirewallResult;
+use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\RedisCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
@@ -60,7 +60,7 @@ final class RedisCacheTest extends TestCase
         $first = $firewall->decide($request);
         $this->assertTrue($first->isPass());
         $second = $firewall->decide($request);
-        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $second->outcome);
+        $this->assertSame(OUTCOME::THROTTLED, $second->outcome);
         $retry = (int)($second->headers['Retry-After'] ?? '0');
         $this->assertGreaterThanOrEqual(1, $retry);
         $this->assertLessThanOrEqual(5, $retry);

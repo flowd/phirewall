@@ -8,7 +8,7 @@ use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Events\SafelistMatched;
 use Flowd\Phirewall\Events\ThrottleExceeded;
 use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\Http\FirewallResult;
+use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
@@ -70,7 +70,7 @@ final class PerformanceTest extends TestCase
         $firewall = new Firewall($config);
         $events->start = microtime(true);
         $result = $firewall->decide(new ServerRequest('GET', '/'));
-        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $result->outcome);
+        $this->assertSame(OUTCOME::THROTTLED, $result->outcome);
 
         $this->assertInstanceOf(ThrottleExceeded::class, $events->eventMatched);
         $this->assertSame('ip', $events->eventMatched->rule);

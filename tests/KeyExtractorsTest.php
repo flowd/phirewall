@@ -6,7 +6,7 @@ namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\Http\FirewallResult;
+use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
@@ -25,7 +25,7 @@ final class KeyExtractorsTest extends TestCase
         $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
         $this->assertTrue($firewall->decide($request)->isPass());
         $second = $firewall->decide($request);
-        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $second->outcome);
+        $this->assertSame(OUTCOME::THROTTLED, $second->outcome);
         $this->assertSame('ip', $second->headers['X-Phirewall-Matched'] ?? '');
     }
 

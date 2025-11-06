@@ -10,7 +10,7 @@ use Flowd\Phirewall\Events\Fail2BanBanned;
 use Flowd\Phirewall\Events\SafelistMatched;
 use Flowd\Phirewall\Events\ThrottleExceeded;
 use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\Http\FirewallResult;
+use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
@@ -53,7 +53,7 @@ final class EventsTest extends TestCase
         // Blocklist path triggers blocklist event
         $dispatcher->events = [];
         $second = $firewall->decide(new ServerRequest('GET', '/admin'));
-        $this->assertSame(FirewallResult::OUTCOME_BLOCKED, $second->outcome);
+        $this->assertSame(Outcome::BLOCKED, $second->outcome);
         $foundBlock = false;
         /** @var list<object> $events */
         $events = $dispatcher->events;
@@ -97,7 +97,7 @@ final class EventsTest extends TestCase
         $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
         $this->assertTrue($firewall->decide($request)->isPass());
         $second = $firewall->decide($request);
-        $this->assertSame(FirewallResult::OUTCOME_THROTTLED, $second->outcome);
+        $this->assertSame(OUTCOME::THROTTLED, $second->outcome);
         $this->assertNotEmpty($dispatcher->events);
         $foundThrottle = false;
         foreach ($dispatcher->events as $event) {
