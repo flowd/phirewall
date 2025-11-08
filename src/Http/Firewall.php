@@ -19,42 +19,45 @@ final readonly class Firewall
     {
     }
 
-    public function decide(ServerRequestInterface $request): FirewallResult
+    public function decide(ServerRequestInterface $serverRequest): FirewallResult
     {
         $pendingRateLimitHeaders = null;
 
         // 0) Track (passive)
-        foreach ($this->config->getTracks() as $name => $rule) {
-            if ($rule['filter']($request) === true) {
-                $key = $rule['key']($request);
+        foreach ($this->config->getTrackRules() as $throttleRule) {
+            $name = $throttleRule->name();
+            if ($throttleRule->filter()->matches($serverRequest) === true) {
+                $key = $throttleRule->keyExtractor()->extract($serverRequest);
                 if ($key !== null) {
                     $counterKey = $this->trackKey($name, (string)$key);
-                    $count = $this->increment($counterKey, $rule['period']);
+                    $count = $this->increment($counterKey, $throttleRule->period());
                     $this->config->incrementDiagnosticsCounter('track_hit', $name);
                     $this->dispatch(new TrackHit(
                         rule: $name,
                         key: (string)$key,
-                        period: $rule['period'],
+                        period: $throttleRule->period(),
                         count: $count,
-                        request: $request,
+                        serverRequest: $serverRequest,
                     ));
                 }
             }
         }
 
         // 1) Safelist
-        foreach ($this->config->getSafelists() as $name => $callback) {
-            if ($callback($request) === true) {
-                $this->dispatch(new SafelistMatched($name, $request));
+        foreach ($this->config->getSafelistRules() as $throttleRule) {
+            $name = $throttleRule->name();
+            if ($throttleRule->matcher()->matches($serverRequest) === true) {
+                $this->dispatch(new SafelistMatched($name, $serverRequest));
                 $this->config->incrementDiagnosticsCounter('safelisted', $name);
                 return FirewallResult::safelisted($name, ['X-Phirewall-Safelist' => $name]);
             }
         }
 
         // 2) Blocklist
-        foreach ($this->config->getBlocklists() as $name => $callback) {
-            if ($callback($request) === true) {
-                $this->dispatch(new BlocklistMatched($name, $request));
+        foreach ($this->config->getBlocklistRules() as $throttleRule) {
+            $name = $throttleRule->name();
+            if ($throttleRule->matcher()->matches($serverRequest) === true) {
+                $this->dispatch(new BlocklistMatched($name, $serverRequest));
                 $this->config->incrementDiagnosticsCounter('blocklisted', $name);
                 return FirewallResult::blocked($name, 'blocklist', [
                     'X-Phirewall' => 'blocklist',
@@ -66,11 +69,13 @@ final readonly class Firewall
         $cache = $this->config->cache;
 
         // 3) Fail2Ban
-        foreach ($this->config->getFail2Bans() as $name => $rule) {
-            $key = $rule['key']($request);
+        foreach ($this->config->getFail2BanRules() as $throttleRule) {
+            $name = $throttleRule->name();
+            $key = $throttleRule->keyExtractor()->extract($serverRequest);
             if ($key === null) {
                 continue;
             }
+
             $banKey = $this->banKey($name, (string)$key);
             if ($cache->has($banKey)) {
                 $this->config->incrementDiagnosticsCounter('fail2ban_blocked', $name);
@@ -79,35 +84,38 @@ final readonly class Firewall
                     'X-Phirewall-Matched' => $name,
                 ]);
             }
-            if ($rule['filter']($request) === true) {
-                $failKey = $this->failKey($name, (string)$key);
-                $count = $this->increment($failKey, $rule['period']);
+
+            if ($throttleRule->filter()->matches($serverRequest) === true) {
+                $failKey = $this->failKey($name, $key);
+                $count = $this->increment($failKey, $throttleRule->period());
                 $this->config->incrementDiagnosticsCounter('fail2ban_fail_hit', $name);
-                if ($count >= $rule['threshold']) {
-                    $cache->set($banKey, 1, $rule['ban']);
+                if ($count >= $throttleRule->threshold()) {
+                    $cache->set($banKey, 1, $throttleRule->banSeconds());
                     $this->config->incrementDiagnosticsCounter('fail2ban_banned', $name);
                     $this->dispatch(new Fail2BanBanned(
                         rule: $name,
-                        key: (string)$key,
-                        threshold: $rule['threshold'],
-                        period: $rule['period'],
-                        banSeconds: $rule['ban'],
+                        key: $key,
+                        threshold: $throttleRule->threshold(),
+                        period: $throttleRule->period(),
+                        banSeconds: $throttleRule->banSeconds(),
                         count: $count,
-                        request: $request,
+                        serverRequest: $serverRequest,
                     ));
                 }
             }
         }
 
         // 4) Throttle
-        foreach ($this->config->getThrottles() as $name => $rule) {
-            $key = $rule['key']($request);
+        foreach ($this->config->getThrottleRules() as $name => $throttleRule) {
+            $name = $throttleRule->name();
+            $key = $throttleRule->keyExtractor()->extract($serverRequest);
             if ($key === null) {
                 continue;
             }
+
             $counterKey = $this->throttleKey($name, (string)$key);
-            $count = $this->increment($counterKey, $rule['period']);
-            $limit = (int)$rule['limit'];
+            $count = $this->increment($counterKey, $throttleRule->period());
+            $limit = $throttleRule->limit();
             $retryAfter = $this->ttlRemaining($counterKey);
             $remaining = max(0, $limit - $count);
 
@@ -116,10 +124,10 @@ final readonly class Firewall
                     rule: $name,
                     key: (string)$key,
                     limit: $limit,
-                    period: $rule['period'],
+                    period: $throttleRule->period(),
                     count: $count,
                     retryAfter: $retryAfter,
-                    request: $request,
+                    serverRequest: $serverRequest,
                 ));
                 $this->config->incrementDiagnosticsCounter('throttle_exceeded', $name);
                 $headers = [
@@ -134,6 +142,7 @@ final readonly class Firewall
                         'X-RateLimit-Reset' => (string)max(1, $retryAfter),
                     ];
                 }
+
                 return FirewallResult::throttled($name, $retryAfter, $headers);
             }
 
@@ -156,13 +165,19 @@ final readonly class Firewall
         if ($cache instanceof CounterStoreInterface) {
             return $cache->increment($key, $period);
         }
-        $value = (int)($cache->get($key, 0));
-        $value++;
+
+        $value = $cache->get($key, 0);
+        if (!is_int($value)) {
+            $value = is_scalar($value) ? (int)$value : 0;
+        }
+
+        ++$value;
         if ($value === 1) {
             $cache->set($key, $value, $period);
         } else {
             $cache->set($key, $value);
         }
+
         return $value;
     }
 
@@ -172,6 +187,7 @@ final readonly class Firewall
         if ($cache instanceof CounterStoreInterface) {
             return $cache->ttlRemaining($key);
         }
+
         return 60;
     }
 
@@ -209,23 +225,26 @@ final readonly class Firewall
         if ($original === '') {
             return 'empty';
         }
+
         $sanitized = preg_replace('/[^A-Za-z0-9._:-]/', '_', $original);
         if ($sanitized === null) {
             $sanitized = 'invalid';
         }
+
         $sanitized = preg_replace('/_+/', '_', $sanitized) ?? $sanitized;
         $max = 120;
         if (strlen($sanitized) > $max) {
             $hash = substr(sha1($original), 0, 12);
             $sanitized = substr($sanitized, 0, $max - 13) . '-' . $hash;
         }
+
         return $sanitized;
     }
 
     private function dispatch(object $event): void
     {
-        $dispatcher = $this->config->dispatcher;
-        if ($dispatcher !== null) {
+        $dispatcher = $this->config->eventDispatcher;
+        if ($dispatcher instanceof \Psr\EventDispatcher\EventDispatcherInterface) {
             $dispatcher->dispatch($event);
         }
     }

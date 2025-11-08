@@ -208,7 +208,7 @@ final class PortableConfig
 
     /**
      * Import from a portable schema array.
-     * @param array{safelists?: SchemaSafelists, blocklists?: SchemaBlocklists, throttles?: SchemaThrottles, fail2bans?: SchemaFail2Bans, tracks?: SchemaTracks, options?: SchemaOptions} $data
+     * @param array<mixed> $data
      */
     public static function fromArray(array $data): self
     {
@@ -222,65 +222,97 @@ final class PortableConfig
         $self->schema['options'] = (array)($data['options'] ?? []);
         // Validate content
         foreach ($self->schema['safelists'] as $s) {
+            if (!is_array($s)) {
+                continue;
+            }
+
             $self->assertValidFilter($s['filter']);
         }
+
         foreach ($self->schema['blocklists'] as $b) {
             $self->assertValidFilter($b['filter']);
         }
+
         foreach ($self->schema['throttles'] as $t) {
             $self->assertValidKey($t['key']);
         }
+
         foreach ($self->schema['fail2bans'] as $f) {
             $self->assertValidFilter($f['filter']);
             $self->assertValidKey($f['key']);
         }
+
         foreach ($self->schema['tracks'] as $t) {
             $self->assertValidFilter($t['filter']);
             $self->assertValidKey($t['key']);
         }
+
         return $self;
     }
 
     /**
      * Build a Config instance with closures derived from the portable schema.
      */
-    public function toConfig(CacheInterface $cache, ?EventDispatcherInterface $dispatcher = null): Config
+    public function toConfig(CacheInterface $cache, ?EventDispatcherInterface $eventDispatcher = null): Config
     {
-        $config = new Config($cache, $dispatcher);
+        $config = new Config($cache, $eventDispatcher);
         $options = $this->schema['options'];
-        if (isset($options['rateLimitHeaders']) && $options['rateLimitHeaders'] === true) {
+        if (isset($options['rateLimitHeaders']) && $options['rateLimitHeaders']) {
             $config->enableRateLimitHeaders(true);
         }
+
         if (isset($options['keyPrefix']) && is_string($options['keyPrefix'])) {
             $config->setKeyPrefix($options['keyPrefix']);
         }
+
         // Safelists
         foreach ($this->schema['safelists'] as $s) {
-            $config->safelist($s['name'], $this->compileFilter($s['filter']));
+            $config->addSafelist(new \Flowd\Phirewall\Config\Rule\SafelistRule(
+                $s['name'],
+                new \Flowd\Phirewall\Config\ClosureRequestMatcher($this->compileFilter($s['filter']))
+            ));
         }
+
         // Blocklists
         foreach ($this->schema['blocklists'] as $b) {
-            $config->blocklist($b['name'], $this->compileFilter($b['filter']));
+            $config->addBlocklist(new \Flowd\Phirewall\Config\Rule\BlocklistRule(
+                $b['name'],
+                new \Flowd\Phirewall\Config\ClosureRequestMatcher($this->compileFilter($b['filter']))
+            ));
         }
+
         // Throttles
         foreach ($this->schema['throttles'] as $t) {
-            $config->throttle($t['name'], (int)$t['limit'], (int)$t['period'], $this->compileKey($t['key']));
+            $config->addThrottle(new \Flowd\Phirewall\Config\Rule\ThrottleRule(
+                $t['name'],
+                (int)$t['limit'],
+                (int)$t['period'],
+                new \Flowd\Phirewall\Config\ClosureKeyExtractor($this->compileKey($t['key']))
+            ));
         }
+
         // Fail2Ban
         foreach ($this->schema['fail2bans'] as $f) {
-            $config->fail2ban(
+            $config->addFail2Ban(new \Flowd\Phirewall\Config\Rule\Fail2BanRule(
                 $f['name'],
                 (int)$f['threshold'],
                 (int)$f['period'],
                 (int)$f['ban'],
-                $this->compileFilter($f['filter']),
-                $this->compileKey($f['key'])
-            );
+                new \Flowd\Phirewall\Config\ClosureRequestMatcher($this->compileFilter($f['filter'])),
+                new \Flowd\Phirewall\Config\ClosureKeyExtractor($this->compileKey($f['key']))
+            ));
         }
+
         // Tracks
         foreach ($this->schema['tracks'] as $t) {
-            $config->track($t['name'], (int)$t['period'], $this->compileFilter($t['filter']), $this->compileKey($t['key']));
+            $config->addTrack(new \Flowd\Phirewall\Config\Rule\TrackRule(
+                $t['name'],
+                (int)$t['period'],
+                new \Flowd\Phirewall\Config\ClosureRequestMatcher($this->compileFilter($t['filter'])),
+                new \Flowd\Phirewall\Config\ClosureKeyExtractor($this->compileKey($t['key']))
+            ));
         }
+
         return $config;
     }
 
@@ -291,25 +323,25 @@ final class PortableConfig
     {
         $type = (string)($filter['type'] ?? '');
         return match ($type) {
-            'path_equals' => static function (\Psr\Http\Message\ServerRequestInterface $req) use ($filter): bool {
+            'path_equals' => static function (\Psr\Http\Message\ServerRequestInterface $serverRequest) use ($filter): bool {
                 $path = (string)($filter['path'] ?? '/');
-                return $req->getUri()->getPath() === $path;
+                return $serverRequest->getUri()->getPath() === $path;
             },
-            'method_equals' => static function (\Psr\Http\Message\ServerRequestInterface $req) use ($filter): bool {
+            'method_equals' => static function (\Psr\Http\Message\ServerRequestInterface $serverRequest) use ($filter): bool {
                 $method = strtoupper((string)($filter['method'] ?? ''));
-                return strtoupper($req->getMethod()) === $method;
+                return strtoupper($serverRequest->getMethod()) === $method;
             },
-            'header_equals' => static function (\Psr\Http\Message\ServerRequestInterface $req) use ($filter): bool {
+            'header_equals' => static function (\Psr\Http\Message\ServerRequestInterface $serverRequest) use ($filter): bool {
                 $name = (string)($filter['name'] ?? '');
                 $value = (string)($filter['value'] ?? '');
-                return $name !== '' && $req->getHeaderLine($name) === $value;
+                return $name !== '' && $serverRequest->getHeaderLine($name) === $value;
             },
             'all' => static fn(): bool => true,
             default => throw new \InvalidArgumentException('Unsupported filter type: ' . $type),
         };
     }
 
-    /** @param array<string,mixed> $key */
+    /** @param array<string,scalar> $key */
     private function compileKey(array $key): \Closure
     {
         $type = (string)($key['type'] ?? '');
@@ -329,16 +361,17 @@ final class PortableConfig
         if (!in_array($type, ['path_equals', 'method_equals', 'header_equals', 'all'], true)) {
             throw new \InvalidArgumentException('Invalid filter type');
         }
+
         if ($type === 'path_equals' && !is_string($filter['path'] ?? null)) {
             throw new \InvalidArgumentException('path_equals requires path');
         }
+
         if ($type === 'method_equals' && !is_string($filter['method'] ?? null)) {
             throw new \InvalidArgumentException('method_equals requires method');
         }
-        if ($type === 'header_equals') {
-            if (!is_string($filter['name'] ?? null) || !is_string($filter['value'] ?? null)) {
-                throw new \InvalidArgumentException('header_equals requires name and value');
-            }
+
+        if ($type === 'header_equals' && (!is_string($filter['name'] ?? null) || !is_string($filter['value'] ?? null))) {
+            throw new \InvalidArgumentException('header_equals requires name and value');
         }
     }
 
@@ -349,6 +382,7 @@ final class PortableConfig
         if (!in_array($type, ['ip', 'method', 'path', 'header'], true)) {
             throw new \InvalidArgumentException('Invalid key extractor type');
         }
+
         if ($type === 'header' && !is_string($key['name'] ?? null)) {
             throw new \InvalidArgumentException('header key extractor requires name');
         }

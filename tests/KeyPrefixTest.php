@@ -15,25 +15,27 @@ final class KeyPrefixTest extends TestCase
 {
     public function testDifferentKeyPrefixesIsolateCounters(): void
     {
-        $cache = new InMemoryCache();
+        $inMemoryCache = new InMemoryCache();
 
         // Firewall A with prefix A
-        $configA = (new Config($cache))->setKeyPrefix('customA');
+        $configA = (new Config($inMemoryCache))->setKeyPrefix('customA');
         $configA->throttle('by_key', 1, 60, fn($r): string => 'k');
+
         $fwA = new Firewall($configA);
 
         // Firewall B with prefix B (same rule/key but isolated by prefix)
-        $configB = (new Config($cache))->setKeyPrefix('customB');
+        $configB = (new Config($inMemoryCache))->setKeyPrefix('customB');
         $configB->throttle('by_key', 1, 60, fn($r): string => 'k');
+
         $fwB = new Firewall($configB);
 
-        $req = new ServerRequest('GET', '/');
+        $serverRequest = new ServerRequest('GET', '/');
 
         // First request on A passes, second throttles
-        $this->assertTrue($fwA->decide($req)->isPass());
-        $this->assertSame(OUTCOME::THROTTLED, $fwA->decide($req)->outcome);
+        $this->assertTrue($fwA->decide($serverRequest)->isPass());
+        $this->assertSame(OUTCOME::THROTTLED, $fwA->decide($serverRequest)->outcome);
 
         // First request on B should also pass (isolation ensured by prefix)
-        $this->assertTrue($fwB->decide($req)->isPass());
+        $this->assertTrue($fwB->decide($serverRequest)->isPass());
     }
 }

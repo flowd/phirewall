@@ -34,6 +34,7 @@ if (class_exists(\Monolog\Logger::class)) {
 
 $dispatcher = new class ($logger) implements EventDispatcherInterface {
     public function __construct(private readonly ?object $logger) {}
+
     public function dispatch(object $event): object
     {
         $type = $event::class;
@@ -44,6 +45,7 @@ $dispatcher = new class ($logger) implements EventDispatcherInterface {
             // Fallback if Monolog not available (intentional logging for the example)
             error_log('[Firewall] ' . $type . ' ' . json_encode($context, JSON_UNESCAPED_SLASHES));
         }
+
         return $event;
     }
 };
@@ -56,14 +58,14 @@ $middleware = new Middleware($config, new Psr17Factory());
 // If executed directly, run a tiny demonstration
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     $handler = new class () implements RequestHandlerInterface {
-        public function handle(ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
+        public function handle(ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
         {
             return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
         }
     };
 
     $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.10']);
-    for ($i = 1; $i <= 7; $i++) {
+    for ($i = 1; $i <= 7; ++$i) {
         $response = $middleware->process($request, $handler);
         echo sprintf("Attempt %d => %d\n", $i, $response->getStatusCode());
     }

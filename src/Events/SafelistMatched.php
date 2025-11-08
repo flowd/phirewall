@@ -10,7 +10,7 @@ final readonly class SafelistMatched
 {
     public function __construct(
         public string $rule,
-        public ServerRequestInterface $request,
+        public ServerRequestInterface $serverRequest,
     ) {
     }
 }

@@ -32,17 +32,18 @@ $mem = new InMemoryCache();
 $keyBase = 'bench:mem:' . bin2hex(random_bytes(4));
 
 bench('InMemory increment', static function (int $n) use ($mem, $period, $keyBase): void {
-    for ($i = 0; $i < $n; $i++) {
+    for ($i = 0; $i < $n; ++$i) {
         $mem->increment($keyBase . ':' . ($i % 16), $period);
     }
 });
 
 bench('InMemory ttlRemaining', static function (int $n) use ($mem, $keyBase): void {
     // ensure keys exist
-    for ($i = 0; $i < 16; $i++) {
+    for ($i = 0; $i < 16; ++$i) {
         $mem->set($keyBase . ':ttl:' . $i, 1, 10);
     }
-    for ($i = 0; $i < $n; $i++) {
+
+    for ($i = 0; $i < $n; ++$i) {
         $mem->ttlRemaining($keyBase . ':ttl:' . ($i % 16));
     }
 });
@@ -56,33 +57,33 @@ if ($redisUrl && class_exists(\Predis\Client::class)) {
         if ((string)$client->ping() !== 'PONG') {
             throw new RuntimeException('Redis PING failed');
         }
+
         $redis = new RedisCache($client, 'Phirewall:bench:');
         $rkeyBase = 'bench:redis:' . bin2hex(random_bytes(4));
 
         bench('Redis increment', static function (int $n) use ($redis, $period, $rkeyBase): void {
-            for ($i = 0; $i < $n; $i++) {
+            for ($i = 0; $i < $n; ++$i) {
                 $redis->increment($rkeyBase . ':' . ($i % 16), $period);
             }
         });
 
         bench('Redis ttlRemaining', static function (int $n) use ($redis, $rkeyBase): void {
             // ensure keys exist
-            for ($i = 0; $i < 16; $i++) {
+            for ($i = 0; $i < 16; ++$i) {
                 $redis->set($rkeyBase . ':ttl:' . $i, 1, 10);
             }
-            for ($i = 0; $i < $n; $i++) {
+
+            for ($i = 0; $i < $n; ++$i) {
                 $redis->ttlRemaining($rkeyBase . ':ttl:' . ($i % 16));
             }
         });
     } catch (Throwable $e) {
         fwrite(STDERR, "[WARN] Redis benchmarks skipped: " . $e->getMessage() . "\n");
     }
-} else {
-    if (!$redisUrl) {
-        fwrite(STDERR, "[INFO] Set REDIS_URL and install predis/predis to include Redis benchmarks.\n");
-    } elseif (!class_exists(\Predis\Client::class)) {
-        fwrite(STDERR, "[INFO] Predis not installed; run composer require predis/predis to include Redis benchmarks.\n");
-    }
+} elseif ($redisUrl === '' || $redisUrl === '0' || $redisUrl === [] || $redisUrl === false) {
+    fwrite(STDERR, "[INFO] Set REDIS_URL and install predis/predis to include Redis benchmarks.\n");
+} elseif (!class_exists(\Predis\Client::class)) {
+    fwrite(STDERR, "[INFO] Predis not installed; run composer require predis/predis to include Redis benchmarks.\n");
 }
 
 // Optional APCU benchmarks if APCU is available
@@ -92,17 +93,18 @@ if (function_exists('apcu_enabled') && apcu_enabled()) {
         $keyBase = 'bench:apcu:' . bin2hex(random_bytes(4));
 
         bench('APCU increment', static function (int $n) use ($mem, $period, $keyBase): void {
-            for ($i = 0; $i < $n; $i++) {
+            for ($i = 0; $i < $n; ++$i) {
                 $mem->increment($keyBase . ':' . ($i % 16), $period);
             }
         });
 
         bench('APCU ttlRemaining', static function (int $n) use ($mem, $keyBase): void {
             // ensure keys exist
-            for ($i = 0; $i < 16; $i++) {
+            for ($i = 0; $i < 16; ++$i) {
                 $mem->set($keyBase . ':ttl:' . $i, 1, 10);
             }
-            for ($i = 0; $i < $n; $i++) {
+
+            for ($i = 0; $i < $n; ++$i) {
                 $mem->ttlRemaining($keyBase . ':ttl:' . ($i % 16));
             }
         });

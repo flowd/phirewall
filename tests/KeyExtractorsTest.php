@@ -4,74 +4,67 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Tests;
 
-use Flowd\Phirewall\Config;
-use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\Http\Outcome;
+use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Flowd\Phirewall\KeyExtractors;
-use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
-use Psr\EventDispatcher\EventDispatcherInterface;
 
 final class KeyExtractorsTest extends TestCase
 {
-    public function testThrottleByIpExtractor(): void
+    public function testIpExtractorUsesRemoteAddr(): void
     {
-        $cache = new InMemoryCache();
-        $config = new Config($cache);
-        $config->throttle('ip', 1, 30, KeyExtractors::ip());
-        $firewall = new Firewall($config);
+        $extractor = KeyExtractors::ip();
+        $req = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.10']);
+        $this->assertSame('203.0.113.10', $extractor($req));
 
-        $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
-        $this->assertTrue($firewall->decide($request)->isPass());
-        $second = $firewall->decide($request);
-        $this->assertSame(OUTCOME::THROTTLED, $second->outcome);
-        $this->assertSame('ip', $second->headers['X-Phirewall-Matched'] ?? '');
+        $req2 = new ServerRequest('GET', '/');
+        $this->assertNull($extractor($req2));
     }
 
-    public function testTrackByPathAndMethodExtractors(): void
+    public function testMethodExtractorUppercases(): void
     {
-        $cache = new InMemoryCache();
-        $events = new class () implements EventDispatcherInterface {
-            /** @var list<object> */
-            public array $events = [];
-            public function dispatch(object $event): object
-            {
-                $this->events[] = $event;
-                return $event;
-            }
-        };
-        $config = new Config($cache, $events);
-        // Track GET on /metrics
-        $config->track(
-            'hits',
-            60,
-            filter: fn($request): bool => KeyExtractors::method()($request) === 'GET' && KeyExtractors::path()($request) === '/metrics',
-            key: KeyExtractors::path()
-        );
-        $firewall = new Firewall($config);
-
-        $metricsRequest = new ServerRequest('GET', '/metrics');
-        $result1 = $firewall->decide($metricsRequest);
-        $this->assertTrue($result1->isPass());
-        // Second request to increment counter
-        $firewall->decide($metricsRequest);
-
-        // Ensure two TrackHit events were emitted with increasing counts
-        $hits = array_values(array_filter($events->events, fn($e) => $e instanceof \Flowd\Phirewall\Events\TrackHit));
-        $this->assertCount(2, $hits);
-        $this->assertSame(1, $hits[0]->count);
-        $this->assertSame(2, $hits[1]->count);
+        $extractor = KeyExtractors::method();
+        $serverRequest = new ServerRequest('post', '/');
+        $this->assertSame('POST', $extractor($serverRequest));
     }
 
-    public function testHeaderAndUserAgentExtractors(): void
+    public function testPathExtractorReturnsPathOrSlash(): void
     {
-        $userAgentExtractor = KeyExtractors::userAgent();
-        $customHeaderExtractor = KeyExtractors::header('X-Custom');
-        $request = (new ServerRequest('GET', '/'))
-            ->withHeader('User-Agent', 'UA-1')
-            ->withHeader('X-Custom', 'foo');
-        $this->assertSame('UA-1', $userAgentExtractor($request));
-        $this->assertSame('foo', $customHeaderExtractor($request));
+        $extractor = KeyExtractors::path();
+        $this->assertSame('/', $extractor(new ServerRequest('GET', '')));
+        $this->assertSame('/admin', $extractor(new ServerRequest('GET', '/admin')));
+    }
+
+    public function testHeaderExtractorAndUserAgent(): void
+    {
+        $ua = KeyExtractors::userAgent();
+        $serverRequest = (new ServerRequest('GET', '/'))->withHeader('User-Agent', 'Mozilla');
+        $this->assertSame('Mozilla', $ua($serverRequest));
+        $this->assertNull($ua(new ServerRequest('GET', '/')));
+
+        $h = KeyExtractors::header('X-Token');
+        $req2 = (new ServerRequest('GET', '/'))->withHeader('X-Token', 'abc');
+        $this->assertSame('abc', $h($req2));
+        $this->assertNull($h(new ServerRequest('GET', '/')));
+    }
+
+    public function testClientIpWithTrustedProxyResolver(): void
+    {
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
+        $extractor = KeyExtractors::clientIp($trustedProxyResolver);
+
+        // Direct connection from client, untrusted peer: should return REMOTE_ADDR
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.1']);
+        $this->assertSame('198.51.100.1', $extractor($serverRequest));
+
+        // Coming via trusted proxy with XFF chain, last proxy is trusted, client is first in chain
+        $req2 = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.5']))
+            ->withHeader('X-Forwarded-For', '198.51.100.77, 10.0.0.5');
+        $this->assertSame('198.51.100.77', $extractor($req2));
+
+        // All hops trusted -> fallback to REMOTE_ADDR
+        $req3 = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.5']))
+            ->withHeader('X-Forwarded-For', '10.0.0.3, 10.0.0.5');
+        $this->assertSame('10.0.0.5', $extractor($req3));
     }
 }

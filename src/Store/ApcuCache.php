@@ -26,6 +26,7 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
         if (!$success) {
             return $default;
         }
+
         return $value;
     }
 
@@ -37,6 +38,7 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
             apcu_delete($key);
             return true;
         }
+
         return $ttl === null ? apcu_store($key, $value) : apcu_store($key, $value, $ttl);
     }
 
@@ -59,6 +61,7 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
         foreach ($keys as $key) {
             $result[$key] = $this->get((string)$key, $default);
         }
+
         return $result;
     }
 
@@ -70,6 +73,7 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
         foreach ($values as $key => $value) {
             $this->set((string)$key, $value, $ttl);
         }
+
         return true;
     }
 
@@ -78,6 +82,7 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
         foreach ($keys as $key) {
             $this->delete((string)$key);
         }
+
         return true;
     }
 
@@ -121,8 +126,9 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
         if (!$success || !is_int($expiry)) {
             return 0;
         }
+
         $remaining = $expiry - time();
-        return $remaining > 0 ? $remaining : 0;
+        return max($remaining, 0);
     }
 
     private function ttlToSeconds(null|int|DateInterval $ttl): ?int
@@ -130,11 +136,13 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
         if ($ttl === null) {
             return null;
         }
+
         if ($ttl instanceof DateInterval) {
             $now = new \DateTimeImmutable();
             $seconds = $now->add($ttl)->getTimestamp() - $now->getTimestamp();
             return max(0, $seconds);
         }
+
         return $ttl;
     }
 }

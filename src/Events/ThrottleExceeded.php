@@ -15,7 +15,7 @@ final readonly class ThrottleExceeded
         public int $period,
         public int $count,
         public int $retryAfter,
-        public ServerRequestInterface $request,
+        public ServerRequestInterface $serverRequest,
     ) {
     }
 }

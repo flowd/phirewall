@@ -18,13 +18,17 @@ final class PerformanceTest extends TestCase
 {
     public function testEventOnSafelistPass(): void
     {
-        $cache = new InMemoryCache();
+        $inMemoryCache = new InMemoryCache();
         $events = new class () implements EventDispatcherInterface {
             /** @var list<object> */
             public array $events = [];
+
             public ?SafelistMatched $eventMatched = null;
+
             public ?int $durationMicros = null;
+
             public float $start = 0.0;
+
             public function dispatch(object $event): object
             {
                 $this->events[] = $event;
@@ -32,15 +36,17 @@ final class PerformanceTest extends TestCase
                     $this->eventMatched = $event;
                     $this->durationMicros = (int)round((microtime(true) - $this->start) * 1_000_000);
                 }
+
                 return $event;
             }
         };
-        $config = new Config($cache, $events);
+        $config = new Config($inMemoryCache, $events);
         $config->safelist('all', fn($request): bool => true);
+
         $firewall = new Firewall($config);
         $events->start = microtime(true);
-        $result = $firewall->decide(new ServerRequest('GET', '/'));
-        $this->assertTrue($result->isPass());
+        $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
+        $this->assertTrue($firewallResult->isPass());
 
         $this->assertInstanceOf(SafelistMatched::class, $events->eventMatched);
         $this->assertGreaterThan(0, $events->durationMicros ?? 0);
@@ -48,13 +54,17 @@ final class PerformanceTest extends TestCase
 
     public function testEventOnThrottle(): void
     {
-        $cache = new InMemoryCache();
+        $inMemoryCache = new InMemoryCache();
         $events = new class () implements EventDispatcherInterface {
             /** @var list<object> */
             public array $events = [];
+
             public ?ThrottleExceeded $eventMatched = null;
+
             public ?int $durationMicros = null;
+
             public float $start = 0.0;
+
             public function dispatch(object $event): object
             {
                 $this->events[] = $event;
@@ -62,15 +72,17 @@ final class PerformanceTest extends TestCase
                     $this->eventMatched = $event;
                     $this->durationMicros = (int)round((microtime(true) - $this->start) * 1_000_000);
                 }
+
                 return $event;
             }
         };
-        $config = new Config($cache, $events);
+        $config = new Config($inMemoryCache, $events);
         $config->throttle('ip', 0, 10, fn($request): string => '1.1.1.1');
+
         $firewall = new Firewall($config);
         $events->start = microtime(true);
-        $result = $firewall->decide(new ServerRequest('GET', '/'));
-        $this->assertSame(OUTCOME::THROTTLED, $result->outcome);
+        $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
+        $this->assertSame(OUTCOME::THROTTLED, $firewallResult->outcome);
 
         $this->assertInstanceOf(ThrottleExceeded::class, $events->eventMatched);
         $this->assertSame('ip', $events->eventMatched->rule);

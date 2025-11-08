@@ -35,13 +35,13 @@ $config->setKeyPrefix('myapp');
 
 // Track login failures by client IP for 60-second windows
 $config->track('login_failed', 60,
-    filter: fn(ServerRequestInterface $request): bool => $request->getUri()->getPath() === '/login' && $request->getHeaderLine('X-Login-Failed') === '1',
+    filter: fn(ServerRequestInterface $serverRequest): bool => $serverRequest->getUri()->getPath() === '/login' && $serverRequest->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::clientIp($resolver)
 );
 
 // Fail2Ban: 5 failed attempts in 5 minutes => ban IP for 1 hour
 $config->fail2ban('login_abuse', threshold: 5, period: 300, ban: 3600,
-    filter: fn(ServerRequestInterface $request): bool => $request->getUri()->getPath() === '/login' && $request->getHeaderLine('X-Login-Failed') === '1',
+    filter: fn(ServerRequestInterface $serverRequest): bool => $serverRequest->getUri()->getPath() === '/login' && $serverRequest->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::clientIp($resolver)
 );
 
@@ -49,7 +49,7 @@ $config->fail2ban('login_abuse', threshold: 5, period: 300, ban: 3600,
 $config->throttle('login_submit', limit: 10, period: 60, key: KeyExtractors::clientIp($resolver));
 
 // Optional: customize blocklisted/fail2ban response
-$config->blocklistedResponse(fn(string $rule, string $type, ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface => new Response(403, ['Content-Type' => 'application/json', 'X-Flow' => 'blocked'], json_encode([
+$config->blocklistedResponse(fn(string $rule, string $type, ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface => new Response(403, ['Content-Type' => 'application/json', 'X-Flow' => 'blocked'], json_encode([
     'blocked' => $rule,
     'type' => $type,
 ], JSON_THROW_ON_ERROR)));
@@ -59,7 +59,7 @@ $middleware = new Middleware($config, new Psr17Factory());
 // If executed directly, run a small demonstration with simulated requests.
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     $handler = new class () implements RequestHandlerInterface {
-        public function handle(ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
+        public function handle(ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
         {
             return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
         }
@@ -76,13 +76,15 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
                 echo $h . ': ' . $val . "\n";
             }
         }
+
         echo "\n";
     };
 
     // Simulate 5 failed login attempts to trigger Fail2Ban, then a blocked request
-    for ($i = 1; $i <= 5; $i++) {
+    for ($i = 1; $i <= 5; ++$i) {
         $run('POST', '/login', ['X-Login-Failed' => '1'], ['REMOTE_ADDR' => '198.51.100.2']);
     }
+
     // Next request (without failure header) should be banned
     $run('GET', '/', [], ['REMOTE_ADDR' => '198.51.100.2']);
 

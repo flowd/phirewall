@@ -19,31 +19,31 @@ final class ApcuCacheTest extends TestCase
     public function testIncrementAndTtlRemainingFixedWindow(): void
     {
         $this->requireApcuOrSkip();
-        $cache = new ApcuCache();
+        $apcuCache = new ApcuCache();
         $key = 'test:apcu:counter:' . uniqid('', true);
         $period = 2; // seconds
 
-        $count1 = $cache->increment($key, $period);
-        $count2 = $cache->increment($key, $period);
-        self::assertSame(1, $count1);
-        self::assertSame(2, $count2);
+        $count1 = $apcuCache->increment($key, $period);
+        $count2 = $apcuCache->increment($key, $period);
+        $this->assertSame(1, $count1);
+        $this->assertSame(2, $count2);
 
-        $ttl = $cache->ttlRemaining($key);
-        self::assertGreaterThanOrEqual(1, $ttl);
-        self::assertLessThanOrEqual($period, $ttl);
+        $ttl = $apcuCache->ttlRemaining($key);
+        $this->assertGreaterThanOrEqual(1, $ttl);
+        $this->assertLessThanOrEqual($period, $ttl);
     }
 
     public function testPsr16BasicSetGet(): void
     {
         $this->requireApcuOrSkip();
-        $cache = new ApcuCache();
+        $apcuCache = new ApcuCache();
         $key = 'test:apcu:psr16:' . uniqid('', true);
-        self::assertFalse($cache->has($key));
-        self::assertSame('d', $cache->get($key, 'd'));
-        self::assertTrue($cache->set($key, 'v', 5));
-        self::assertTrue($cache->has($key));
-        self::assertSame('v', $cache->get($key));
-        self::assertTrue($cache->delete($key));
-        self::assertFalse($cache->has($key));
+        $this->assertFalse($apcuCache->has($key));
+        $this->assertSame('d', $apcuCache->get($key, 'd'));
+        $this->assertTrue($apcuCache->set($key, 'v', 5));
+        $this->assertTrue($apcuCache->has($key));
+        $this->assertSame('v', $apcuCache->get($key));
+        $this->assertTrue($apcuCache->delete($key));
+        $this->assertFalse($apcuCache->has($key));
     }
 }

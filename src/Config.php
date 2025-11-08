@@ -5,33 +5,79 @@ declare(strict_types=1);
 namespace Flowd\Phirewall;
 
 use Closure;
+use Flowd\Phirewall\Config\ClosureKeyExtractor;
+use Flowd\Phirewall\Config\ClosureRequestMatcher;
+use Flowd\Phirewall\Config\Response\BlocklistedResponseFactoryInterface;
+use Flowd\Phirewall\Config\Response\ClosureBlocklistedResponseFactory;
+use Flowd\Phirewall\Config\Response\ClosureThrottledResponseFactory;
+use Flowd\Phirewall\Config\Response\ThrottledResponseFactoryInterface;
+use Flowd\Phirewall\Config\Rule\BlocklistRule;
+use Flowd\Phirewall\Config\Rule\Fail2BanRule;
+use Flowd\Phirewall\Config\Rule\SafelistRule;
+use Flowd\Phirewall\Config\Rule\ThrottleRule;
+use Flowd\Phirewall\Config\Rule\TrackRule;
 use Psr\EventDispatcher\EventDispatcherInterface;
-use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\ServerRequestInterface;
 use Psr\SimpleCache\CacheInterface;
 
 final class Config
 {
-    /** @var array<string, Closure> */
-    private array $safelists = [];
+    /**
+     * Convenience builder methods: accept closures for ergonomics, but store typed rule objects internally.
+     * These are not legacy getters; they simply wrap closures into typed adapters.
+     */
+    public function safelist(string $name, Closure $callback): self
+    {
+        return $this->addSafelist(new SafelistRule($name, new ClosureRequestMatcher($callback)));
+    }
 
-    /** @var array<string, Closure> */
-    private array $blocklists = [];
+    public function blocklist(string $name, Closure $callback): self
+    {
+        return $this->addBlocklist(new BlocklistRule($name, new ClosureRequestMatcher($callback)));
+    }
 
-    /** @var array<string, array{limit:int,period:int,key:Closure}> */
-    private array $throttles = [];
+    public function throttle(string $name, int $limit, int $period, Closure $key): self
+    {
+        return $this->addThrottle(new ThrottleRule($name, $limit, $period, new ClosureKeyExtractor($key)));
+    }
 
-    /** @var array<string, array{threshold:int,period:int,ban:int,filter:Closure,key:Closure}> */
-    private array $fail2bans = [];
+    public function fail2ban(string $name, int $threshold, int $period, int $ban, Closure $filter, Closure $key): self
+    {
+        return $this->addFail2Ban(new Fail2BanRule($name, $threshold, $period, $ban, new ClosureRequestMatcher($filter), new ClosureKeyExtractor($key)));
+    }
 
-    /** @var array<string, array{period:int,filter:Closure,key:Closure}> */
-    private array $tracks = [];
+    public function track(string $name, int $period, Closure $filter, Closure $key): self
+    {
+        return $this->addTrack(new TrackRule($name, $period, new ClosureRequestMatcher($filter), new ClosureKeyExtractor($key)));
+    }
 
-    /** @var null|Closure(string,string,ServerRequestInterface):ResponseInterface */
-    private $blocklistedResponseFactory = null;
+    public function blocklistedResponse(Closure $factory): self
+    {
+        return $this->setBlocklistedResponseFactory(new ClosureBlocklistedResponseFactory($factory));
+    }
 
-    /** @var null|Closure(string,int,ServerRequestInterface):ResponseInterface */
-    private $throttledResponseFactory = null;
+    public function throttledResponse(Closure $factory): self
+    {
+        return $this->setThrottledResponseFactory(new ClosureThrottledResponseFactory($factory));
+    }
+
+    /** @var array<string, SafelistRule> */
+    private array $safelistRules = [];
+
+    /** @var array<string, BlocklistRule> */
+    private array $blocklistRules = [];
+
+    /** @var array<string, ThrottleRule> */
+    private array $throttleRules = [];
+
+    /** @var array<string, Fail2BanRule> */
+    private array $fail2BanRules = [];
+
+    /** @var array<string, TrackRule> */
+    private array $trackRules = [];
+
+    private ?BlocklistedResponseFactoryInterface $blocklistedResponseFactory = null;
+
+    private ?ThrottledResponseFactoryInterface $throttledResponseFactory = null;
 
     private bool $rateLimitHeadersEnabled = false;
 
@@ -46,136 +92,60 @@ final class Config
 
     public function __construct(
         public readonly CacheInterface $cache,
-        public readonly ?EventDispatcherInterface $dispatcher = null,
+        public readonly ?EventDispatcherInterface $eventDispatcher = null,
     ) {
     }
 
-    /**
-     * Safelist: if callback returns true for the request, bypass all other checks.
-     * @param Closure $callback fn(ServerRequestInterface): bool
-     */
-    public function safelist(string $name, Closure $callback): self
+    // Registration API (typed only)
+    public function addSafelist(SafelistRule $safelistRule): self
     {
-        $this->safelists[$name] = $callback;
+        $this->safelistRules[$safelistRule->name()] = $safelistRule;
         return $this;
     }
 
-    /**
-     * Blocklist: if callback returns true, block the request (403)
-     * @param Closure $callback fn(ServerRequestInterface): bool
-     */
-    public function blocklist(string $name, Closure $callback): self
+    public function addBlocklist(BlocklistRule $blocklistRule): self
     {
-        $this->blocklists[$name] = $callback;
+        $this->blocklistRules[$blocklistRule->name()] = $blocklistRule;
         return $this;
     }
 
-    /**
-     * Throttle: limit requests per key within a period.
-     * @param Closure $key fn(ServerRequestInterface): string|null returns unique key or null to skip
-     */
-    public function throttle(string $name, int $limit, int $period, Closure $key): self
+    public function addThrottle(ThrottleRule $throttleRule): self
     {
-        $this->throttles[$name] = [
-            'limit' => $limit,
-            'period' => $period,
-            'key' => $key,
-        ];
+        $this->throttleRules[$throttleRule->name()] = $throttleRule;
         return $this;
     }
 
-    /**
-     * Fail2ban: if filter matches threshold times within period, ban key for ban seconds.
-     * @param Closure $filter fn(ServerRequestInterface): bool
-     * @param Closure $key fn(ServerRequestInterface): string|null
-     */
-    public function fail2ban(string $name, int $threshold, int $period, int $ban, Closure $filter, Closure $key): self
+    public function addFail2Ban(Fail2BanRule $fail2BanRule): self
     {
-        $this->fail2bans[$name] = [
-            'threshold' => $threshold,
-            'period' => $period,
-            'ban' => $ban,
-            'filter' => $filter,
-            'key' => $key,
-        ];
+        $this->fail2BanRules[$fail2BanRule->name()] = $fail2BanRule;
         return $this;
     }
 
-    /**
-     * Track: if filter returns true, increment a counter for the given key within period and emit event.
-     * Does not affect request outcome.
-     * @param Closure $filter fn(ServerRequestInterface): bool
-     * @param Closure $key fn(ServerRequestInterface): string|null
-     */
-    public function track(string $name, int $period, Closure $filter, Closure $key): self
+    public function addTrack(TrackRule $trackRule): self
     {
-        $this->tracks[$name] = [
-            'period' => $period,
-            'filter' => $filter,
-            'key' => $key,
-        ];
+        $this->trackRules[$trackRule->name()] = $trackRule;
         return $this;
     }
 
-    /**
-     * Set a custom response factory for blocklisted/forbidden responses (also used by fail2ban).
-     * Factory signature: fn(string $rule, string $type, ServerRequestInterface $request): ResponseInterface
-     * where $type is 'blocklist' or 'fail2ban'.
-     */
-    public function blocklistedResponse(Closure $factory): self
+    // Typed response factories
+    public function setBlocklistedResponseFactory(BlocklistedResponseFactoryInterface $blocklistedResponseFactory): self
     {
-        $this->blocklistedResponseFactory = $factory;
+        $this->blocklistedResponseFactory = $blocklistedResponseFactory;
         return $this;
     }
 
-    /**
-     * Set a custom response factory for throttled responses.
-     * Factory signature: fn(string $rule, int $retryAfter, ServerRequestInterface $request): ResponseInterface
-     */
-    public function throttledResponse(Closure $factory): self
-    {
-        $this->throttledResponseFactory = $factory;
-        return $this;
-    }
-
-    /** @return array<string, Closure> */
-    public function getSafelists(): array
-    {
-        return $this->safelists;
-    }
-
-    /** @return array<string, Closure> */
-    public function getBlocklists(): array
-    {
-        return $this->blocklists;
-    }
-
-    /** @return array<string, array{limit:int,period:int,key:Closure}> */
-    public function getThrottles(): array
-    {
-        return $this->throttles;
-    }
-
-    /** @return array<string, array{threshold:int,period:int,ban:int,filter:Closure,key:Closure}> */
-    public function getFail2Bans(): array
-    {
-        return $this->fail2bans;
-    }
-
-    /** @return array<string, array{period:int,filter:Closure,key:Closure}> */
-    public function getTracks(): array
-    {
-        return $this->tracks;
-    }
-
-    /** @return null|Closure(string,string,ServerRequestInterface):ResponseInterface */
-    public function getBlocklistedResponseFactory(): ?Closure
+    public function getBlocklistedResponseFactory(): ?BlocklistedResponseFactoryInterface
     {
         return $this->blocklistedResponseFactory;
     }
 
-    /** @return null|Closure(string,int,ServerRequestInterface):ResponseInterface */
-    public function getThrottledResponseFactory(): ?Closure
+    public function setThrottledResponseFactory(ThrottledResponseFactoryInterface $throttledResponseFactory): self
+    {
+        $this->throttledResponseFactory = $throttledResponseFactory;
+        return $this;
+    }
+
+    public function getThrottledResponseFactory(): ?ThrottledResponseFactoryInterface
     {
         return $this->throttledResponseFactory;
     }
@@ -197,6 +167,7 @@ final class Config
         if ($normalized === '') {
             throw new \InvalidArgumentException('Key prefix cannot be empty');
         }
+
         $this->keyPrefix = rtrim($normalized, ':');
         return $this;
     }
@@ -214,12 +185,14 @@ final class Config
         if (!isset($this->diagnosticsCounters[$category])) {
             $this->diagnosticsCounters[$category] = ['total' => 0, 'by_rule' => []];
         }
-        $this->diagnosticsCounters[$category]['total']++;
+
+        ++$this->diagnosticsCounters[$category]['total'];
         if ($rule !== null) {
             if (!isset($this->diagnosticsCounters[$category]['by_rule'][$rule])) {
                 $this->diagnosticsCounters[$category]['by_rule'][$rule] = 0;
             }
-            $this->diagnosticsCounters[$category]['by_rule'][$rule]++;
+
+            ++$this->diagnosticsCounters[$category]['by_rule'][$rule];
         }
     }
 
@@ -238,5 +211,46 @@ final class Config
     public function getDiagnosticsCounters(): array
     {
         return $this->diagnosticsCounters;
+    }
+
+    /**
+     * Typed API: return rule collections.
+     * @return array<string, SafelistRule>
+     */
+    public function getSafelistRules(): array
+    {
+        return $this->safelistRules;
+    }
+
+    /**
+     * @return array<string, BlocklistRule>
+     */
+    public function getBlocklistRules(): array
+    {
+        return $this->blocklistRules;
+    }
+
+    /**
+     * @return array<string, ThrottleRule>
+     */
+    public function getThrottleRules(): array
+    {
+        return $this->throttleRules;
+    }
+
+    /**
+     * @return array<string, Fail2BanRule>
+     */
+    public function getFail2BanRules(): array
+    {
+        return $this->fail2BanRules;
+    }
+
+    /**
+     * @return array<string, TrackRule>
+     */
+    public function getTrackRules(): array
+    {
+        return $this->trackRules;
     }
 }

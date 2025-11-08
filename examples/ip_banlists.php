@@ -31,29 +31,31 @@ $resolver = new TrustedProxyResolver([
 $config = new Config($cache);
 
 // Safelist common internal endpoints so they bypass all other checks
-$config->safelist('health', fn (ServerRequestInterface $r): bool => $r->getUri()->getPath() === '/health');
-$config->safelist('metrics', fn (ServerRequestInterface $r): bool => $r->getUri()->getPath() === '/metrics');
+$config->safelist('health', fn (ServerRequestInterface $serverRequest): bool => $serverRequest->getUri()->getPath() === '/health');
+$config->safelist('metrics', fn (ServerRequestInterface $serverRequest): bool => $serverRequest->getUri()->getPath() === '/metrics');
 
 // Block known bad IPs (could be loaded from a database or config file)
 $blockedIps = [
     '203.0.113.10',
     '198.51.100.22',
 ];
-$config->blocklist('ip_banlist', function (ServerRequestInterface $r) use ($resolver, $blockedIps): bool {
-    $ip = $resolver->resolve($r);
+$config->blocklist('ip_banlist', function (ServerRequestInterface $serverRequest) use ($resolver, $blockedIps): bool {
+    $ip = $resolver->resolve($serverRequest);
     return $ip !== null && in_array($ip, $blockedIps, true);
 });
 
 // Optional: block access to /admin from outside private networks
-$config->blocklist('admin_external', function (ServerRequestInterface $r) use ($resolver): bool {
-    $path = $r->getUri()->getPath();
+$config->blocklist('admin_external', function (ServerRequestInterface $serverRequest) use ($resolver): bool {
+    $path = $serverRequest->getUri()->getPath();
     if ($path !== '/admin') {
         return false;
     }
-    $ip = $resolver->resolve($r);
+
+    $ip = $resolver->resolve($serverRequest);
     if ($ip === null) {
         return true; // unknown => block
     }
+
     // Allow RFC1918 private ranges only
     foreach (['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'] as $cidr) {
         // Simple check via PHP's ip2long masking
@@ -70,6 +72,7 @@ $config->blocklist('admin_external', function (ServerRequestInterface $r) use ($
             }
         }
     }
+
     return true; // non-private => block
 });
 
@@ -78,7 +81,7 @@ $middleware = new Middleware($config, new Psr17Factory());
 // If executed directly, run a small demonstration with simulated requests.
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     $handler = new class () implements RequestHandlerInterface {
-        public function handle(ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
+        public function handle(ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
         {
             return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
         }
@@ -95,6 +98,7 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
                 echo $h . ': ' . $val . "\n";
             }
         }
+
         echo "\n";
     };
 

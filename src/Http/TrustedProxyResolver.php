@@ -28,9 +28,9 @@ final readonly class TrustedProxyResolver
     ) {
     }
 
-    public function resolve(ServerRequestInterface $request): ?string
+    public function resolve(ServerRequestInterface $serverRequest): ?string
     {
-        $remoteAddr = $this->normalizeIp((string)($request->getServerParams()['REMOTE_ADDR'] ?? ''));
+        $remoteAddr = $this->normalizeIp((string)($serverRequest->getServerParams()['REMOTE_ADDR'] ?? ''));
         if ($remoteAddr === null) {
             return null;
         }
@@ -41,22 +41,24 @@ final readonly class TrustedProxyResolver
             return $remoteAddr;
         }
 
-        $chain = $this->extractChain($request);
+        $chain = $this->extractChain($serverRequest);
         if ($chain === []) {
             return $remoteAddr;
         }
 
         // Walk from right (closest to us) to left
-        for ($i = count($chain) - 1; $i >= 0; $i--) {
+        for ($i = count($chain) - 1; $i >= 0; --$i) {
             $ip = $this->normalizeIp($chain[$i]);
             if ($ip === null) {
                 // Skip unparsable values
                 continue;
             }
+
             if ($this->isTrusted($ip)) {
                 // still within trusted proxy chain; move left
                 continue;
             }
+
             // First untrusted hop is the client IP
             return $ip;
         }
@@ -68,47 +70,53 @@ final readonly class TrustedProxyResolver
     /**
      * @return list<string>
      */
-    private function extractChain(ServerRequestInterface $request): array
+    private function extractChain(ServerRequestInterface $serverRequest): array
     {
-        $xff = $request->getHeaderLine($this->xffHeader);
+        $xff = $serverRequest->getHeaderLine($this->xffHeader);
         if ($xff !== '') {
             $parts = array_map('trim', explode(',', $xff));
             $ips = [];
-            foreach ($parts as $p) {
-                if ($p === '') {
+            foreach ($parts as $part) {
+                if ($part === '') {
                     continue;
                 }
+
                 // Remove quotes and brackets if any
-                $p = trim($p, " \"'[]");
+                $part = trim($part, " \"'[]");
                 // Strip port for IPv4 host:port (avoid breaking IPv6 addresses)
-                if (preg_match('/^[0-9.]+:[0-9]+$/', $p) === 1) {
-                    $p = explode(':', $p, 2)[0];
+                if (preg_match('/^[0-9.]+:\d+$/', $part) === 1) {
+                    $part = explode(':', $part, 2)[0];
                 }
-                $ips[] = $p;
+
+                $ips[] = $part;
             }
+
             return $ips;
         }
 
         // Fallback to RFC 7239 Forwarded header parsing
-        $fwd = $request->getHeaderLine('Forwarded');
+        $fwd = $serverRequest->getHeaderLine('Forwarded');
         if ($fwd !== '') {
             $ips = [];
             // Split by commas into elements
             $elements = array_map('trim', explode(',', $fwd));
-            foreach ($elements as $el) {
-                if ($el === '') {
+            foreach ($elements as $element) {
+                if ($element === '') {
                     continue;
                 }
+
                 // Find for= token
-                if (preg_match('/(?:^|;| )for=\"?\[?([^;,"]+)\]?\"?/i', $el, $m) === 1) {
+                if (preg_match('/(?:^|;| )for=\"?\[?([^;,"]+)\]?\"?/i', $element, $m) === 1) {
                     $candidate = $m[1];
                     $candidate = trim($candidate, " \"'[]");
-                    if (preg_match('/^[0-9.]+:[0-9]+$/', $candidate) === 1) {
+                    if (preg_match('/^[0-9.]+:\d+$/', $candidate) === 1) {
                         $candidate = explode(':', $candidate, 2)[0];
                     }
+
                     $ips[] = $candidate;
                 }
             }
+
             return $ips;
         }
 
@@ -117,23 +125,27 @@ final readonly class TrustedProxyResolver
 
     private function isTrusted(string $ip): bool
     {
-        foreach ($this->trustedProxies as $entry) {
-            $entry = trim($entry);
-            if ($entry === '') {
+        foreach ($this->trustedProxies as $trustedProxy) {
+            $trustedProxy = trim($trustedProxy);
+            if ($trustedProxy === '') {
                 continue;
             }
+
             // CIDR IPv4
-            if (str_contains($entry, '/')) {
-                if ($this->ipv4InCidr($ip, $entry)) {
+            if (str_contains($trustedProxy, '/')) {
+                if ($this->ipv4InCidr($ip, $trustedProxy)) {
                     return true;
                 }
+
                 continue;
             }
+
             // Exact match
-            if ($ip === $entry) {
+            if ($ip === $trustedProxy) {
                 return true;
             }
         }
+
         return false;
     }
 
@@ -143,15 +155,18 @@ final readonly class TrustedProxyResolver
         if ($ip === '') {
             return null;
         }
+
         // Remove surrounding brackets for IPv6
         $ip = trim($ip, '[]');
         // Strip IPv4 port suffix if present
-        if (preg_match('/^[0-9.]+:[0-9]+$/', $ip) === 1) {
+        if (preg_match('/^[0-9.]+:\d+$/', $ip) === 1) {
             $ip = explode(':', $ip, 2)[0];
         }
+
         if (filter_var($ip, FILTER_VALIDATE_IP)) {
             return $ip;
         }
+
         return null;
     }
 
@@ -160,22 +175,27 @@ final readonly class TrustedProxyResolver
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
             return false;
         }
+
         [$subnet, $mask] = explode('/', $cidr, 2) + [null, null];
         if ($subnet === null || $mask === null) {
             return false;
         }
+
         if (filter_var($subnet, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
             return false;
         }
+
         $mask = (int) $mask;
         if ($mask < 0 || $mask > 32) {
             return false;
         }
+
         $ipLong = ip2long($ip);
         $subnetLong = ip2long($subnet);
         if ($ipLong === false || $subnetLong === false) {
             return false;
         }
+
         $maskLong = $mask === 0 ? 0 : (~0 << (32 - $mask)) & 0xFFFFFFFF;
         return ($ipLong & $maskLong) === ($subnetLong & $maskLong);
     }

@@ -21,8 +21,8 @@ final class PortableConfigTest extends TestCase
         $config = $portableConfig->toConfig(new InMemoryCache());
         $firewall = new Firewall($config);
 
-        $result1 = $firewall->decide(new ServerRequest('GET', '/'));
-        $this->assertTrue($result1->isPass());
+        $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
+        $this->assertTrue($firewallResult->isPass());
 
         $result2 = $firewall->decide(new ServerRequest('GET', '/admin'));
         $this->assertSame(Outcome::BLOCKED, $result2->outcome);
@@ -39,13 +39,13 @@ final class PortableConfigTest extends TestCase
         $config = $portableConfig->toConfig(new InMemoryCache());
         $firewall = new Firewall($config);
 
-        $req = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.5']);
-        $ok = $firewall->decide($req);
-        $this->assertTrue($ok->isPass());
-        $this->assertSame('1', $ok->headers['X-RateLimit-Limit'] ?? '');
-        $this->assertSame('0', $ok->headers['X-RateLimit-Remaining'] ?? '');
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.5']);
+        $firewallResult = $firewall->decide($serverRequest);
+        $this->assertTrue($firewallResult->isPass());
+        $this->assertSame('1', $firewallResult->headers['X-RateLimit-Limit'] ?? '');
+        $this->assertSame('0', $firewallResult->headers['X-RateLimit-Remaining'] ?? '');
 
-        $throttled = $firewall->decide($req);
+        $throttled = $firewall->decide($serverRequest);
         $this->assertSame(Outcome::THROTTLED, $throttled->outcome);
         $this->assertSame('1', $throttled->headers['X-RateLimit-Limit'] ?? '');
         $this->assertSame('0', $throttled->headers['X-RateLimit-Remaining'] ?? '');
@@ -67,14 +67,14 @@ final class PortableConfigTest extends TestCase
         $config = $portableConfig->toConfig(new InMemoryCache());
         $firewall = new Firewall($config);
 
-        $r = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.20']);
-        $fail = $r->withHeader('X-Login-Failed', '1');
+        $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.20']);
+        $fail = $serverRequest->withHeader('X-Login-Failed', '1');
         $this->assertTrue($firewall->decide($fail)->isPass());
         $this->assertTrue($firewall->decide($fail)->isPass());
-        $b = $firewall->decide($r);
-        $this->assertSame(Outcome::BLOCKED, $b->outcome);
-        $this->assertSame('fail2ban', $b->headers['X-Phirewall'] ?? '');
-        $this->assertSame('login', $b->headers['X-Phirewall-Matched'] ?? '');
+        $firewallResult = $firewall->decide($serverRequest);
+        $this->assertSame(Outcome::BLOCKED, $firewallResult->outcome);
+        $this->assertSame('fail2ban', $firewallResult->headers['X-Phirewall'] ?? '');
+        $this->assertSame('login', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
     }
 
     public function testRoundTripExportImport(): void
@@ -90,23 +90,27 @@ final class PortableConfigTest extends TestCase
         $schema = $portableConfig->toArray();
         $json = json_encode($schema, JSON_THROW_ON_ERROR);
         $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($data)) {
+            $this->fail('Decoded data is not an array');
+        }
+
         $portableConfig2 = PortableConfig::fromArray($data);
 
         $config = $portableConfig2->toConfig(new InMemoryCache());
         $firewall = new Firewall($config);
 
         // Safelist
-        $resp = $firewall->decide(new ServerRequest('GET', '/health'));
-        $this->assertTrue($resp->isPass());
-        $this->assertSame('health', $resp->headers['X-Phirewall-Safelist'] ?? '');
+        $firewallResult = $firewall->decide(new ServerRequest('GET', '/health'));
+        $this->assertTrue($firewallResult->isPass());
+        $this->assertSame('health', $firewallResult->headers['X-Phirewall-Safelist'] ?? '');
         // Blocklist
         $blocked = $firewall->decide(new ServerRequest('GET', '/admin'));
         $this->assertSame(Outcome::BLOCKED, $blocked->outcome);
         // Throttle
-        $req = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.77']);
-        $this->assertTrue($firewall->decide($req)->isPass());
-        $this->assertTrue($firewall->decide($req)->isPass());
-        $tooMany = $firewall->decide($req);
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.77']);
+        $this->assertTrue($firewall->decide($serverRequest)->isPass());
+        $this->assertTrue($firewall->decide($serverRequest)->isPass());
+        $tooMany = $firewall->decide($serverRequest);
         $this->assertSame(Outcome::THROTTLED, $tooMany->outcome);
     }
 }

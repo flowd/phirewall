@@ -14,27 +14,34 @@ if (!interface_exists(ClientInterface::class)) {
     {
         /** @return string|null */
         public function get(string $key);
+
         /** @return mixed */
         public function set(string $key, string $value, mixed ...$args);
+
         /**
          * @param array<int, string> $keys
          * @return mixed
          */
         public function del(array $keys);
+
         /**
          * @param array<string, mixed> $options
          * @return array{0:string,1:array<int,string>}
          */
         public function scan(string $cursor, array $options = []);
+
         /**
          * @param array<int, string> $keys
          * @return array<int, string|null>
          */
         public function mget(array $keys);
+
         /** @return int|bool */
         public function exists(string $key);
+
         /** @return mixed */
         public function eval(string $script, int $numkeys, string ...$keysAndArgs);
+
         /** @return int */
         public function ttl(string $key);
     }

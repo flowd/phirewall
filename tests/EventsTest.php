@@ -20,10 +20,11 @@ final class EventsTest extends TestCase
 {
     public function testSafelistAndBlocklistEventsAreDispatched(): void
     {
-        $cache = new InMemoryCache();
+        $inMemoryCache = new InMemoryCache();
         $dispatcher = new class () implements EventDispatcherInterface {
             /** @var list<object> */
             public array $events = [];
+
             public function dispatch(object $event): object
             {
                 $this->events[] = $event;
@@ -31,15 +32,15 @@ final class EventsTest extends TestCase
             }
         };
 
-        $config = new Config($cache, $dispatcher);
-        $config->safelist('health', fn($request) => $request->getUri()->getPath() === '/health');
-        $config->blocklist('admin', fn($request) => $request->getUri()->getPath() === '/admin');
+        $config = new Config($inMemoryCache, $dispatcher);
+        $config->safelist('health', fn($request): bool => $request->getUri()->getPath() === '/health');
+        $config->blocklist('admin', fn($request): bool => $request->getUri()->getPath() === '/admin');
 
         $firewall = new Firewall($config);
 
         // Safelist path triggers safelist event and passes
-        $result = $firewall->decide(new ServerRequest('GET', '/health'));
-        $this->assertTrue($result->isPass());
+        $firewallResult = $firewall->decide(new ServerRequest('GET', '/health'));
+        $this->assertTrue($firewallResult->isPass());
         $this->assertNotEmpty($dispatcher->events);
         $found = false;
         foreach ($dispatcher->events as $event) {
@@ -48,6 +49,7 @@ final class EventsTest extends TestCase
                 break;
             }
         }
+
         $this->assertTrue($found, 'SafelistMatched event not dispatched');
 
         // Blocklist path triggers blocklist event
@@ -63,15 +65,17 @@ final class EventsTest extends TestCase
                 break;
             }
         }
+
         $this->assertTrue($foundBlock, 'BlocklistMatched event not dispatched');
     }
 
     public function testThrottleExceededAndFail2BanBannedEventsAreDispatched(): void
     {
-        $cache = new InMemoryCache();
+        $inMemoryCache = new InMemoryCache();
         $dispatcher = new class () implements EventDispatcherInterface {
             /** @var list<object> */
             public array $events = [];
+
             public function dispatch(object $event): object
             {
                 $this->events[] = $event;
@@ -79,7 +83,7 @@ final class EventsTest extends TestCase
             }
         };
 
-        $config = new Config($cache, $dispatcher);
+        $config = new Config($inMemoryCache, $dispatcher);
         $config->throttle('ip', 1, 30, fn($request): ?string => $request->getServerParams()['REMOTE_ADDR'] ?? null);
 
         $config->fail2ban(
@@ -96,8 +100,8 @@ final class EventsTest extends TestCase
         // Throttle: first ok, second should exceed
         $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
         $this->assertTrue($firewall->decide($request)->isPass());
-        $second = $firewall->decide($request);
-        $this->assertSame(OUTCOME::THROTTLED, $second->outcome);
+        $firewallResult = $firewall->decide($request);
+        $this->assertSame(OUTCOME::THROTTLED, $firewallResult->outcome);
         $this->assertNotEmpty($dispatcher->events);
         $foundThrottle = false;
         foreach ($dispatcher->events as $event) {
@@ -106,14 +110,15 @@ final class EventsTest extends TestCase
                 break;
             }
         }
+
         $this->assertTrue($foundThrottle, 'ThrottleExceeded event not dispatched');
 
         // Fail2Ban: two failures trigger ban event
         $dispatcher->events = [];
-        $loginRequest = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '8.8.8.8']))
+        $serverRequest = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '8.8.8.8']))
             ->withHeader('X-Login-Failed', '1');
-        $this->assertTrue($firewall->decide($loginRequest)->isPass());
-        $firewall->decide($loginRequest);
+        $this->assertTrue($firewall->decide($serverRequest)->isPass());
+        $firewall->decide($serverRequest);
         $foundBan = false;
         /** @var list<object> $events */
         $events = $dispatcher->events;
@@ -123,6 +128,7 @@ final class EventsTest extends TestCase
                 break;
             }
         }
+
         $this->assertTrue($foundBan, 'Fail2BanBanned event not dispatched');
     }
 }

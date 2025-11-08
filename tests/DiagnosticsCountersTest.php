@@ -20,8 +20,8 @@ final class DiagnosticsCountersTest extends TestCase
         $config->blocklist('block-all', fn(): bool => true); // should be bypassed
 
         $firewall = new Firewall($config);
-        $result = $firewall->decide(new ServerRequest('GET', '/health'));
-        $this->assertTrue($result->isPass());
+        $firewallResult = $firewall->decide(new ServerRequest('GET', '/health'));
+        $this->assertTrue($firewallResult->isPass());
 
         $counters = $config->getDiagnosticsCounters();
         $this->assertArrayHasKey('safelisted', $counters);
@@ -35,10 +35,11 @@ final class DiagnosticsCountersTest extends TestCase
     {
         $config = new Config(new InMemoryCache());
         $config->blocklist('admin', fn($req): bool => $req->getUri()->getPath() === '/admin');
+
         $firewall = new Firewall($config);
 
-        $result = $firewall->decide(new ServerRequest('GET', '/admin'));
-        $this->assertTrue($result->isBlocked());
+        $firewallResult = $firewall->decide(new ServerRequest('GET', '/admin'));
+        $this->assertTrue($firewallResult->isBlocked());
 
         $counters = $config->getDiagnosticsCounters();
         $this->assertSame(1, $counters['blocklisted']['total'] ?? 0);
@@ -49,12 +50,13 @@ final class DiagnosticsCountersTest extends TestCase
     {
         $config = new Config(new InMemoryCache());
         $config->throttle('ip', 1, 10, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
+
         $firewall = new Firewall($config);
 
-        $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
-        $this->assertTrue($firewall->decide($request)->isPass());
-        $resp2 = $firewall->decide($request);
-        $this->assertSame(OUTCOME::THROTTLED, $resp2->outcome);
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
+        $this->assertTrue($firewall->decide($serverRequest)->isPass());
+        $firewallResult = $firewall->decide($serverRequest);
+        $this->assertSame(OUTCOME::THROTTLED, $firewallResult->outcome);
 
         $counters = $config->getDiagnosticsCounters();
         $this->assertSame(1, $counters['throttle_exceeded']['total'] ?? 0);
@@ -74,8 +76,8 @@ final class DiagnosticsCountersTest extends TestCase
         );
         $firewall = new Firewall($config);
 
-        $r = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
-        $fail = $r->withHeader('X-Login-Failed', '1');
+        $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
+        $fail = $serverRequest->withHeader('X-Login-Failed', '1');
         // two failures to trigger ban
         $this->assertTrue($firewall->decide($fail)->isPass());
         $this->assertTrue($firewall->decide($fail)->isPass());
@@ -86,8 +88,8 @@ final class DiagnosticsCountersTest extends TestCase
         $this->assertSame(1, $counters['fail2ban_banned']['by_rule']['login'] ?? 0);
 
         // Now a normal request should be blocked due to ban
-        $blocked = $firewall->decide($r);
-        $this->assertTrue($blocked->isBlocked());
+        $firewallResult = $firewall->decide($serverRequest);
+        $this->assertTrue($firewallResult->isBlocked());
         $counters = $config->getDiagnosticsCounters();
         $this->assertSame(1, $counters['fail2ban_blocked']['total'] ?? 0);
         $this->assertSame(1, $counters['fail2ban_blocked']['by_rule']['login'] ?? 0);
@@ -97,10 +99,11 @@ final class DiagnosticsCountersTest extends TestCase
     {
         $config = new Config(new InMemoryCache());
         $config->track('all', period: 60, filter: fn(): bool => true, key: fn(): string => 'k');
+
         $firewall = new Firewall($config);
 
-        $result = $firewall->decide(new ServerRequest('GET', '/'));
-        $this->assertTrue($result->isPass());
+        $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
+        $this->assertTrue($firewallResult->isPass());
         $counters = $config->getDiagnosticsCounters();
         $this->assertSame(1, $counters['track_hit']['total'] ?? 0);
         $this->assertSame(1, $counters['track_hit']['by_rule']['all'] ?? 0);

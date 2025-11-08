@@ -21,45 +21,48 @@ final readonly class Middleware implements MiddlewareInterface
         $this->firewall = new Http\Firewall($this->config);
     }
 
-    public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
+    public function process(ServerRequestInterface $serverRequest, RequestHandlerInterface $requestHandler): ResponseInterface
     {
-        $result = $this->firewall->decide($request);
+        $firewallResult = $this->firewall->decide($serverRequest);
 
-        if ($result->isBlocked()) {
+        if ($firewallResult->isBlocked()) {
             // Build a blocking response (403/429) using configured factories or PSR-17 if available
-            if ($result->outcome === Http\Outcome::THROTTLED) {
-                $retryAfter = $result->retryAfter ?? 1;
+            if ($firewallResult->outcome === Http\Outcome::THROTTLED) {
+                $retryAfter = $firewallResult->retryAfter ?? 1;
                 $factory = $this->config->getThrottledResponseFactory();
-                if ($factory !== null) {
-                    $response = $factory($result->rule ?? 'unknown', $retryAfter, $request);
+                if ($factory instanceof \Flowd\Phirewall\Config\Response\ThrottledResponseFactoryInterface) {
+                    $response = $factory->create($firewallResult->rule ?? 'unknown', $retryAfter, $serverRequest);
                 } else {
                     $response = $this->responseFactory->createResponse(429)->withHeader('Content-Type', 'text/plain');
                 }
+
                 // Ensure Retry-After is present
                 if ($response->getHeaderLine('Retry-After') === '') {
                     $response = $response->withHeader('Retry-After', (string)max(1, $retryAfter));
                 }
             } else {
                 $factory = $this->config->getBlocklistedResponseFactory();
-                if ($factory !== null) {
-                    $response = $factory($result->rule ?? 'unknown', $result->blockType ?? 'blocklist', $request);
+                if ($factory instanceof \Flowd\Phirewall\Config\Response\BlocklistedResponseFactoryInterface) {
+                    $response = $factory->create($firewallResult->rule ?? 'unknown', $firewallResult->blockType ?? 'blocklist', $serverRequest);
                 } else {
                     $response = $this->responseFactory->createResponse(403)->withHeader('Content-Type', 'text/plain');
                 }
             }
 
             // Apply standard and computed headers
-            foreach ($result->headers as $name => $value) {
+            foreach ($firewallResult->headers as $name => $value) {
                 $response = $response->withHeader($name, $value);
             }
+
             return $response;
         }
 
         // Pass-through: call next handler and apply headers (safelisted or ratelimit)
-        $response = $handler->handle($request);
-        foreach ($result->headers as $name => $value) {
+        $response = $requestHandler->handle($serverRequest);
+        foreach ($firewallResult->headers as $name => $value) {
             $response = $response->withHeader($name, $value);
         }
+
         return $response;
     }
 }

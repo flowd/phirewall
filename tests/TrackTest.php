@@ -16,10 +16,11 @@ final class TrackTest extends TestCase
 {
     public function testTrackEmitsEventsAndDoesNotAffectOutcome(): void
     {
-        $cache = new InMemoryCache();
+        $inMemoryCache = new InMemoryCache();
         $events = new class () implements EventDispatcherInterface {
             /** @var list<object> */
             public array $events = [];
+
             public function dispatch(object $event): object
             {
                 $this->events[] = $event;
@@ -27,7 +28,7 @@ final class TrackTest extends TestCase
             }
         };
 
-        $config = new Config($cache, $events);
+        $config = new Config($inMemoryCache, $events);
         $config->track(
             'login_failed',
             period: 60,
@@ -44,7 +45,7 @@ final class TrackTest extends TestCase
         $this->assertTrue($firewall->decide($request)->isPass());
 
         // Collect TrackHit events
-        $hits = array_values(array_filter($events->events, fn($e) => $e instanceof TrackHit));
+        $hits = array_values(array_filter($events->events, fn($e): bool => $e instanceof TrackHit));
         $this->assertCount(2, $hits);
         $this->assertInstanceOf(TrackHit::class, $hits[0]);
         $this->assertSame('login_failed', $hits[0]->rule);
@@ -56,10 +57,11 @@ final class TrackTest extends TestCase
 
     public function testTrackFilterFalseEmitsNoEvent(): void
     {
-        $cache = new InMemoryCache();
+        $inMemoryCache = new InMemoryCache();
         $events = new class () implements EventDispatcherInterface {
             /** @var list<object> */
             public array $events = [];
+
             public function dispatch(object $event): object
             {
                 $this->events[] = $event;
@@ -67,7 +69,7 @@ final class TrackTest extends TestCase
             }
         };
 
-        $config = new Config($cache, $events);
+        $config = new Config($inMemoryCache, $events);
         $config->track(
             'any',
             period: 30,
@@ -77,7 +79,7 @@ final class TrackTest extends TestCase
 
         $firewall = new Firewall($config);
         $this->assertTrue($firewall->decide(new ServerRequest('GET', '/'))->isPass());
-        $hits = array_values(array_filter($events->events, fn($e) => $e instanceof TrackHit));
+        $hits = array_values(array_filter($events->events, fn($e): bool => $e instanceof TrackHit));
         $this->assertCount(0, $hits);
     }
 }

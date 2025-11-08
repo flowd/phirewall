@@ -31,6 +31,7 @@ $meter  = null; // e.g., (new MeterProvider(...))->getMeter('app');
 
 $dispatcher = new class ($tracer, $meter) implements EventDispatcherInterface {
     public function __construct(private readonly ?object $tracer, private readonly ?object $meter) {}
+
     public function dispatch(object $event): object
     {
         $type = $event::class;
@@ -43,6 +44,7 @@ $dispatcher = new class ($tracer, $meter) implements EventDispatcherInterface {
                 // no-op
             }
         }
+
         // Optionally create very short spans for decision points
         if ($this->tracer && method_exists($this->tracer, 'spanBuilder')) {
             try {
@@ -54,6 +56,7 @@ $dispatcher = new class ($tracer, $meter) implements EventDispatcherInterface {
                 // no-op
             }
         }
+
         return $event;
     }
 };
@@ -66,14 +69,14 @@ $middleware = new Middleware($config, new Psr17Factory());
 // If executed directly, run a tiny demonstration
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     $handler = new class () implements RequestHandlerInterface {
-        public function handle(ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
+        public function handle(ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
         {
             return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
         }
     };
 
     $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.99']);
-    for ($i = 1; $i <= 5; $i++) {
+    for ($i = 1; $i <= 5; ++$i) {
         $response = $middleware->process($request, $handler);
         echo sprintf("Attempt %d => %d\n", $i, $response->getStatusCode());
     }

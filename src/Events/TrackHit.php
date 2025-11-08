@@ -13,7 +13,7 @@ final readonly class TrackHit
         public string $key,
         public int $period,
         public int $count,
-        public ServerRequestInterface $request,
+        public ServerRequestInterface $serverRequest,
     ) {
     }
 }

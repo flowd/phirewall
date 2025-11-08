@@ -17,17 +17,18 @@ use Psr\SimpleCache\CacheInterface;
 final readonly class RedisCache implements CacheInterface, CounterStoreInterface
 {
     public function __construct(
-        private ClientInterface $redis,
+        private ClientInterface $client,
         private string $namespace = 'Phirewall:'
     ) {
     }
 
     public function get(string $key, mixed $default = null): mixed
     {
-        $value = $this->redis->get($this->prefixKey($key));
+        $value = $this->client->get($this->prefixKey($key));
         if ($value === null) {
             return $default;
         }
+
         return $this->unserializeValue($value);
     }
 
@@ -36,18 +37,19 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
         $namespacedKey = $this->prefixKey($key);
         $payload = $this->serializeValue($value);
         if ($ttl === null) {
-            $this->redis->set($namespacedKey, $payload);
+            $this->client->set($namespacedKey, $payload);
             return true;
         }
+
         $seconds = $this->ttlToSeconds($ttl);
         // Use EX for seconds precision to keep parity with windowing
-        $this->redis->set($namespacedKey, $payload, 'EX', $seconds);
+        $this->client->set($namespacedKey, $payload, 'EX', $seconds);
         return true;
     }
 
     public function delete(string $key): bool
     {
-        $this->redis->del([$this->prefixKey($key)]);
+        $this->client->del([$this->prefixKey($key)]);
         return true;
     }
 
@@ -57,13 +59,14 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
         $cursor = '0';
         do {
             /** @var array{0:string,1:array<int,string>} $scan */
-            $scan = $this->redis->scan($cursor, ['MATCH' => $this->namespace . '*', 'COUNT' => 1000]);
+            $scan = $this->client->scan($cursor, ['MATCH' => $this->namespace . '*', 'COUNT' => 1000]);
             $cursor = (string)$scan[0];
             $keys = $scan[1];
             if ($keys !== []) {
-                $this->redis->del($keys);
+                $this->client->del($keys);
             }
         } while ($cursor !== '0');
+
         return true;
     }
 
@@ -76,14 +79,16 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
             $keyMapping[$this->prefixKey($stringKey)] = $stringKey;
             $namespacedKeys[] = $this->prefixKey($stringKey);
         }
-        $values = $namespacedKeys === [] ? [] : $this->redis->mget($namespacedKeys);
+
+        $values = $namespacedKeys === [] ? [] : $this->client->mget($namespacedKeys);
         $result = [];
         $index = 0;
-        foreach ($keyMapping as $namespacedKey => $original) {
+        foreach ($keyMapping as $original) {
             $raw = $values[$index] ?? null;
             $result[$original] = $raw === null ? $default : $this->unserializeValue($raw);
-            $index++;
+            ++$index;
         }
+
         return $result;
     }
 
@@ -96,6 +101,7 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
         foreach ($values as $key => $value) {
             $this->set((string)$key, $value, $ttlSeconds);
         }
+
         return true;
     }
 
@@ -105,15 +111,17 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
         foreach ($keys as $key) {
             $namespacedKeys[] = $this->prefixKey((string)$key);
         }
+
         if ($namespacedKeys !== []) {
-            $this->redis->del($namespacedKeys);
+            $this->client->del($namespacedKeys);
         }
+
         return true;
     }
 
     public function has(string $key): bool
     {
-        return (bool)$this->redis->exists($this->prefixKey($key));
+        return (bool)$this->client->exists($this->prefixKey($key));
     }
 
     /**
@@ -143,13 +151,18 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
         end
         return val
 LUA;
-        return (int)$this->redis->eval($script, 1, $namespacedKey, (string)$windowEnd);
+        $counter = $this->client->eval($script, 1, $namespacedKey, (string)$windowEnd);
+        if (is_scalar($counter)) {
+            return (int)$counter;
+        }
+
+        return 0;
     }
 
     public function ttlRemaining(string $key): int
     {
-        $ttl = $this->redis->ttl($this->prefixKey($key));
-        return $ttl > 0 ? $ttl : 0;
+        $ttl = $this->client->ttl($this->prefixKey($key));
+        return max($ttl, 0);
     }
 
     private function prefixKey(string $key): string
@@ -162,6 +175,7 @@ LUA;
         if (is_int($ttl)) {
             return $ttl;
         }
+
         $dateTime = new DateTimeImmutable();
         return $dateTime->add($ttl)->getTimestamp() - $dateTime->getTimestamp();
     }
@@ -172,9 +186,11 @@ LUA;
         if (is_int($value) || is_float($value) || is_string($value)) {
             return (string)$value;
         }
+
         if ($value === null) {
             return 'null';
         }
+
         return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     }
 
@@ -184,13 +200,16 @@ LUA;
         if ($raw === 'null') {
             return null;
         }
+
         // If numeric, cast accordingly
         if (is_numeric($raw)) {
             if (ctype_digit($raw)) {
                 return (int)$raw;
             }
+
             return (float)$raw;
         }
+
         // Attempt JSON decode; if fails, return raw string
         try {
             /** @var mixed $decoded */

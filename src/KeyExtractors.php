@@ -22,12 +22,13 @@ final class KeyExtractors
      */
     public static function ip(): Closure
     {
-        return static function (ServerRequestInterface $request): ?string {
-            $params = $request->getServerParams();
+        return static function (ServerRequestInterface $serverRequest): ?string {
+            $params = $serverRequest->getServerParams();
             $ip = $params['REMOTE_ADDR'] ?? null;
             if ($ip === null || $ip === '') {
                 return null;
             }
+
             // Basic normalization to string type
             return (string) $ip;
         };
@@ -39,8 +40,8 @@ final class KeyExtractors
      */
     public static function method(): Closure
     {
-        return static function (ServerRequestInterface $request): ?string {
-            $method = $request->getMethod();
+        return static function (ServerRequestInterface $serverRequest): ?string {
+            $method = $serverRequest->getMethod();
             return $method === '' ? null : strtoupper($method);
         };
     }
@@ -51,8 +52,8 @@ final class KeyExtractors
      */
     public static function path(): Closure
     {
-        return static function (ServerRequestInterface $request): string {
-            $path = $request->getUri()->getPath();
+        return static function (ServerRequestInterface $serverRequest): string {
+            $path = $serverRequest->getUri()->getPath();
             return $path === '' ? '/' : $path;
         };
     }
@@ -63,8 +64,8 @@ final class KeyExtractors
      */
     public static function header(string $name): Closure
     {
-        return static function (ServerRequestInterface $request) use ($name): ?string {
-            $value = $request->getHeaderLine($name);
+        return static function (ServerRequestInterface $serverRequest) use ($name): ?string {
+            $value = $serverRequest->getHeaderLine($name);
             return $value === '' ? null : $value;
         };
     }
@@ -82,8 +83,8 @@ final class KeyExtractors
      * Extract client IP using a TrustedProxyResolver. Safe for deployments behind trusted proxies.
      * @return Closure(ServerRequestInterface): ?string
      */
-    public static function clientIp(TrustedProxyResolver $resolver): Closure
+    public static function clientIp(TrustedProxyResolver $trustedProxyResolver): Closure
     {
-        return static fn(ServerRequestInterface $request): ?string => $resolver->resolve($request);
+        return static fn(ServerRequestInterface $serverRequest): ?string => $trustedProxyResolver->resolve($serverRequest);
     }
 }

@@ -22,12 +22,14 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
         if (!isset($this->data[$key])) {
             return $default;
         }
+
         $entry = $this->data[$key];
         $now = $this->clock?->now() ?? microtime(true);
         if ($entry['expires'] !== null && $entry['expires'] < $now) {
             unset($this->data[$key]);
             return $default;
         }
+
         return $entry['value'];
     }
 
@@ -56,6 +58,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
         foreach ($keys as $key) {
             $result[$key] = $this->get($key, $default);
         }
+
         return $result;
     }
 
@@ -67,6 +70,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
         foreach ($values as $key => $value) {
             $this->set((string)$key, $value, $ttl);
         }
+
         return true;
     }
 
@@ -75,6 +79,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
         foreach ($keys as $key) {
             $this->delete((string)$key);
         }
+
         return true;
     }
 
@@ -102,9 +107,14 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
             // move expiry to current window end
             $entry['expires'] = $windowEnd;
         }
-        $entry['value'] = (int)$entry['value'] + 1;
+
+        if (!is_int($entry['value'])) {
+            $entry['value'] = is_scalar($entry['value']) ? (int)$entry['value'] : 0;
+        }
+
+        ++$entry['value'];
         $this->data[$key] = $entry;
-        return (int)$entry['value'];
+        return $entry['value'];
     }
 
     public function ttlRemaining(string $key): int
@@ -113,22 +123,24 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
         if ($entry === null || $entry['expires'] === null) {
             return 0;
         }
+
         $now = $this->clock?->now() ?? microtime(true);
         $remaining = (int)ceil($entry['expires'] - $now);
         return max(0, $remaining);
     }
 
-    /** @return float|null */
     private function computeExpiry(null|int|DateInterval $timeToLive): ?float
     {
         if ($timeToLive === null) {
             return null;
         }
+
         if ($timeToLive instanceof DateInterval) {
             $currentDateTime = new \DateTimeImmutable();
             $expires = $currentDateTime->add($timeToLive)->getTimestamp();
             return (float)$expires;
         }
+
         $now = $this->clock?->now() ?? microtime(true);
         return $now + $timeToLive;
     }

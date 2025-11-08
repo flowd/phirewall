@@ -28,10 +28,12 @@ final class RecordingBlocker implements InfrastructureBlockerInterface
             if ($call['ip'] === $ipAddress && $call['op'] === 'block') {
                 return true;
             }
+
             if ($call['ip'] === $ipAddress && $call['op'] === 'unblock') {
                 return false;
             }
         }
+
         return false;
     }
 }

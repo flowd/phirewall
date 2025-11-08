@@ -32,6 +32,7 @@ $demoDir = sys_get_temp_dir() . '/phirewall_htaccess_example_' . bin2hex(random_
 if (!is_dir($demoDir) && !mkdir($demoDir, 0777, true) && !is_dir($demoDir)) {
     throw new \RuntimeException(sprintf('Directory "%s" was not created', $demoDir));
 }
+
 $htaccessPath = $demoDir . '/.htaccess';
 
 // Optional pre-existing content in .htaccess to show preservation behavior
@@ -76,15 +77,18 @@ $listener = new InfrastructureBanListener(
 
 // Minimal demo dispatcher that calls our listener methods for relevant events
 $dispatcher = new class ($listener) implements EventDispatcherInterface {
-    public function __construct(private readonly InfrastructureBanListener $listener) {}
+    public function __construct(private readonly InfrastructureBanListener $infrastructureBanListener) {}
+
     public function dispatch(object $event): object
     {
         if ($event instanceof Fail2BanBanned) {
-            $this->listener->onFail2BanBanned($event);
+            $this->infrastructureBanListener->onFail2BanBanned($event);
         }
+
         if ($event instanceof BlocklistMatched) {
-            $this->listener->onBlocklistMatched($event);
+            $this->infrastructureBanListener->onBlocklistMatched($event);
         }
+
         return $event;
     }
 };
@@ -97,18 +101,18 @@ $dispatcher->dispatch(new Fail2BanBanned(
     period: 300,
     banSeconds: 3600,
     count: 5,
-    request: new ServerRequest('GET', '/')
+    serverRequest: new ServerRequest('GET', '/')
 ));
 
 // Simulate a Blocklist match; listener maps request->REMOTE_ADDR to IP
 $dispatcher->dispatch(new BlocklistMatched(
     rule: 'block-admin',
-    request: new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.250'])
+    serverRequest: new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.250'])
 ));
 
 echo "After listener-driven blocks, managed section contains:\n";
 $contents = (string) file_get_contents($htaccessPath);
 echo $contents . "\n";
 
-echo "Demo .htaccess path: $htaccessPath\n";
+echo sprintf('Demo .htaccess path: %s%s', $htaccessPath, PHP_EOL);
 echo "You can inspect this file to see the managed section between markers.\n";

@@ -39,12 +39,13 @@ $config->enableRateLimitHeaders();
 $config->throttle('api_global_ip', 10, 60, KeyExtractors::clientIp($resolver));
 
 // Stricter limits for write endpoints (POST/PUT/PATCH/DELETE) under /api
-$config->throttle('api_write', 5, 60, function (ServerRequestInterface $request): ?string {
-    $method = strtoupper($request->getMethod());
-    $path = $request->getUri()->getPath();
+$config->throttle('api_write', 5, 60, function (ServerRequestInterface $serverRequest): ?string {
+    $method = strtoupper($serverRequest->getMethod());
+    $path = $serverRequest->getUri()->getPath();
     if (str_starts_with($path, '/api/') && in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
         return $method . ':' . $path; // method+path key
     }
+
     return null; // skip for other routes
 });
 
@@ -56,7 +57,7 @@ $middleware = new Middleware($config, new Psr17Factory());
 // If executed directly, run a small demonstration without relying on external code.
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     $handler = new class () implements RequestHandlerInterface {
-        public function handle(ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
+        public function handle(ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
         {
             return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
         }
@@ -73,12 +74,13 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
                 echo $h . ': ' . $val . "\n";
             }
         }
+
         echo "\n";
     };
 
     // Demonstrate a couple of requests
     $run('GET', '/api/users', [], ['REMOTE_ADDR' => '198.51.100.1']);
-    for ($i = 1; $i <= 10; $i++) {
+    for ($i = 1; $i <= 10; ++$i) {
         $run('POST', '/api/users', ['X-User-Id' => '42'], ['REMOTE_ADDR' => '198.51.100.1']);
     }
 

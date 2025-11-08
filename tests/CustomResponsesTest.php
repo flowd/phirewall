@@ -17,7 +17,7 @@ final class CustomResponsesTest extends TestCase
     private function handler(): \Psr\Http\Server\RequestHandlerInterface
     {
         return new class () implements \Psr\Http\Server\RequestHandlerInterface {
-            public function handle(\Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
+            public function handle(\Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
             {
                 return new Response(200);
             }
@@ -26,14 +26,14 @@ final class CustomResponsesTest extends TestCase
 
     public function testCustomBlocklistedResponseIsUsedForBlocklistAndFail2Ban(): void
     {
-        $cache = new InMemoryCache();
-        $config = new Config($cache);
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
 
         // Block everything via blocklist
         $config->blocklist('all', fn($request): bool => true);
 
         // Custom blocklisted response factory
-        $config->blocklistedResponse(function (string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface {
+        $config->blocklistedResponse(function (string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface {
             // Return a JSON 451 just for testing; middleware should still add X-Phirewall headers
             $body = json_encode(['blocked' => $rule, 'type' => $type], JSON_THROW_ON_ERROR);
             return new Response(451, ['Content-Type' => 'application/json'], $body);
@@ -47,8 +47,8 @@ final class CustomResponsesTest extends TestCase
         $this->assertSame('application/json', $response->getHeaderLine('Content-Type'));
 
         // Now test fail2ban uses the same factory and attaches correct type
-        $cache->clear();
-        $config = new Config($cache);
+        $inMemoryCache->clear();
+        $config = new Config($inMemoryCache);
         $config->fail2ban(
             'login',
             1,
@@ -57,7 +57,8 @@ final class CustomResponsesTest extends TestCase
             filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
             key: fn($request): string => 'ip-1'
         );
-        $config->blocklistedResponse(fn(string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface => new Response(499, ['X-Custom' => $type]));
+        $config->blocklistedResponse(fn(string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface => new Response(499, ['X-Custom' => $type]));
+
         $middleware = new Middleware($config, new Psr17Factory());
         $handler = $this->handler();
         // One failure to trigger ban
@@ -73,12 +74,12 @@ final class CustomResponsesTest extends TestCase
 
     public function testCustomThrottledResponseIsUsedAndRetryAfterEnsured(): void
     {
-        $cache = new InMemoryCache();
-        $config = new Config($cache);
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
         $config->throttle('ip', 0, 30, fn($request): string => '1.2.3.4');
 
         // Custom throttled response without Retry-After header
-        $config->throttledResponse(fn(string $rule, int $retryAfter, \Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface => new Response(429, ['X-Custom' => 'yes']));
+        $config->throttledResponse(fn(string $rule, int $retryAfter, \Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface => new Response(429, ['X-Custom' => 'yes']));
 
         $middleware = new Middleware($config, new Psr17Factory());
         $handler = $this->handler();

@@ -24,8 +24,8 @@ final class InfrastructureBanListener
     private $requestToIp;
 
     public function __construct(
-        private readonly InfrastructureBlockerInterface $adapter,
-        private readonly NonBlockingRunnerInterface $runner,
+        private readonly InfrastructureBlockerInterface $infrastructureBlocker,
+        private readonly NonBlockingRunnerInterface $nonBlockingRunner,
         /** If true, call adapter on Fail2Ban bans (default true). */
         private readonly bool $blockOnFail2Ban = true,
         /** If true, call adapter on Blocklist matches using request IP (default false). */
@@ -43,26 +43,28 @@ final class InfrastructureBanListener
         ?callable $requestToIp = null,
     ) {
         $this->keyToIp = $keyToIp ?? static fn(string $key): string => $key;
-        $this->requestToIp = $requestToIp ?? static function (ServerRequestInterface $request): ?string {
-            $params = $request->getServerParams();
+        $this->requestToIp = $requestToIp ?? static function (ServerRequestInterface $serverRequest): ?string {
+            $params = $serverRequest->getServerParams();
             $ip = $params['REMOTE_ADDR'] ?? null;
             return is_string($ip) ? $ip : null;
         };
     }
 
     /** Listener for Fail2Ban bans. */
-    public function onFail2BanBanned(Fail2BanBanned $event): void
+    public function onFail2BanBanned(Fail2BanBanned $fail2BanBanned): void
     {
         if (!$this->blockOnFail2Ban) {
             return;
         }
-        $ip = ($this->keyToIp)($event->key);
+
+        $ip = ($this->keyToIp)($fail2BanBanned->key);
         if (!is_string($ip) || $ip === '') {
             return; // cannot map to IP; skip
         }
-        $this->runner->run(function () use ($ip): void {
+
+        $this->nonBlockingRunner->run(function () use ($ip): void {
             try {
-                $this->adapter->blockIp($ip);
+                $this->infrastructureBlocker->blockIp($ip);
             } catch (\Throwable) {
                 // Intentionally swallow to keep non-blocking semantics
             }
@@ -70,18 +72,20 @@ final class InfrastructureBanListener
     }
 
     /** Listener for Blocklist matches. */
-    public function onBlocklistMatched(BlocklistMatched $event): void
+    public function onBlocklistMatched(BlocklistMatched $blocklistMatched): void
     {
         if (!$this->blockOnBlocklist) {
             return;
         }
-        $ip = ($this->requestToIp)($event->request);
+
+        $ip = ($this->requestToIp)($blocklistMatched->serverRequest);
         if (!is_string($ip) || $ip === '') {
             return;
         }
-        $this->runner->run(function () use ($ip): void {
+
+        $this->nonBlockingRunner->run(function () use ($ip): void {
             try {
-                $this->adapter->blockIp($ip);
+                $this->infrastructureBlocker->blockIp($ip);
             } catch (\Throwable) {
                 // swallow
             }

@@ -15,7 +15,7 @@ final readonly class Fail2BanBanned
         public int $period,
         public int $banSeconds,
         public int $count,
-        public ServerRequestInterface $request,
+        public ServerRequestInterface $serverRequest,
     ) {
     }
 }

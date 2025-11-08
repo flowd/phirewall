@@ -15,56 +15,57 @@ final class FirewallTest extends TestCase
 {
     public function testSafelistBypassesOtherRules(): void
     {
-        $cache = new InMemoryCache();
-        $config = new Config($cache);
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
         $config->safelist('healthcheck', fn($request): bool => $request->getUri()->getPath() === '/health');
         $config->blocklist('block-all', function ($request): bool {
             return true; // should be bypassed by safelist
         });
 
         $firewall = new Firewall($config);
-        $request = new ServerRequest('GET', '/health');
-        $result = $firewall->decide($request);
-        $this->assertTrue($result->isPass());
-        $this->assertSame(Outcome::SAFELISTED, $result->outcome);
-        $this->assertSame('healthcheck', $result->headers['X-Phirewall-Safelist'] ?? '');
+        $serverRequest = new ServerRequest('GET', '/health');
+        $firewallResult = $firewall->decide($serverRequest);
+        $this->assertTrue($firewallResult->isPass());
+        $this->assertSame(Outcome::SAFELISTED, $firewallResult->outcome);
+        $this->assertSame('healthcheck', $firewallResult->headers['X-Phirewall-Safelist'] ?? '');
     }
 
     public function testBlocklistBlocks(): void
     {
-        $cache = new InMemoryCache();
-        $config = new Config($cache);
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
         $config->blocklist('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
 
         $firewall = new Firewall($config);
-        $request = new ServerRequest('GET', '/admin');
-        $result = $firewall->decide($request);
-        $this->assertTrue($result->isBlocked());
-        $this->assertSame(Outcome::BLOCKED, $result->outcome);
-        $this->assertSame('blocklist', $result->headers['X-Phirewall'] ?? '');
-        $this->assertSame('blockedPath', $result->headers['X-Phirewall-Matched'] ?? '');
+        $serverRequest = new ServerRequest('GET', '/admin');
+        $firewallResult = $firewall->decide($serverRequest);
+        $this->assertTrue($firewallResult->isBlocked());
+        $this->assertSame(Outcome::BLOCKED, $firewallResult->outcome);
+        $this->assertSame('blocklist', $firewallResult->headers['X-Phirewall'] ?? '');
+        $this->assertSame('blockedPath', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
     }
 
     public function testThrottle429AndRetryAfter(): void
     {
-        $cache = new InMemoryCache();
-        $config = new Config($cache);
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
         $config->throttle('ip', 2, 10, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
+
         $firewall = new Firewall($config);
 
-        $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
-        $this->assertTrue($firewall->decide($request)->isPass());
-        $this->assertTrue($firewall->decide($request)->isPass());
-        $third = $firewall->decide($request);
-        $this->assertSame(Outcome::THROTTLED, $third->outcome);
-        $retryAfter = (int)($third->headers['Retry-After'] ?? '0');
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertTrue($firewall->decide($serverRequest)->isPass());
+        $this->assertTrue($firewall->decide($serverRequest)->isPass());
+        $firewallResult = $firewall->decide($serverRequest);
+        $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
+        $retryAfter = (int)($firewallResult->headers['Retry-After'] ?? '0');
         $this->assertGreaterThanOrEqual(1, $retryAfter);
     }
 
     public function testFail2BanBlocksAfterThreshold(): void
     {
-        $cache = new InMemoryCache();
-        $config = new Config($cache);
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
         $config->fail2ban(
             'login',
             2,
@@ -75,16 +76,16 @@ final class FirewallTest extends TestCase
         );
         $firewall = new Firewall($config);
 
-        $request = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
+        $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
         // First failure
-        $failedRequest = $request->withHeader('X-Login-Failed', '1');
+        $failedRequest = $serverRequest->withHeader('X-Login-Failed', '1');
         $this->assertTrue($firewall->decide($failedRequest)->isPass());
         // Second failure -> hits threshold and sets ban
         $this->assertTrue($firewall->decide($failedRequest)->isPass());
         // Now even a normal request should be banned
-        $result = $firewall->decide($request);
-        $this->assertTrue($result->isBlocked());
-        $this->assertSame('fail2ban', $result->headers['X-Phirewall'] ?? '');
-        $this->assertSame('login', $result->headers['X-Phirewall-Matched'] ?? '');
+        $firewallResult = $firewall->decide($serverRequest);
+        $this->assertTrue($firewallResult->isBlocked());
+        $this->assertSame('fail2ban', $firewallResult->headers['X-Phirewall'] ?? '');
+        $this->assertSame('login', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
     }
 }

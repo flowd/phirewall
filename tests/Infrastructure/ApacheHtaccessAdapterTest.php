@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 final class ApacheHtaccessAdapterTest extends TestCase
 {
     private string $tmpDir = '';
+
     private string $htaccess = '';
 
     protected function setUp(): void
@@ -24,6 +25,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
         if (is_file($this->htaccess)) {
             @unlink($this->htaccess);
         }
+
         if (is_dir($this->tmpDir)) {
             @rmdir($this->tmpDir);
         }
@@ -35,11 +37,11 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $initial = "Options -Indexes\n\n# Other config\n";
         file_put_contents($this->htaccess, $initial);
 
-        $adapter = new ApacheHtaccessAdapter($this->htaccess);
-        $adapter->blockIp('203.0.113.10');
-        $adapter->blockIp('2001:db8::1'); // IPv6
+        $apacheHtaccessAdapter = new ApacheHtaccessAdapter($this->htaccess);
+        $apacheHtaccessAdapter->blockIp('203.0.113.10');
+        $apacheHtaccessAdapter->blockIp('2001:db8::1'); // IPv6
         // Duplicate should be idempotent
-        $adapter->blockIp('203.0.113.10');
+        $apacheHtaccessAdapter->blockIp('203.0.113.10');
 
         $content = (string)file_get_contents($this->htaccess);
         $this->assertStringContainsString('# BEGIN Phirewall', $content);
@@ -48,31 +50,31 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $this->assertStringContainsString('Require not ip 2001:db8::1', $content);
 
         // Unblock one
-        $adapter->unblockIp('203.0.113.10');
+        $apacheHtaccessAdapter->unblockIp('203.0.113.10');
         $content2 = (string)file_get_contents($this->htaccess);
         $this->assertStringNotContainsString('Require not ip 203.0.113.10', $content2);
         $this->assertStringContainsString('Require not ip 2001:db8::1', $content2);
 
         // Unblock missing should be idempotent (no exception)
-        $adapter->unblockIp('203.0.113.10');
+        $apacheHtaccessAdapter->unblockIp('203.0.113.10');
         $content3 = (string)file_get_contents($this->htaccess);
         $this->assertStringNotContainsString('Require not ip 203.0.113.10', $content3);
     }
 
     public function testIsBlockedReflectsState(): void
     {
-        $adapter = new ApacheHtaccessAdapter($this->htaccess);
-        $this->assertFalse($adapter->isBlocked('203.0.113.11'));
-        $adapter->blockIp('203.0.113.11');
-        $this->assertTrue($adapter->isBlocked('203.0.113.11'));
-        $adapter->unblockIp('203.0.113.11');
-        $this->assertFalse($adapter->isBlocked('203.0.113.11'));
+        $apacheHtaccessAdapter = new ApacheHtaccessAdapter($this->htaccess);
+        $this->assertFalse($apacheHtaccessAdapter->isBlocked('203.0.113.11'));
+        $apacheHtaccessAdapter->blockIp('203.0.113.11');
+        $this->assertTrue($apacheHtaccessAdapter->isBlocked('203.0.113.11'));
+        $apacheHtaccessAdapter->unblockIp('203.0.113.11');
+        $this->assertFalse($apacheHtaccessAdapter->isBlocked('203.0.113.11'));
     }
 
     public function testInvalidIpThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $adapter = new ApacheHtaccessAdapter($this->htaccess);
-        $adapter->blockIp('not_an_ip');
+        $apacheHtaccessAdapter = new ApacheHtaccessAdapter($this->htaccess);
+        $apacheHtaccessAdapter->blockIp('not_an_ip');
     }
 }

@@ -20,6 +20,7 @@ use RuntimeException;
 final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInterface
 {
     private const BEGIN_MARK = '# BEGIN Phirewall';
+
     private const END_MARK   = '# END Phirewall';
 
     public function __construct(
@@ -48,9 +49,9 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
      */
     public function isBlocked(string $ipAddress): bool
     {
-        $ip = self::normalizeIp($ipAddress);
+        $ip = $this->normalizeIp($ipAddress);
         [, $managed, ] = $this->readSections();
-        $entries = self::parseManaged($managed);
+        $entries = $this->parseManaged($managed);
         return in_array($ip, $entries, true);
     }
 
@@ -67,18 +68,21 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
         if ($ipAddresses === []) {
             return; // nothing to do
         }
+
         // Normalize all first to ensure all-or-nothing semantics
         $toAdd = [];
-        foreach ($ipAddresses as $addr) {
-            $toAdd[] = self::normalizeIp((string)$addr);
+        foreach ($ipAddresses as $ipAddress) {
+            $toAdd[] = $this->normalizeIp((string)$ipAddress);
         }
+
         [$before, $managed, $after] = $this->readSections();
-        $entries = self::parseManaged($managed);
+        $entries = $this->parseManaged($managed);
         foreach ($toAdd as $ip) {
             if (!in_array($ip, $entries, true)) {
                 $entries[] = $ip;
             }
         }
+
         $this->writeSections($before, $entries, $after);
     }
 
@@ -95,12 +99,14 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
         if ($ipAddresses === []) {
             return; // nothing to do
         }
+
         $toRemove = [];
-        foreach ($ipAddresses as $addr) {
-            $toRemove[] = self::normalizeIp((string)$addr);
+        foreach ($ipAddresses as $ipAddress) {
+            $toRemove[] = $this->normalizeIp((string)$ipAddress);
         }
+
         [$before, $managed, $after] = $this->readSections();
-        $current = self::parseManaged($managed);
+        $current = $this->parseManaged($managed);
         $removeSet = array_flip($toRemove);
         $entries = array_values(array_filter(
             $current,
@@ -109,7 +115,7 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
         $this->writeSections($before, $entries, $after);
     }
 
-    private static function normalizeIp(string $ipAddress): string
+    private function normalizeIp(string $ipAddress): string
     {
         $ipAddress = trim($ipAddress);
         if ('' === $ipAddress) {
@@ -129,12 +135,15 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
             if ($packed === false) {
                 throw new InvalidArgumentException('Invalid IPv6 address: ' . $ipAddress);
             }
+
             $normalized = inet_ntop($packed);
             if ($normalized === false) {
                 throw new InvalidArgumentException('Invalid IPv6 address: ' . $ipAddress);
             }
+
             $ipAddress = $normalized;
         }
+
         return $ipAddress;
     }
 
@@ -147,6 +156,7 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
         if (file_exists($this->htaccessPath)) {
             $content = (string) @file_get_contents($this->htaccessPath);
         }
+
         if ($content === '') {
             // No managed section yet
             return [$content, '', ''];
@@ -175,7 +185,7 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
      * @param string $managedBody Content between markers (excluding markers)
      * @return list<string> list of IP addresses
      */
-    private static function parseManaged(string $managedBody): array
+    private function parseManaged(string $managedBody): array
     {
         $lines = preg_split('/\r?\n/', trim($managedBody)) ?: [];
         $entries = [];
@@ -184,6 +194,7 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
             if ($line === '') {
                 continue;
             }
+
             // Expect lines like: Require not ip 1.2.3.4
             if (preg_match('/^Require\s+not\s+ip\s+(.+)$/i', $line, $m) === 1) {
                 $ip = trim($m[1]);
@@ -192,6 +203,7 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
                 }
             }
         }
+
         // Keep unique and stable order
         $entries = array_values(array_unique($entries));
         return $entries;
@@ -203,9 +215,10 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
     private function writeSections(string $before, array $entries, string $after): void
     {
         $managedBody = '';
-        foreach ($entries as $ip) {
-            $managedBody .= 'Require not ip ' . $ip . "\n";
+        foreach ($entries as $entry) {
+            $managedBody .= 'Require not ip ' . $entry . "\n";
         }
+
         $newContent = rtrim($before)
             . (rtrim($before) === '' ? '' : "\n\n")
             . self::BEGIN_MARK . "\n"

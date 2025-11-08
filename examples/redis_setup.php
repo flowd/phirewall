@@ -21,29 +21,33 @@ use Psr\Http\Server\RequestHandlerInterface;
  *
  * Set REDIS_URL env var if desired (e.g., redis://localhost:6379/0)
  */
-
 // If Predis is not installed or Redis is unavailable, this example will print a helpful message when executed directly.
-if (!class_exists(\Predis\Client::class)) {
-    // Fallback stub to allow including the file without fatal errors
-    if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
-        fwrite(STDERR, "Predis is not installed. Run: composer require predis/predis\n");
-        exit(0);
-    }
+// Fallback stub to allow including the file without fatal errors
+if (!class_exists(\Predis\Client::class) && realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
+    fwrite(STDERR, "Predis is not installed. Run: composer require predis/predis\n");
+    exit(0);
 }
 
 // @phpstan-ignore-next-line - Predis may not be installed in all environments
 $redisClient = class_exists(\Predis\Client::class) ? new \Predis\Client(getenv('REDIS_URL') ?: 'redis://localhost:6379') : null;
 
-if ($redisClient === null) {
+if (!$redisClient instanceof \Predis\Client) {
     // Provide a no-op return when included
     $config = new Config(new class implements \Psr\SimpleCache\CacheInterface {
         public function get(string $key, mixed $default = null): mixed { return $default; }
+
         public function set(string $key, mixed $value, null|int|\DateInterval $ttl = null): bool { return true; }
+
         public function delete(string $key): bool { return true; }
+
         public function clear(): bool { return true; }
+
         public function getMultiple(iterable $keys, mixed $default = null): iterable { return []; }
+
         public function setMultiple(iterable $values, null|int|\DateInterval $ttl = null): bool { return true; }
+
         public function deleteMultiple(iterable $keys): bool { return true; }
+
         public function has(string $key): bool { return false; }
     });
     $middleware = new Middleware($config, new Psr17Factory());
@@ -81,7 +85,7 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     }
 
     $handler = new class () implements RequestHandlerInterface {
-        public function handle(\Psr\Http\Message\ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
+        public function handle(\Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
         {
             return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
         }
@@ -98,6 +102,7 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
                 echo $h . ': ' . $val . "\n";
             }
         }
+
         echo "\n";
     };
 
