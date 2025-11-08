@@ -31,15 +31,15 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
         return $this->unserializeValue($value);
     }
 
-    public function set(string $key, mixed $value, null|int|DateInterval $timeToLive = null): bool
+    public function set(string $key, mixed $value, null|int|DateInterval $ttl = null): bool
     {
         $namespacedKey = $this->prefixKey($key);
         $payload = $this->serializeValue($value);
-        if ($timeToLive === null) {
+        if ($ttl === null) {
             $this->redis->set($namespacedKey, $payload);
             return true;
         }
-        $seconds = $this->ttlToSeconds($timeToLive);
+        $seconds = $this->ttlToSeconds($ttl);
         // Use EX for seconds precision to keep parity with windowing
         $this->redis->set($namespacedKey, $payload, 'EX', $seconds);
         return true;
@@ -88,13 +88,13 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
     }
 
     /**
-     * @param iterable<string, mixed> $values
+     * @param iterable<string|int, mixed> $values
      */
-    public function setMultiple(iterable $values, null|int|DateInterval $timeToLive = null): bool
+    public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
     {
-        $timeToLiveSeconds = $timeToLive === null ? null : $this->ttlToSeconds($timeToLive);
+        $ttlSeconds = $ttl === null ? null : $this->ttlToSeconds($ttl);
         foreach ($values as $key => $value) {
-            $this->set((string)$key, $value, $timeToLiveSeconds);
+            $this->set((string)$key, $value, $ttlSeconds);
         }
         return true;
     }
@@ -143,14 +143,12 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
         end
         return val
 LUA;
-        /** @var int $val */
-        $val = (int)$this->redis->eval($script, 1, $namespacedKey, (string)$windowEnd);
-        return $val;
+        return (int)$this->redis->eval($script, 1, $namespacedKey, (string)$windowEnd);
     }
 
     public function ttlRemaining(string $key): int
     {
-        $ttl = (int)$this->redis->ttl($this->prefixKey($key));
+        $ttl = $this->redis->ttl($this->prefixKey($key));
         return $ttl > 0 ? $ttl : 0;
     }
 

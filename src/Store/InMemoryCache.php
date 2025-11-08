@@ -31,9 +31,9 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
         return $entry['value'];
     }
 
-    public function set(string $key, mixed $value, null|int|DateInterval $timeToLive = null): bool
+    public function set(string $key, mixed $value, null|int|DateInterval $ttl = null): bool
     {
-        $expires = $this->computeExpiry($timeToLive);
+        $expires = $this->computeExpiry($ttl);
         $this->data[$key] = ['value' => $value, 'expires' => $expires];
         return true;
     }
@@ -60,12 +60,12 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
     }
 
     /**
-         * @param iterable<string, mixed> $values
+         * @param iterable<string|int, mixed> $values
          */
-    public function setMultiple(iterable $values, null|int|DateInterval $timeToLive = null): bool
+    public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
     {
         foreach ($values as $key => $value) {
-            $this->set((string)$key, $value, $timeToLive);
+            $this->set((string)$key, $value, $ttl);
         }
         return true;
     }

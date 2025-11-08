@@ -1,5 +1,12 @@
-.build
+.build/
+.vscode/
+.idea/
+.junie/
+/vendor/
+
 .php-cs-fixer.cache
 .phpunit.result.cache
-/vendor
 composer.lock
+.aiignore
+TODO.md
+.DS_Store

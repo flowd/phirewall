@@ -15,7 +15,7 @@ final class SyncNonBlockingRunner implements NonBlockingRunnerInterface
     {
         try {
             $task();
-        } catch (\Throwable $e) {
+        } catch (\Throwable) {
             // Swallow to avoid affecting request lifecycle; real impl could log
         }
     }

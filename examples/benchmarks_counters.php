@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
+use Flowd\Phirewall\Store\ApcuCache;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Flowd\Phirewall\Store\RedisCache;
 
@@ -30,13 +31,13 @@ $period = 5; // seconds; large enough to avoid rollover during tight loop
 $mem = new InMemoryCache();
 $keyBase = 'bench:mem:' . bin2hex(random_bytes(4));
 
-bench('InMemory increment', function (int $n) use ($mem, $period, $keyBase): void {
+bench('InMemory increment', static function (int $n) use ($mem, $period, $keyBase): void {
     for ($i = 0; $i < $n; $i++) {
         $mem->increment($keyBase . ':' . ($i % 16), $period);
     }
 });
 
-bench('InMemory ttlRemaining', function (int $n) use ($mem, $keyBase): void {
+bench('InMemory ttlRemaining', static function (int $n) use ($mem, $keyBase): void {
     // ensure keys exist
     for ($i = 0; $i < 16; $i++) {
         $mem->set($keyBase . ':ttl:' . $i, 1, 10);
@@ -58,13 +59,13 @@ if ($redisUrl && class_exists(\Predis\Client::class)) {
         $redis = new RedisCache($client, 'Phirewall:bench:');
         $rkeyBase = 'bench:redis:' . bin2hex(random_bytes(4));
 
-        bench('Redis increment', function (int $n) use ($redis, $period, $rkeyBase): void {
+        bench('Redis increment', static function (int $n) use ($redis, $period, $rkeyBase): void {
             for ($i = 0; $i < $n; $i++) {
                 $redis->increment($rkeyBase . ':' . ($i % 16), $period);
             }
         });
 
-        bench('Redis ttlRemaining', function (int $n) use ($redis, $rkeyBase): void {
+        bench('Redis ttlRemaining', static function (int $n) use ($redis, $rkeyBase): void {
             // ensure keys exist
             for ($i = 0; $i < 16; $i++) {
                 $redis->set($rkeyBase . ':ttl:' . $i, 1, 10);
@@ -82,4 +83,32 @@ if ($redisUrl && class_exists(\Predis\Client::class)) {
     } elseif (!class_exists(\Predis\Client::class)) {
         fwrite(STDERR, "[INFO] Predis not installed; run composer require predis/predis to include Redis benchmarks.\n");
     }
+}
+
+// Optional APCU benchmarks if APCU is available
+if (function_exists('apcu_enabled') && apcu_enabled()) {
+    try {
+        $mem = new ApcuCache();
+        $keyBase = 'bench:apcu:' . bin2hex(random_bytes(4));
+
+        bench('APCU increment', static function (int $n) use ($mem, $period, $keyBase): void {
+            for ($i = 0; $i < $n; $i++) {
+                $mem->increment($keyBase . ':' . ($i % 16), $period);
+            }
+        });
+
+        bench('APCU ttlRemaining', static function (int $n) use ($mem, $keyBase): void {
+            // ensure keys exist
+            for ($i = 0; $i < 16; $i++) {
+                $mem->set($keyBase . ':ttl:' . $i, 1, 10);
+            }
+            for ($i = 0; $i < $n; $i++) {
+                $mem->ttlRemaining($keyBase . ':ttl:' . ($i % 16));
+            }
+        });
+    } catch (Throwable $e) {
+        fwrite(STDERR, "[WARN] APCU benchmarks skipped: " . $e->getMessage() . "\n");
+    }
+} else {
+    fwrite(STDERR, "[INFO] Enable APCU to include APCU benchmarks.\n");
 }

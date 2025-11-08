@@ -317,9 +317,7 @@ final class PortableConfig
             'ip' => KeyExtractors::ip(),
             'method' => KeyExtractors::method(),
             'path' => KeyExtractors::path(),
-            'header' => (static function (string $name): \Closure {
-                return KeyExtractors::header($name);
-            })((string)($key['name'] ?? '')),
+            'header' => (static fn(string $name): \Closure => KeyExtractors::header($name))((string)($key['name'] ?? '')),
             default => throw new \InvalidArgumentException('Unsupported key extractor type: ' . $type),
         };
     }

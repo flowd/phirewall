@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Http;
 
-final class FirewallResult
+final readonly class FirewallResult
 {
     /** @param array<string,string> $headers */
     private function __construct(
-        public readonly Outcome $outcome,
-        public readonly ?string $rule,
-        public readonly ?string $blockType,
-        public readonly ?int $retryAfter,
-        public readonly array $headers,
+        public Outcome $outcome,
+        public ?string $rule,
+        public ?string $blockType,
+        public ?int $retryAfter,
+        public array $headers,
     ) {
     }
 

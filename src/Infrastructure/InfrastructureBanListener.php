@@ -63,7 +63,7 @@ final class InfrastructureBanListener
         $this->runner->run(function () use ($ip): void {
             try {
                 $this->adapter->blockIp($ip);
-            } catch (\Throwable $e) {
+            } catch (\Throwable) {
                 // Intentionally swallow to keep non-blocking semantics
             }
         });
@@ -82,7 +82,7 @@ final class InfrastructureBanListener
         $this->runner->run(function () use ($ip): void {
             try {
                 $this->adapter->blockIp($ip);
-            } catch (\Throwable $e) {
+            } catch (\Throwable) {
                 // swallow
             }
         });

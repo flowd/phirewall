@@ -29,9 +29,9 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
         return $value;
     }
 
-    public function set(string $key, mixed $value, null|int|DateInterval $timeToLive = null): bool
+    public function set(string $key, mixed $value, null|int|DateInterval $ttl = null): bool
     {
-        $ttl = $this->ttlToSeconds($timeToLive);
+        $ttl = $this->ttlToSeconds($ttl);
         if ($ttl !== null && $ttl < 0) {
             // Expired
             apcu_delete($key);
@@ -63,12 +63,12 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
     }
 
     /**
-     * @param iterable<string, mixed> $values
+     * @param iterable<string|int, mixed> $values
      */
-    public function setMultiple(iterable $values, null|int|DateInterval $timeToLive = null): bool
+    public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
     {
         foreach ($values as $key => $value) {
-            $this->set((string)$key, $value, $timeToLive);
+            $this->set((string)$key, $value, $ttl);
         }
         return true;
     }

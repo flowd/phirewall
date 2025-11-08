@@ -13,9 +13,9 @@ use Flowd\Phirewall\Events\TrackHit;
 use Flowd\Phirewall\Store\CounterStoreInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
-final class Firewall
+final readonly class Firewall
 {
-    public function __construct(private readonly Config $config)
+    public function __construct(private Config $config)
     {
     }
 

@@ -17,13 +17,13 @@ use RuntimeException;
  * Within this section, it writes "Require not ip <IP>" lines using mod_authz_core syntax
  * (Apache 2.4+). It preserves content outside the managed section.
  */
-final class ApacheHtaccessAdapter implements InfrastructureBlockerInterface
+final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInterface
 {
     private const BEGIN_MARK = '# BEGIN Phirewall';
     private const END_MARK   = '# END Phirewall';
 
     public function __construct(
-        private readonly string $htaccessPath,
+        private string $htaccessPath,
     ) {
     }
 
@@ -146,9 +146,10 @@ final class ApacheHtaccessAdapter implements InfrastructureBlockerInterface
         $content = '';
         if (file_exists($this->htaccessPath)) {
             $content = (string) @file_get_contents($this->htaccessPath);
-            if ($content === '') {
-                // allow empty
-            }
+        }
+        if ($content === '') {
+            // No managed section yet
+            return [$content, '', ''];
         }
 
         $beginPos = strpos($content, self::BEGIN_MARK);
@@ -167,7 +168,7 @@ final class ApacheHtaccessAdapter implements InfrastructureBlockerInterface
         );
         $after = substr($content, $endPos + strlen(self::END_MARK));
 
-        return [$before, (string) $managed, (string) $after];
+        return [$before, $managed, $after];
     }
 
     /**
