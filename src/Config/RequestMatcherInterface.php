@@ -7,9 +7,9 @@ namespace Flowd\Phirewall\Config;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * A typed matcher for inspecting a request and deciding if it matches.
+ * A typed matcher for inspecting a request and returning a rich MatchResult.
  */
 interface RequestMatcherInterface
 {
-    public function matches(ServerRequestInterface $serverRequest): bool;
+    public function match(ServerRequestInterface $serverRequest): MatchResult;
 }

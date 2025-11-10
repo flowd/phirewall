@@ -14,13 +14,13 @@ final class AdaptersTest extends TestCase
     public function testClosureRequestMatcherDelegatesToClosure(): void
     {
         $matcher = new ClosureRequestMatcher(static fn($r): bool => $r->getMethod() === 'POST');
-        $this->assertFalse($matcher->matches(new ServerRequest('GET', '/')));
-        $this->assertTrue($matcher->matches(new ServerRequest('POST', '/')));
+        $this->assertFalse($matcher->match(new ServerRequest('GET', '/'))->isMatch());
+        $this->assertTrue($matcher->match(new ServerRequest('POST', '/'))->isMatch());
     }
 
     public function testClosureKeyExtractorDelegatesAndNormalizesToString(): void
     {
-        $extractor = new ClosureKeyExtractor(static fn($r): string => (string)123);
+        $extractor = new ClosureKeyExtractor(static fn($r): string => '123');
         $this->assertSame('123', $extractor->extract(new ServerRequest('GET', '/')));
     }
 

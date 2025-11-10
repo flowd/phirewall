@@ -16,9 +16,9 @@ final readonly class ClosureRequestMatcher implements RequestMatcherInterface
     {
     }
 
-    public function matches(ServerRequestInterface $serverRequest): bool
+    public function match(ServerRequestInterface $serverRequest): MatchResult
     {
         $cb = $this->callback;
-        return $cb($serverRequest);
+        return $cb($serverRequest) ? MatchResult::matched('custom') : MatchResult::noMatch();
     }
 }

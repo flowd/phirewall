@@ -26,7 +26,7 @@ final readonly class Firewall
         // 0) Track (passive)
         foreach ($this->config->getTrackRules() as $throttleRule) {
             $name = $throttleRule->name();
-            if ($throttleRule->filter()->matches($serverRequest) === true) {
+            if ($throttleRule->filter()->match($serverRequest)->isMatch() === true) {
                 $key = $throttleRule->keyExtractor()->extract($serverRequest);
                 if ($key !== null) {
                     $counterKey = $this->trackKey($name, (string)$key);
@@ -46,7 +46,7 @@ final readonly class Firewall
         // 1) Safelist
         foreach ($this->config->getSafelistRules() as $throttleRule) {
             $name = $throttleRule->name();
-            if ($throttleRule->matcher()->matches($serverRequest) === true) {
+            if ($throttleRule->matcher()->match($serverRequest)->isMatch() === true) {
                 $this->dispatch(new SafelistMatched($name, $serverRequest));
                 $this->config->incrementDiagnosticsCounter('safelisted', $name);
                 return FirewallResult::safelisted($name, ['X-Phirewall-Safelist' => $name]);
@@ -56,7 +56,8 @@ final readonly class Firewall
         // 2) Blocklist
         foreach ($this->config->getBlocklistRules() as $throttleRule) {
             $name = $throttleRule->name();
-            if ($throttleRule->matcher()->matches($serverRequest) === true) {
+            $match = $throttleRule->matcher()->match($serverRequest);
+            if ($match->isMatch() === true) {
                 $this->dispatch(new BlocklistMatched($name, $serverRequest));
                 $this->config->incrementDiagnosticsCounter('blocklisted', $name);
                 return FirewallResult::blocked($name, 'blocklist', [
@@ -85,7 +86,7 @@ final readonly class Firewall
                 ]);
             }
 
-            if ($throttleRule->filter()->matches($serverRequest) === true) {
+            if ($throttleRule->filter()->match($serverRequest)->isMatch() === true) {
                 $failKey = $this->failKey($name, $key);
                 $count = $this->increment($failKey, $throttleRule->period());
                 $this->config->incrementDiagnosticsCounter('fail2ban_fail_hit', $name);

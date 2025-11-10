@@ -21,8 +21,8 @@ final class RuleValueObjectsTest extends TestCase
         $matcher = new ClosureRequestMatcher(static fn($r): bool => $r->getMethod() === 'GET');
         $safelistRule = new SafelistRule('safe', $matcher);
         $this->assertSame('safe', $safelistRule->name());
-        $this->assertTrue($safelistRule->matcher()->matches(new ServerRequest('GET', '/')));
-        $this->assertFalse($safelistRule->matcher()->matches(new ServerRequest('POST', '/')));
+        $this->assertTrue($safelistRule->matcher()->match(new ServerRequest('GET', '/'))->isMatch());
+        $this->assertFalse($safelistRule->matcher()->match(new ServerRequest('POST', '/'))->isMatch());
     }
 
     public function testBlocklistRuleStoresNameAndMatcher(): void
@@ -30,8 +30,8 @@ final class RuleValueObjectsTest extends TestCase
         $matcher = new ClosureRequestMatcher(static fn($r): bool => $r->getUri()->getPath() === '/admin');
         $blocklistRule = new BlocklistRule('block', $matcher);
         $this->assertSame('block', $blocklistRule->name());
-        $this->assertTrue($blocklistRule->matcher()->matches(new ServerRequest('GET', '/admin')));
-        $this->assertFalse($blocklistRule->matcher()->matches(new ServerRequest('GET', '/')));
+        $this->assertTrue($blocklistRule->matcher()->match(new ServerRequest('GET', '/admin'))->isMatch());
+        $this->assertFalse($blocklistRule->matcher()->match(new ServerRequest('GET', '/'))->isMatch());
     }
 
     public function testThrottleRuleStoresValues(): void
@@ -53,7 +53,7 @@ final class RuleValueObjectsTest extends TestCase
         $this->assertSame(3, $fail2BanRule->threshold());
         $this->assertSame(120, $fail2BanRule->period());
         $this->assertSame(600, $fail2BanRule->banSeconds());
-        $this->assertTrue($fail2BanRule->filter()->matches((new ServerRequest('GET', '/'))->withHeader('X', '1')));
+        $this->assertTrue($fail2BanRule->filter()->match((new ServerRequest('GET', '/'))->withHeader('X', '1'))->isMatch());
         $this->assertSame('ip', $fail2BanRule->keyExtractor()->extract(new ServerRequest('GET', '/')));
     }
 
@@ -64,7 +64,7 @@ final class RuleValueObjectsTest extends TestCase
         $trackRule = new TrackRule('track', 30, $filter, $extractor);
         $this->assertSame('track', $trackRule->name());
         $this->assertSame(30, $trackRule->period());
-        $this->assertTrue($trackRule->filter()->matches(new ServerRequest('GET', '/')));
+        $this->assertTrue($trackRule->filter()->match(new ServerRequest('GET', '/'))->isMatch());
         $this->assertSame('agent', $trackRule->keyExtractor()->extract(new ServerRequest('GET', '/')));
     }
 }
