@@ -2,6 +2,8 @@
 
 Phirewall is a PHP based application firewall that provides a PSR-15 middleware.
 
+<img src="docs/assets/logo.svg" width="300" alt="Phirewall Logo">
+
 Features:
 - Safelists (allow lists) — allowlisted requests bypass other checks
 - Blocklists (deny lists) — deny with 403
