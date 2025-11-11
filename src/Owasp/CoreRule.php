@@ -70,7 +70,7 @@ final readonly class CoreRule
                     foreach ($queryParams as $k => $v) {
                         if (is_array($v)) {
                             foreach ($v as $vv) {
-                                if (is_scalar($vv))  {
+                                if (is_scalar($vv)) {
                                     $collected[] = (string)$vv;
                                 }
                             }
@@ -88,7 +88,7 @@ final readonly class CoreRule
                         foreach ($parsed as $k => $v) {
                             if (is_array($v)) {
                                 foreach ($v as $vv) {
-                                    if (is_scalar($vv))  {
+                                    if (is_scalar($vv)) {
                                         $collected[] = (string)$vv;
                                     }
                                 }
