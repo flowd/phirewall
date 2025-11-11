@@ -52,6 +52,7 @@ final readonly class CoreRule
      */
     private function collectVariableValues(ServerRequestInterface $serverRequest): array
     {
+        /** @var list<string> $collected */
         $collected = [];
         foreach ($this->variables as $variable) {
             switch ($variable) {
@@ -69,10 +70,14 @@ final readonly class CoreRule
                     foreach ($queryParams as $k => $v) {
                         if (is_array($v)) {
                             foreach ($v as $vv) {
-                                $collected[] = (string)$vv;
+                                if (is_scalar($vv))  {
+                                    $collected[] = (string)$vv;
+                                }
                             }
                         } else {
-                            $collected[] = (string)$v;
+                            if (is_scalar($v)) {
+                                $collected[] = (string)$v;
+                            }
                         }
 
                         $collected[] = (string)$k; // include argument names for name-based checks
@@ -83,7 +88,9 @@ final readonly class CoreRule
                         foreach ($parsed as $k => $v) {
                             if (is_array($v)) {
                                 foreach ($v as $vv) {
-                                    $collected[] = (string)$vv;
+                                    if (is_scalar($vv))  {
+                                        $collected[] = (string)$vv;
+                                    }
                                 }
                             } else {
                                 $collected[] = (string)$v;
@@ -123,14 +130,14 @@ final readonly class CoreRule
                 case 'REQUEST_HEADERS':
                     foreach ($serverRequest->getHeaders() as $values) {
                         foreach ($values as $value) {
-                            $collected[] = $value;
+                            $collected[] = (string)$value;
                         }
                     }
 
                     break;
                 case 'REQUEST_HEADERS_NAMES':
                     foreach (array_keys($serverRequest->getHeaders()) as $name) {
-                        $collected[] = $name;
+                        $collected[] = (string)$name;
                     }
 
                     break;
@@ -148,7 +155,7 @@ final readonly class CoreRule
             }
         }
 
-        return array_filter($collected, fn($item): bool => $item !== '');
+        return array_values(array_filter($collected, fn(string $item): bool => $item !== ''));
     }
 
     /**

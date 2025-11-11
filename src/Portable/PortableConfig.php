@@ -100,7 +100,7 @@ final class PortableConfig
     }
 
     /**
-     * @return Key
+     * @return array{type: 'ip'}
      */
     public static function keyIp(): array
     {
@@ -108,7 +108,7 @@ final class PortableConfig
     }
 
     /**
-     * @return Key
+     * @return array{type: 'method'}
      */
     public static function keyMethod(): array
     {
@@ -116,7 +116,7 @@ final class PortableConfig
     }
 
     /**
-     * @return Key
+     * @return array{type: 'path'}
      */
     public static function keyPath(): array
     {
@@ -124,7 +124,7 @@ final class PortableConfig
     }
 
     /**
-     * @return Key
+     * @return array{type: 'header', name: string}
      */
     public static function keyHeader(string $name): array
     {
@@ -224,6 +224,10 @@ final class PortableConfig
         foreach ($self->schema['safelists'] as $s) {
             if (!is_array($s)) {
                 continue;
+            }
+            $filter = $s['filter'] ?? null;
+            if (!is_array($filter)) {
+                throw new \InvalidArgumentException('Invalid safelist filter');
             }
 
             $self->assertValidFilter($s['filter']);

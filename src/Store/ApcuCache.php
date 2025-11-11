@@ -109,7 +109,7 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
 
         $success = false;
         $newValue = apcu_inc($key, 1, $success);
-        if ($success === true && is_int($newValue)) {
+        if ($success === true) {
             return $newValue;
         }
 

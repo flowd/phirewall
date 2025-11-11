@@ -8,3 +8,5 @@ parameters:
   checkUninitializedProperties: true
   reportUnmatchedIgnoredErrors: true
   treatPhpDocTypesAsCertain: false
+includes:
+    - phar://phpstan.phar/conf/bleedingEdge.neon
