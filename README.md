@@ -476,6 +476,139 @@ Security notes:
 - Prefer Redis for multi-instance deployments.
 - Keep handlers fast; use queues or async for heavy tasks.
 
+## OWASP Core Rule Set (CRS) adapter
+
+Phirewall can parse and evaluate a subset of the OWASP Core Rule Set (CRS) syntax to block malicious requests using familiar `SecRule` lines. 
+This adapter is designed to be safe and performant while covering common operators and variables.
+
+This is not a full CRS implementation; it supports a practical subset suitable for many use cases. Unsupported features are ignored safely.
+The implementation focuses on the `deny` action and is still work-in-progress.
+
+See https://coreruleset.org/docs/ for the full CRS project.
+
+### Supported variables
+
+- `REQUEST_URI` — path and query string as a single string
+- `REQUEST_METHOD`
+- `QUERY_STRING`
+- `ARGS` — includes both argument names and values from query and parsed body
+- `ARGS_NAMES` — argument names only from query and parsed body
+- `REQUEST_HEADERS` — all header values (across all header names)
+- `REQUEST_HEADERS_NAMES` — header names only
+- `REQUEST_COOKIES`
+- `REQUEST_COOKIES_NAMES`
+
+Unsupported variables are ignored for that rule (the rule becomes a no‑op if no supported variables are present).
+
+### Supported operators
+
+All supported string operators are case‑insensitive:
+- `@contains` — substring match (case‑insensitive)
+- `@streq` — string equality (case‑insensitive)
+- `@startswith` / `@beginswith` — prefix match (case‑insensitive)
+- `@endswith` — suffix match (case‑insensitive)
+
+Pattern matching:
+- `@rx` — PHP PCRE regular expression. Invalid patterns are handled safely and treated as a non‑match (no warnings or errors are emitted).
+- `@pm` — phrase match against a list of phrases separated by spaces or newlines. For safety, a cap of 5000 phrases is enforced; phrases beyond the cap are ignored.
+
+Notes:
+- Rules act only when they have the `deny` action.
+- Evaluation short‑circuits on first match.
+
+### Loaders
+
+Use `SecRuleLoader` to load rules in several convenient ways:
+
+- From a string containing multiple `SecRule` lines:
+
+```php
+use Flowd\Phirewall\Owasp\SecRuleLoader;
+
+$rulesText = <<<'TXT'
+SecRule REQUEST_URI "@rx ^/admin\\b" "id:600001,phase:2,deny,msg:'Block admin path'"
+SecRule REQUEST_METHOD "@streq POST" "id:600002,phase:2,deny,msg:'Deny POST'"
+TXT;
+$coreRuleSet = SecRuleLoader::fromString($rulesText);
+```
+
+- From a string with a report of parsed vs skipped items:
+
+```php
+$result = SecRuleLoader::fromStringWithReport($rulesText);
+// $result = ['rules' => CoreRuleSet, 'parsed' => int, 'skipped' => int]
+```
+
+- From multiple files (throws on missing file):
+
+```php
+$coreRuleSet = SecRuleLoader::fromFiles(['/path/a.conf', '/path/b.conf']);
+```
+
+- From a directory with optional filter and deterministic sorted loading:
+
+```php
+$filter = static fn(string $path): bool => str_ends_with($path, '.conf');
+$coreRuleSet = SecRuleLoader::fromDirectory('/path/crs', $filter);
+```
+
+### Enabling/Disabling specific rule IDs
+
+Every rule has an integer `id`. All rules are enabled by default; you can enable/disable them programmatically:
+
+```php
+$coreRuleSet->disable(600002); // disable a rule
+$coreRuleSet->enable(600002);  // re‑enable a rule
+```
+
+### Integrating CRS with the Firewall
+
+Register the rule set as a blocklist on the `Config`:
+
+```php
+use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Http\Firewall;
+use Flowd\Phirewall\Store\InMemoryCache;
+
+$config = new Config(new InMemoryCache());
+$config->owaspBlocklist('owasp', $coreRuleSet);
+
+$firewall = new Firewall($config);
+$response = $firewall->decide($request);
+```
+
+The `FirewallResult` will include standard blocklist headers when a rule matches.
+
+### Optional diagnostics header (OFF by default)
+
+For troubleshooting, you can opt‑in to emit an additional header with the matched OWASP rule id:
+
+- Header: `X-Phirewall-Owasp-Rule: <rule-id>`
+- Default: OFF
+
+Enable once on your configuration:
+
+```php
+$config->enableOwaspDiagnosticsHeader(true);
+```
+
+When enabled and an OWASP rule blocks a request, the header is included in the result headers.
+
+### Safety and performance
+
+- Invalid `@rx` patterns are treated as no‑match without throwing.
+- `@pm` and `@pmFromFile` enforce a maximum phrases cap (currently 5000) to prevent pathological inputs.
+- Evaluation uses short‑circuiting to stop at the first positive match.
+- Matching for string operators is case‑insensitive for consistency across variables (URI, headers, etc.).
+
+### Example minimal rule
+
+```apache
+SecRule REQUEST_URI "@rx ^/admin\\b" "id:600001,phase:2,deny,msg:'Block admin path'"
+```
+
+With the above rule loaded and the diagnostics header enabled, requests to `/admin` will be blocked and include `X-Phirewall-Owasp-Rule: 600001`.
+
 ## Examples
 
 Real-world configuration snippets are available in the examples directory:
@@ -484,6 +617,7 @@ Real-world configuration snippets are available in the examples directory:
 - examples/login_protection.php — Track login failures, Fail2Ban ban on repeated failures, and throttle login submissions
 - examples/ip_banlists.php — Safelist health/metrics endpoints and block specific IPs or restrict admin to private networks
 - examples/redis_setup.php — Use Redis (Predis) via RedisCache for distributed counters/bans
+- examples/owasp_crs_basic.php — Load a small OWASP CRS-like rule set (including @pmFromFile), toggle rules, and integrate with Firewall; runnable demo prints block/pass outcomes in CLI
 
 You can include any of these files from your bootstrap to obtain a configured middleware instance:
 
@@ -515,8 +649,8 @@ Outputs operations per second for increment and ttlRemaining.
 - Static analysis: `vendor/bin/phpstan`
 - Code style: `vendor/bin/php-cs-fixer fix`
 - Mutation testing (optional): `vendor/bin/infection` or `composer test:mutation`
-  - With coverage pre-enabled: `composer test:mutation:coverage`
-  - Reports are written to `.build/infection.html` and logs under `.build/`
+    - With coverage pre-enabled: `composer test:mutation:coverage`
+    - Reports are written to `.build/infection.html` and logs under `.build/`
 
 ## Sponsors
 This project received funding from TYPO3 Association by its Community Budget program.

@@ -8,7 +8,7 @@ namespace Flowd\Phirewall\Config;
  * Result of evaluating a request against a matcher.
  * Carries a binary decision and optional metadata for diagnostics.
  */
-final class MatchResult
+final readonly class MatchResult
 {
     /** @param array<string, scalar> $metadata */
     private function __construct(

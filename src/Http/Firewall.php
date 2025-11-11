@@ -24,18 +24,18 @@ final readonly class Firewall
         $pendingRateLimitHeaders = null;
 
         // 0) Track (passive)
-        foreach ($this->config->getTrackRules() as $throttleRule) {
-            $name = $throttleRule->name();
-            if ($throttleRule->filter()->match($serverRequest)->isMatch() === true) {
-                $key = $throttleRule->keyExtractor()->extract($serverRequest);
+        foreach ($this->config->getTrackRules() as $trackRule) {
+            $name = $trackRule->name();
+            if ($trackRule->filter()->match($serverRequest)->isMatch() === true) {
+                $key = $trackRule->keyExtractor()->extract($serverRequest);
                 if ($key !== null) {
                     $counterKey = $this->trackKey($name, (string)$key);
-                    $count = $this->increment($counterKey, $throttleRule->period());
+                    $count = $this->increment($counterKey, $trackRule->period());
                     $this->config->incrementDiagnosticsCounter('track_hit', $name);
                     $this->dispatch(new TrackHit(
                         rule: $name,
                         key: (string)$key,
-                        period: $throttleRule->period(),
+                        period: $trackRule->period(),
                         count: $count,
                         serverRequest: $serverRequest,
                     ));
@@ -44,9 +44,9 @@ final readonly class Firewall
         }
 
         // 1) Safelist
-        foreach ($this->config->getSafelistRules() as $throttleRule) {
-            $name = $throttleRule->name();
-            if ($throttleRule->matcher()->match($serverRequest)->isMatch() === true) {
+        foreach ($this->config->getSafelistRules() as $safelistRule) {
+            $name = $safelistRule->name();
+            if ($safelistRule->matcher()->match($serverRequest)->isMatch() === true) {
                 $this->dispatch(new SafelistMatched($name, $serverRequest));
                 $this->config->incrementDiagnosticsCounter('safelisted', $name);
                 return FirewallResult::safelisted($name, ['X-Phirewall-Safelist' => $name]);
@@ -54,25 +54,33 @@ final readonly class Firewall
         }
 
         // 2) Blocklist
-        foreach ($this->config->getBlocklistRules() as $throttleRule) {
-            $name = $throttleRule->name();
-            $match = $throttleRule->matcher()->match($serverRequest);
+        foreach ($this->config->getBlocklistRules() as $blocklistRule) {
+            $name = $blocklistRule->name();
+            $match = $blocklistRule->matcher()->match($serverRequest);
             if ($match->isMatch() === true) {
                 $this->dispatch(new BlocklistMatched($name, $serverRequest));
                 $this->config->incrementDiagnosticsCounter('blocklisted', $name);
-                return FirewallResult::blocked($name, 'blocklist', [
+                $headers = [
                     'X-Phirewall' => 'blocklist',
                     'X-Phirewall-Matched' => $name,
-                ]);
+                ];
+                if ($this->config->owaspDiagnosticsHeaderEnabled() && $match->source() === 'owasp') {
+                    $meta = $match->metadata();
+                    if (isset($meta['owasp_rule_id'])) {
+                        $headers['X-Phirewall-Owasp-Rule'] = (string)$meta['owasp_rule_id'];
+                    }
+                }
+
+                return FirewallResult::blocked($name, 'blocklist', $headers);
             }
         }
 
         $cache = $this->config->cache;
 
         // 3) Fail2Ban
-        foreach ($this->config->getFail2BanRules() as $throttleRule) {
-            $name = $throttleRule->name();
-            $key = $throttleRule->keyExtractor()->extract($serverRequest);
+        foreach ($this->config->getFail2BanRules() as $fail2BanRule) {
+            $name = $fail2BanRule->name();
+            $key = $fail2BanRule->keyExtractor()->extract($serverRequest);
             if ($key === null) {
                 continue;
             }
@@ -86,19 +94,19 @@ final readonly class Firewall
                 ]);
             }
 
-            if ($throttleRule->filter()->match($serverRequest)->isMatch() === true) {
+            if ($fail2BanRule->filter()->match($serverRequest)->isMatch() === true) {
                 $failKey = $this->failKey($name, $key);
-                $count = $this->increment($failKey, $throttleRule->period());
+                $count = $this->increment($failKey, $fail2BanRule->period());
                 $this->config->incrementDiagnosticsCounter('fail2ban_fail_hit', $name);
-                if ($count >= $throttleRule->threshold()) {
-                    $cache->set($banKey, 1, $throttleRule->banSeconds());
+                if ($count >= $fail2BanRule->threshold()) {
+                    $cache->set($banKey, 1, $fail2BanRule->banSeconds());
                     $this->config->incrementDiagnosticsCounter('fail2ban_banned', $name);
                     $this->dispatch(new Fail2BanBanned(
                         rule: $name,
                         key: $key,
-                        threshold: $throttleRule->threshold(),
-                        period: $throttleRule->period(),
-                        banSeconds: $throttleRule->banSeconds(),
+                        threshold: $fail2BanRule->threshold(),
+                        period: $fail2BanRule->period(),
+                        banSeconds: $fail2BanRule->banSeconds(),
                         count: $count,
                         serverRequest: $serverRequest,
                     ));
@@ -107,14 +115,14 @@ final readonly class Firewall
         }
 
         // 4) Throttle
-        foreach ($this->config->getThrottleRules() as $name => $throttleRule) {
+        foreach ($this->config->getThrottleRules() as $throttleRule) {
             $name = $throttleRule->name();
             $key = $throttleRule->keyExtractor()->extract($serverRequest);
             if ($key === null) {
                 continue;
             }
 
-            $counterKey = $this->throttleKey($name, (string)$key);
+            $counterKey = $this->throttleKey($name, $key);
             $count = $this->increment($counterKey, $throttleRule->period());
             $limit = $throttleRule->limit();
             $retryAfter = $this->ttlRemaining($counterKey);

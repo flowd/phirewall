@@ -16,6 +16,8 @@ use Flowd\Phirewall\Config\Rule\Fail2BanRule;
 use Flowd\Phirewall\Config\Rule\SafelistRule;
 use Flowd\Phirewall\Config\Rule\ThrottleRule;
 use Flowd\Phirewall\Config\Rule\TrackRule;
+use Flowd\Phirewall\Owasp\CoreRuleSet;
+use Flowd\Phirewall\Owasp\CoreRuleSetMatcher;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\SimpleCache\CacheInterface;
 
@@ -33,6 +35,15 @@ final class Config
     public function blocklist(string $name, Closure $callback): self
     {
         return $this->addBlocklist(new BlocklistRule($name, new ClosureRequestMatcher($callback)));
+    }
+
+    /**
+     * Shorthand to register an OWASP Core Rule Set as a blocklist matcher.
+     * Users can enable/disable rule IDs using the provided CoreRuleSet instance.
+     */
+    public function owaspBlocklist(string $name, CoreRuleSet $coreRuleSet): self
+    {
+        return $this->addBlocklist(new BlocklistRule($name, new CoreRuleSetMatcher($coreRuleSet)));
     }
 
     public function throttle(string $name, int $limit, int $period, Closure $key): self
@@ -80,6 +91,8 @@ final class Config
     private ?ThrottledResponseFactoryInterface $throttledResponseFactory = null;
 
     private bool $rateLimitHeadersEnabled = false;
+
+    private bool $owaspDiagnosticsHeaderEnabled = false;
 
     private string $keyPrefix = 'phirewall';
 
@@ -159,6 +172,17 @@ final class Config
     public function rateLimitHeadersEnabled(): bool
     {
         return $this->rateLimitHeadersEnabled;
+    }
+
+    public function enableOwaspDiagnosticsHeader(bool $enabled = true): self
+    {
+        $this->owaspDiagnosticsHeaderEnabled = $enabled;
+        return $this;
+    }
+
+    public function owaspDiagnosticsHeaderEnabled(): bool
+    {
+        return $this->owaspDiagnosticsHeaderEnabled;
     }
 
     public function setKeyPrefix(string $prefix): self
