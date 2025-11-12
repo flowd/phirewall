@@ -1,0 +1,27 @@
+* text=auto
+*.html text eol=lf
+*.css text eol=lf
+*.tmpl text eol=lf
+*.less text eol=lf
+*.scss text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.php text eol=lf
+*.rst text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.ts text eol=lf
+*.xlf text eol=lf
+*.sh text eol=lf
+*.sql text eol=lf
+*.txt text eol=lf
+
+/.* export-ignore
+/docs export-ignore
+/examples export-ignore
+/tests export-ignore
+/rector.php export-ignore
+/phpunit.xml.dist export-ignore
+/phpstan.neon.dist export-ignore
+/infection.json.dist export-ignore
