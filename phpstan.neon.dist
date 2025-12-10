@@ -9,4 +9,4 @@ parameters:
   reportUnmatchedIgnoredErrors: true
   treatPhpDocTypesAsCertain: false
 includes:
-    - phar://phpstan.phar/conf/bleedingEdge.neon
+    - phar://vendor/phpstan/phpstan/phpstan.phar/conf/bleedingEdge.neon

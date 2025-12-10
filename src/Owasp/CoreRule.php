@@ -74,10 +74,8 @@ final readonly class CoreRule
                                     $collected[] = (string)$vv;
                                 }
                             }
-                        } else {
-                            if (is_scalar($v)) {
-                                $collected[] = (string)$v;
-                            }
+                        } elseif (is_scalar($v)) {
+                            $collected[] = (string)$v;
                         }
 
                         $collected[] = (string)$k; // include argument names for name-based checks

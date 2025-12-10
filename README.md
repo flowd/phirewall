@@ -10,6 +10,7 @@ Features:
 - Throttling — limit requests per key within a time window, return 429 with Retry-After
 - Fail2Ban — detect repeated failures and ban keys for a period
 - Track hooks — increment custom counters for diagnostics/metrics without affecting outcome
+- Pattern backends/frontends — pluggable pattern sources (file/redis/db/etc.) feeding blocklist frontends with IP/CIDR/path/header/regex kinds
 - PSR-14 events — optional domain events for observability (safelist matched, blocklist matched, throttle exceeded, fail2ban banned, track hit)
 - Custom response factories — override 403/429 responses while keeping standard headers
 
@@ -615,7 +616,7 @@ Real-world configuration snippets are available in the examples directory:
 
 - examples/api_rate_limiting.php — Global per-client IP limit, stricter write-endpoint limits, and per-user limits with optional rate-limit headers
 - examples/login_protection.php — Track login failures, Fail2Ban ban on repeated failures, and throttle login submissions
-- examples/ip_banlists.php — Safelist health/metrics endpoints and block specific IPs or restrict admin to private networks
+- examples/ip_banlists.php — Safelist health/metrics endpoints plus file-backed pattern backend demo for IP/CIDR/path/header/regex
 - examples/redis_setup.php — Use Redis (Predis) via RedisCache for distributed counters/bans
 - examples/owasp_crs_basic.php — Load a small OWASP CRS-like rule set (including @pmFromFile), toggle rules, and integrate with Firewall; runnable demo prints block/pass outcomes in CLI
 

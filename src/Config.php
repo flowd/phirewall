@@ -7,6 +7,7 @@ namespace Flowd\Phirewall;
 use Closure;
 use Flowd\Phirewall\Config\ClosureKeyExtractor;
 use Flowd\Phirewall\Config\ClosureRequestMatcher;
+use Flowd\Phirewall\Config\FileIpBlocklistStore;
 use Flowd\Phirewall\Config\Response\BlocklistedResponseFactoryInterface;
 use Flowd\Phirewall\Config\Response\ClosureBlocklistedResponseFactory;
 use Flowd\Phirewall\Config\Response\ClosureThrottledResponseFactory;
@@ -18,6 +19,9 @@ use Flowd\Phirewall\Config\Rule\ThrottleRule;
 use Flowd\Phirewall\Config\Rule\TrackRule;
 use Flowd\Phirewall\Owasp\CoreRuleSet;
 use Flowd\Phirewall\Owasp\CoreRuleSetMatcher;
+use Flowd\Phirewall\Pattern\FilePatternBackend;
+use Flowd\Phirewall\Pattern\PatternBackendInterface;
+use Flowd\Phirewall\Pattern\SnapshotBlocklistMatcher;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\SimpleCache\CacheInterface;
 
@@ -35,6 +39,42 @@ final class Config
     public function blocklist(string $name, Closure $callback): self
     {
         return $this->addBlocklist(new BlocklistRule($name, new ClosureRequestMatcher($callback)));
+    }
+
+    public function addPatternBackend(string $name, PatternBackendInterface $patternBackend): self
+    {
+        $this->patternBackends[$name] = $patternBackend;
+        return $this;
+    }
+
+    public function blocklistFromBackend(string $name, string $backendName): self
+    {
+        if (!isset($this->patternBackends[$backendName])) {
+            throw new \InvalidArgumentException(sprintf('Pattern backend "%s" is not registered.', $backendName));
+        }
+
+        $snapshotBlocklistMatcher = new SnapshotBlocklistMatcher($this->patternBackends[$backendName]);
+        return $this->addBlocklist(new BlocklistRule($name, $snapshotBlocklistMatcher));
+    }
+
+    public function filePatternBackend(string $name, string $filePath): FilePatternBackend
+    {
+        $filePatternBackend = new FilePatternBackend($filePath);
+        $this->addPatternBackend($name, $filePatternBackend);
+        return $filePatternBackend;
+    }
+
+    /**
+     * Convenience to block requests whose client IP appears in a file-backed list.
+     * Exposes the underlying store so callers can append IPs in-process while also
+     * allowing third parties to replace the file externally.
+     */
+    public function fileIpBlocklist(string $name, string $filePath, ?callable $ipResolver = null): FileIpBlocklistStore
+    {
+        $fileIpBlocklistStore = new FileIpBlocklistStore($filePath);
+        $fileIpBlocklistMatcher = new Config\FileIpBlocklistMatcher($filePath, $ipResolver);
+        $this->addBlocklist(new BlocklistRule($name, $fileIpBlocklistMatcher));
+        return $fileIpBlocklistStore;
     }
 
     /**
@@ -76,6 +116,9 @@ final class Config
 
     /** @var array<string, BlocklistRule> */
     private array $blocklistRules = [];
+
+    /** @var array<string, PatternBackendInterface> */
+    private array $patternBackends = [];
 
     /** @var array<string, ThrottleRule> */
     private array $throttleRules = [];
@@ -252,6 +295,14 @@ final class Config
     public function getBlocklistRules(): array
     {
         return $this->blocklistRules;
+    }
+
+    /**
+     * @return array<string, PatternBackendInterface>
+     */
+    public function getPatternBackends(): array
+    {
+        return $this->patternBackends;
     }
 
     /**

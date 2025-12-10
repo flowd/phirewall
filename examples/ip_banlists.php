@@ -30,15 +30,42 @@ $resolver = new TrustedProxyResolver([
 
 $config = new Config($cache);
 
+// File-backed pattern backend with multi-kind support (IP/CIDR/path/header/regex)
+$filePatternPath = sys_get_temp_dir() . '/phirewall-example-patterns.txt';
+$filePatternBackend = $config->filePatternBackend('file_backend', $filePatternPath);
+
+// Populate backend with mixed patterns
+$filePatternBackend->append(new \Flowd\Phirewall\Pattern\PatternEntry(
+    kind: \Flowd\Phirewall\Pattern\PatternKind::IP,
+    value: '203.0.113.200',
+    expiresAt: time() + 300,
+));
+
+$filePatternBackend->append(new \Flowd\Phirewall\Pattern\PatternEntry(
+    kind: \Flowd\Phirewall\Pattern\PatternKind::CIDR,
+    value: '198.51.100.0/24',
+));
+
+$filePatternBackend->append(new \Flowd\Phirewall\Pattern\PatternEntry(
+    kind: \Flowd\Phirewall\Pattern\PatternKind::PATH_PREFIX,
+    value: '/sensitive',
+));
+
+$filePatternBackend->append(new \Flowd\Phirewall\Pattern\PatternEntry(
+    kind: \Flowd\Phirewall\Pattern\PatternKind::HEADER_REGEX,
+    value: '/curl|bot/i',
+    target: 'User-Agent',
+));
+
+// Register a blocklist rule that pulls from the pattern backend lazily
+$config->blocklistFromBackend('file_backend_blocklist', 'file_backend');
+
 // Safelist common internal endpoints so they bypass all other checks
 $config->safelist('health', fn (ServerRequestInterface $serverRequest): bool => $serverRequest->getUri()->getPath() === '/health');
 $config->safelist('metrics', fn (ServerRequestInterface $serverRequest): bool => $serverRequest->getUri()->getPath() === '/metrics');
 
-// Block known bad IPs (could be loaded from a database or config file)
-$blockedIps = [
-    '203.0.113.10',
-    '198.51.100.22',
-];
+// Block known bad IPs (inline closure blocklist)
+$blockedIps = ['203.0.113.10', '198.51.100.22'];
 $config->blocklist('ip_banlist', function (ServerRequestInterface $serverRequest) use ($resolver, $blockedIps): bool {
     $ip = $resolver->resolve($serverRequest);
     return $ip !== null && in_array($ip, $blockedIps, true);
@@ -105,7 +132,14 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     // Safelisted endpoints
     $run('GET', '/health', [], ['REMOTE_ADDR' => '203.0.113.5']);
     $run('GET', '/metrics', [], ['REMOTE_ADDR' => '203.0.113.5']);
-    // Blocked admin from external IP
+
+    // Blocked by file pattern backend (IP match)
+    $run('GET', '/any', [], ['REMOTE_ADDR' => '203.0.113.200']);
+
+    // Blocked by file pattern backend (path prefix)
+    $run('GET', '/sensitive/data', [], ['REMOTE_ADDR' => '198.51.100.77']);
+
+    // Blocked admin from external IP (inline closure blocklist)
     $run('GET', '/admin', [], ['REMOTE_ADDR' => '198.51.100.77']);
 
     exit(0);

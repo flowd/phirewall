@@ -225,6 +225,7 @@ final class PortableConfig
             if (!is_array($s)) {
                 continue;
             }
+
             $filter = $s['filter'] ?? null;
             if (!is_array($filter)) {
                 throw new \InvalidArgumentException('Invalid safelist filter');
