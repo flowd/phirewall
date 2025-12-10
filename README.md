@@ -35,8 +35,10 @@ use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Flowd\Phirewall\KeyExtractors;
+use Nyholm\Psr7\Factory\Psr17Factory;
 
 $cache = new InMemoryCache(); // or any PSR-16 cache
+$responseFactory = new Psr17Factory();
 
 // Or Redis (pure PHP via Predis):
 // use Predis\Client as PredisClient;
@@ -69,7 +71,7 @@ $config->fail2ban('login', threshold: 5, period: 300, ban: 3600,
     }
 );
 
-$middleware = new Middleware($config);
+$middleware = new Middleware($config, $responseFactory);
 ```
 
 Add `$middleware` to your PSR-15 middleware pipeline.

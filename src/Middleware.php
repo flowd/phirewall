@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall;
 
+use Flowd\Phirewall\Http\ResponseFactoryResolver;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -14,10 +15,13 @@ final readonly class Middleware implements MiddlewareInterface
 {
     private Http\Firewall $firewall;
 
+    private ResponseFactoryInterface $responseFactory;
+
     public function __construct(
         private Config $config,
-        private ResponseFactoryInterface $responseFactory,
+        ?ResponseFactoryInterface $responseFactory = null,
     ) {
+        $this->responseFactory = $responseFactory ?? ResponseFactoryResolver::detect();
         $this->firewall = new Http\Firewall($this->config);
     }
 
