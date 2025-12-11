@@ -7,6 +7,7 @@ namespace Flowd\Phirewall\Http;
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Events\BlocklistMatched;
 use Flowd\Phirewall\Events\Fail2BanBanned;
+use Flowd\Phirewall\Events\PerformanceMeasured;
 use Flowd\Phirewall\Events\SafelistMatched;
 use Flowd\Phirewall\Events\ThrottleExceeded;
 use Flowd\Phirewall\Events\TrackHit;
@@ -21,6 +22,10 @@ final readonly class Firewall
 
     public function decide(ServerRequestInterface $serverRequest): FirewallResult
     {
+        $start = microtime(true);
+        $decisionPath = 'passed';
+        $decisionRule = null;
+
         $pendingRateLimitHeaders = null;
 
         // 0) Track (passive)
@@ -49,7 +54,11 @@ final readonly class Firewall
             if ($safelistRule->matcher()->match($serverRequest)->isMatch() === true) {
                 $this->dispatch(new SafelistMatched($name, $serverRequest));
                 $this->config->incrementDiagnosticsCounter('safelisted', $name);
-                return FirewallResult::safelisted($name, ['X-Phirewall-Safelist' => $name]);
+                $decisionPath = 'safelisted';
+                $decisionRule = $name;
+                $result = FirewallResult::safelisted($name, ['X-Phirewall-Safelist' => $name]);
+                $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
+                return $result;
             }
         }
 
@@ -71,7 +80,11 @@ final readonly class Firewall
                     }
                 }
 
-                return FirewallResult::blocked($name, 'blocklist', $headers);
+                $decisionPath = 'blocklisted';
+                $decisionRule = $name;
+                $result = FirewallResult::blocked($name, 'blocklist', $headers);
+                $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
+                return $result;
             }
         }
 
@@ -88,10 +101,14 @@ final readonly class Firewall
             $banKey = $this->banKey($name, (string)$key);
             if ($cache->has($banKey)) {
                 $this->config->incrementDiagnosticsCounter('fail2ban_blocked', $name);
-                return FirewallResult::blocked($name, 'fail2ban', [
+                $decisionPath = 'fail2ban_blocked';
+                $decisionRule = $name;
+                $result = FirewallResult::blocked($name, 'fail2ban', [
                     'X-Phirewall' => 'fail2ban',
                     'X-Phirewall-Matched' => $name,
                 ]);
+                $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
+                return $result;
             }
 
             if ($fail2BanRule->filter()->match($serverRequest)->isMatch() === true) {
@@ -110,6 +127,14 @@ final readonly class Firewall
                         count: $count,
                         serverRequest: $serverRequest,
                     ));
+                    $decisionPath = 'fail2ban_banned';
+                    $decisionRule = $name;
+                    $result = FirewallResult::blocked($name, 'fail2ban', [
+                        'X-Phirewall' => 'fail2ban',
+                        'X-Phirewall-Matched' => $name,
+                    ]);
+                    $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
+                    return $result;
                 }
             }
         }
@@ -152,7 +177,11 @@ final readonly class Firewall
                     ];
                 }
 
-                return FirewallResult::throttled($name, $retryAfter, $headers);
+                $decisionPath = 'throttled';
+                $decisionRule = $name;
+                $result = FirewallResult::throttled($name, $retryAfter, $headers);
+                $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
+                return $result;
             }
 
             if ($this->config->rateLimitHeadersEnabled() && $pendingRateLimitHeaders === null) {
@@ -165,7 +194,24 @@ final readonly class Firewall
         }
 
         $this->config->incrementDiagnosticsCounter('passed');
-        return FirewallResult::pass($pendingRateLimitHeaders ?? []);
+        $result = FirewallResult::pass($pendingRateLimitHeaders ?? []);
+        $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
+        return $result;
+    }
+
+    private function dispatchPerformanceMeasured(float $start, string $decisionPath, ?string $ruleName): void
+    {
+        $dispatcher = $this->config->eventDispatcher;
+        if (!$dispatcher instanceof \Psr\EventDispatcher\EventDispatcherInterface) {
+            return;
+        }
+
+        $durationMicros = (int) round((microtime(true) - $start) * 1_000_000);
+        if ($durationMicros < 0) {
+            $durationMicros = 0;
+        }
+
+        $dispatcher->dispatch(new PerformanceMeasured($decisionPath, $durationMicros, $ruleName));
     }
 
     private function increment(string $key, int $period): int
@@ -184,7 +230,7 @@ final readonly class Firewall
             $expiresAt = (int)($entry['expires_at'] ?? 0);
         } else {
             // Legacy integer/scalar or cache miss → start (or restart) a window
-            $count = is_int($entry) ? $entry : (is_scalar($entry) ? (int)$entry : 0);
+            $count = is_scalar($entry) ? (int)$entry : 0;
             $expiresAt = $now + $period;
         }
 

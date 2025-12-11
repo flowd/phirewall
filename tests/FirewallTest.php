@@ -92,8 +92,12 @@ final class FirewallTest extends TestCase
         // First failure
         $failedRequest = $serverRequest->withHeader('X-Login-Failed', '1');
         $this->assertTrue($firewall->decide($failedRequest)->isPass());
-        // Second failure -> hits threshold and sets ban
-        $this->assertTrue($firewall->decide($failedRequest)->isPass());
+        // Second failure -> reaches threshold and is already blocked
+        $second = $firewall->decide($failedRequest);
+        $this->assertTrue($second->isBlocked());
+        // Third failure -> is above the threshold and is still blocked
+        $third = $firewall->decide($failedRequest);
+        $this->assertTrue($third->isBlocked());
         // Now even a normal request should be banned
         $firewallResult = $firewall->decide($serverRequest);
         $this->assertTrue($firewallResult->isBlocked());

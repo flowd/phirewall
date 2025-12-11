@@ -119,7 +119,7 @@ final readonly class TrustedProxyResolver
                         }
 
                         // Find for= token
-                        if (preg_match('/(?:^|;| )for=\"?\[?([^;,\"]+)\]?\"?/i', $element, $m) === 1) {
+                        if (preg_match('/(?:^|;| )for=\"?\[?([^;,\"]+)]?\"?/i', $element, $m) === 1) {
                             $candidate = $m[1];
                             $candidate = trim($candidate, " \"'[]");
                             if (preg_match('/^[0-9.]+:\\d+$/', $candidate) === 1) {
