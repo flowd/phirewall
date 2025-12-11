@@ -12,6 +12,10 @@ use Psr\Http\Message\ServerRequestInterface;
  * Supports plain IPs (IPv4/IPv6) and CIDR ranges. The file is reloaded when its
  * modification time changes, so third-party generated lists can be swapped in
  * atomically (e.g., via rename) without restarting the process.
+ *
+ * To avoid blocking I/O on every request and to reduce DoS risk from transient
+ * filesystem issues, reload attempts are throttled by a minimal reload interval
+ * and the matcher keeps using the last known good state if a reload fails.
  */
 final class FileIpBlocklistMatcher implements RequestMatcherInterface
 {
@@ -23,19 +27,27 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
 
     private ?int $lastModified = null;
 
-    /** @var callable(ServerRequestInterface):?string */
-    private $ipResolver;
+    private ?int $lastReloadAttempt = null;
 
     public function __construct(
         private readonly string $filePath,
+        /** @var callable(ServerRequestInterface):?string */
         ?callable $ipResolver = null,
+        private readonly int $minReloadIntervalSec = 1,
     ) {
+        if ($this->minReloadIntervalSec < 0) {
+            throw new \InvalidArgumentException('minReloadIntervalSec must be >= 0');
+        }
+
         $this->ipResolver = $ipResolver ?? static function (ServerRequestInterface $serverRequest): ?string {
             $params = $serverRequest->getServerParams();
             $ip = $params['REMOTE_ADDR'] ?? null;
             return is_string($ip) && $ip !== '' ? $ip : null;
         };
     }
+
+    /** @var callable(ServerRequestInterface):?string */
+    private $ipResolver;
 
     public function match(ServerRequestInterface $serverRequest): MatchResult
     {
@@ -66,10 +78,23 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
 
     private function reloadIfChanged(): void
     {
+        $now = time();
+        if ($this->minReloadIntervalSec > 0 && $this->lastReloadAttempt !== null && ($now - $this->lastReloadAttempt) < $this->minReloadIntervalSec) {
+            return;
+        }
+
+        $this->lastReloadAttempt = $now;
+
         clearstatcache(false, $this->filePath);
         $mtime = @filemtime($this->filePath);
         if ($mtime === false) {
-            throw new \RuntimeException(sprintf('Blocklist file "%s" is not readable.', $this->filePath));
+            // On first load we must fail hard to avoid using an undefined state.
+            if ($this->lastModified === null) {
+                throw new \RuntimeException(sprintf('Blocklist file "%s" is not readable.', $this->filePath));
+            }
+
+            // For subsequent reloads, keep using the last known good state.
+            return;
         }
 
         if ($this->lastModified !== null && $mtime === $this->lastModified) {
@@ -78,22 +103,29 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
 
         $content = @file_get_contents($this->filePath);
         if ($content === false) {
-            throw new \RuntimeException(sprintf('Failed to read blocklist file "%s".', $this->filePath));
+            if ($this->lastModified === null) {
+                throw new \RuntimeException(sprintf('Failed to read blocklist file "%s".', $this->filePath));
+            }
+
+            // Keep using last known good state on transient read failures.
+            return;
         }
 
-        $this->lastModified = $mtime;
-        $this->exactIps = [];
-        $this->cidrBlocks = [];
-
         $lines = preg_split('/\r?\n/', $content) ?: [];
+        $exactIps = [];
+        $cidrBlocks = [];
+        $parseNow = $now;
+
         foreach ($lines as $line) {
             $trimmed = trim($line);
             if ($trimmed === '') {
                 continue;
             }
+
             if (str_starts_with($trimmed, '#')) {
                 continue;
             }
+
             if (str_starts_with($trimmed, ';')) {
                 continue;
             }
@@ -103,22 +135,24 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
                 continue;
             }
 
-            if ($expiresAt !== null) {
-                $now = time();
-                if ($expiresAt <= $now) {
-                    continue;
-                }
+            if ($expiresAt !== null && $expiresAt <= $parseNow) {
+                continue;
             }
 
             if (str_contains($entry, '/')) {
-                $this->addCidr($entry);
+                $this->addCidrToList($cidrBlocks, $entry);
                 continue;
             }
 
             if (filter_var($entry, FILTER_VALIDATE_IP) !== false) {
-                $this->exactIps[$entry] = true;
+                $exactIps[$entry] = true;
             }
         }
+
+        // Only swap state after successful parse.
+        $this->lastModified = $mtime;
+        $this->exactIps = $exactIps;
+        $this->cidrBlocks = $cidrBlocks;
     }
 
     /**
@@ -143,7 +177,10 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
         return [$entry, $expiresAt];
     }
 
-    private function addCidr(string $cidr): void
+    /**
+     * @param list<array{network:string,bits:int}> $target
+     */
+    private function addCidrToList(array &$target, string $cidr): void
     {
         [$network, $bits] = array_pad(explode('/', $cidr, 2), 2, null);
         $prefixLength = is_numeric($bits) ? (int)$bits : -1;
@@ -158,7 +195,7 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
             return;
         }
 
-        $this->cidrBlocks[] = [
+        $target[] = [
             'network' => $networkBinary,
             'bits' => $prefixLength,
         ];

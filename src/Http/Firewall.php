@@ -218,7 +218,7 @@ final readonly class Firewall
         $now = time();
         $remaining = $expiresAt - $now;
 
-        return $remaining > 0 ? $remaining : 0;
+        return max($remaining, 0);
     }
 
     private function throttleKey(string $name, string $key): string

@@ -141,15 +141,18 @@ final class FilePatternBackend implements PatternBackendInterface
         if ($handle === false) {
             throw new \RuntimeException(sprintf('Cannot open pattern file "%s" for reading.', $this->filePath));
         }
+
         $now = ($this->now)();
         try {
             [$entries] = $this->readEntriesRaw($handle, $now, pruneExpired: false);
         } finally {
             fclose($handle);
         }
+
         if (count($entries) > self::MAX_ENTRIES) {
             throw new \RuntimeException(sprintf('Pattern file exceeds maximum entries (%d).', self::MAX_ENTRIES));
         }
+
         return array_values($entries);
     }
 
@@ -174,6 +177,7 @@ final class FilePatternBackend implements PatternBackendInterface
             if ($trimmed === '') {
                 continue;
             }
+
             if ($this->isComment($trimmed)) {
                 continue;
             }

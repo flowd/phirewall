@@ -92,9 +92,11 @@ final class FileIpBlocklistStore
                 if ($entry === '') {
                     continue;
                 }
+
                 if (str_starts_with($entry, '#')) {
                     continue;
                 }
+
                 if (str_starts_with($entry, ';')) {
                     continue;
                 }
@@ -168,9 +170,11 @@ final class FileIpBlocklistStore
             if ($trimmed === '') {
                 continue;
             }
+
             if (str_starts_with($trimmed, '#')) {
                 continue;
             }
+
             if (str_starts_with($trimmed, ';')) {
                 continue;
             }

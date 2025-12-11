@@ -105,7 +105,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
     private function loadSnapshot(): PatternSnapshot
     {
         $patternSnapshot = $this->patternBackend->consume();
-        if ($this->patternSnapshot === null || $patternSnapshot->version !== $this->patternSnapshot->version) {
+        if (!$this->patternSnapshot instanceof \Flowd\Phirewall\Pattern\PatternSnapshot || $patternSnapshot->version !== $this->patternSnapshot->version) {
             $this->patternSnapshot = $patternSnapshot;
             $this->compiled = $this->compileSnapshot($patternSnapshot);
         }

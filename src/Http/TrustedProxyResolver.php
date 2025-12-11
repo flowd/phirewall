@@ -15,17 +15,26 @@ use Psr\Http\Message\ServerRequestInterface;
  * - Returns the first untrusted address in the chain; falls back to REMOTE_ADDR when uncertain.
  *
  * Notes:
- * - IPv4 CIDR ranges are supported (e.g., 10.0.0.0/8). IPv6 CIDR is not implemented; exact IPv6 matches work.
+ * - IPv4 and IPv6 CIDR ranges are supported (e.g., 10.0.0.0/8, 2001:db8::/32).
  */
 final readonly class TrustedProxyResolver
 {
+    /** @var list<string> */
+    private array $normalizedAllowedHeaders;
+
+    private int $normalizedMaxChainEntries;
+
     /**
-     * @param list<string> $trustedProxies List of trusted proxies as IPv4/IPv6 addresses or IPv4 CIDR ranges
+     * @param list<string> $trustedProxies List of trusted proxies as IP addresses or CIDR ranges (IPv4/IPv6)
+     * @param list<string> $allowedHeaders List of header names (case-insensitive) that may contain client IP chains
      */
     public function __construct(
         private array $trustedProxies,
-        private string $xffHeader = 'X-Forwarded-For',
+        private array $allowedHeaders = ['X-Forwarded-For', 'Forwarded'],
+        private int $maxChainEntries = 50,
     ) {
+        $this->normalizedAllowedHeaders = array_values(array_map('strtolower', $this->allowedHeaders));
+        $this->normalizedMaxChainEntries = max(1, $this->maxChainEntries);
     }
 
     public function resolve(ServerRequestInterface $serverRequest): ?string
@@ -72,52 +81,61 @@ final readonly class TrustedProxyResolver
      */
     private function extractChain(ServerRequestInterface $serverRequest): array
     {
-        $xff = $serverRequest->getHeaderLine($this->xffHeader);
-        if ($xff !== '') {
-            $parts = array_map('trim', explode(',', $xff));
-            $ips = [];
-            foreach ($parts as $part) {
-                if ($part === '') {
-                    continue;
-                }
+        $ips = [];
 
-                // Remove quotes and brackets if any
-                $part = trim($part, " \"'[]");
-                // Strip port for IPv4 host:port (avoid breaking IPv6 addresses)
-                if (preg_match('/^[0-9.]+:\d+$/', $part) === 1) {
-                    $part = explode(':', $part, 2)[0];
-                }
+        foreach ($this->normalizedAllowedHeaders as $normalizedAllowedHeader) {
+            if ($normalizedAllowedHeader === 'x-forwarded-for') {
+                $xff = $serverRequest->getHeaderLine('X-Forwarded-For');
+                if ($xff !== '') {
+                    $parts = array_map('trim', explode(',', $xff));
+                    foreach ($parts as $part) {
+                        if ($part === '') {
+                            continue;
+                        }
 
-                $ips[] = $part;
-            }
+                        // Remove quotes and brackets if any
+                        $part = trim($part, " \"'[]");
+                        // Strip port for IPv4 host:port (avoid breaking IPv6 addresses)
+                        if (preg_match('/^[0-9.]+:\\d+$/', $part) === 1) {
+                            $part = explode(':', $part, 2)[0];
+                        }
 
-            return $ips;
-        }
-
-        // Fallback to RFC 7239 Forwarded header parsing
-        $fwd = $serverRequest->getHeaderLine('Forwarded');
-        if ($fwd !== '') {
-            $ips = [];
-            // Split by commas into elements
-            $elements = array_map('trim', explode(',', $fwd));
-            foreach ($elements as $element) {
-                if ($element === '') {
-                    continue;
-                }
-
-                // Find for= token
-                if (preg_match('/(?:^|;| )for=\"?\[?([^;,"]+)\]?\"?/i', $element, $m) === 1) {
-                    $candidate = $m[1];
-                    $candidate = trim($candidate, " \"'[]");
-                    if (preg_match('/^[0-9.]+:\d+$/', $candidate) === 1) {
-                        $candidate = explode(':', $candidate, 2)[0];
+                        $ips[] = $part;
+                        if (count($ips) >= $this->normalizedMaxChainEntries) {
+                            return $ips;
+                        }
                     }
 
-                    $ips[] = $candidate;
+                    return $ips;
+                }
+            } elseif ($normalizedAllowedHeader === 'forwarded') {
+                $fwd = $serverRequest->getHeaderLine('Forwarded');
+                if ($fwd !== '') {
+                    // Split by commas into elements
+                    $elements = array_map('trim', explode(',', $fwd));
+                    foreach ($elements as $element) {
+                        if ($element === '') {
+                            continue;
+                        }
+
+                        // Find for= token
+                        if (preg_match('/(?:^|;| )for=\"?\[?([^;,\"]+)\]?\"?/i', $element, $m) === 1) {
+                            $candidate = $m[1];
+                            $candidate = trim($candidate, " \"'[]");
+                            if (preg_match('/^[0-9.]+:\\d+$/', $candidate) === 1) {
+                                $candidate = explode(':', $candidate, 2)[0];
+                            }
+
+                            $ips[] = $candidate;
+                            if (count($ips) >= $this->normalizedMaxChainEntries) {
+                                return $ips;
+                            }
+                        }
+                    }
+
+                    return $ips;
                 }
             }
-
-            return $ips;
         }
 
         return [];
@@ -131,16 +149,14 @@ final readonly class TrustedProxyResolver
                 continue;
             }
 
-            // CIDR IPv4
             if (str_contains($trustedProxy, '/')) {
-                if ($this->ipv4InCidr($ip, $trustedProxy)) {
+                if ($this->ipInCidr($ip, $trustedProxy)) {
                     return true;
                 }
 
                 continue;
             }
 
-            // Exact match
             if ($ip === $trustedProxy) {
                 return true;
             }
@@ -159,7 +175,7 @@ final readonly class TrustedProxyResolver
         // Remove surrounding brackets for IPv6
         $ip = trim($ip, '[]');
         // Strip IPv4 port suffix if present
-        if (preg_match('/^[0-9.]+:\d+$/', $ip) === 1) {
+        if (preg_match('/^[0-9.]+:\\d+$/', $ip) === 1) {
             $ip = explode(':', $ip, 2)[0];
         }
 
@@ -170,33 +186,44 @@ final readonly class TrustedProxyResolver
         return null;
     }
 
-    private function ipv4InCidr(string $ip, string $cidr): bool
+    private function ipInCidr(string $ip, string $cidr): bool
     {
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
-            return false;
-        }
-
         [$subnet, $mask] = explode('/', $cidr, 2) + [null, null];
         if ($subnet === null || $mask === null) {
             return false;
         }
 
-        if (filter_var($subnet, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
-            return false;
-        }
-
         $mask = (int) $mask;
-        if ($mask < 0 || $mask > 32) {
+        $ipBin = @inet_pton($ip);
+        $subnetBin = @inet_pton($subnet);
+        if ($ipBin === false || $subnetBin === false) {
             return false;
         }
 
-        $ipLong = ip2long($ip);
-        $subnetLong = ip2long($subnet);
-        if ($ipLong === false || $subnetLong === false) {
+        if (strlen($ipBin) !== strlen($subnetBin)) {
             return false;
         }
 
-        $maskLong = $mask === 0 ? 0 : (~0 << (32 - $mask)) & 0xFFFFFFFF;
-        return ($ipLong & $maskLong) === ($subnetLong & $maskLong);
+        $maxBits = strlen($ipBin) * 8;
+        if ($mask < 0 || $mask > $maxBits) {
+            return false;
+        }
+
+        $fullBytes = intdiv($mask, 8);
+        $remainingBits = $mask % 8;
+
+        if ($fullBytes > 0 && strncmp($ipBin, $subnetBin, $fullBytes) !== 0) {
+            return false;
+        }
+
+        if ($remainingBits === 0) {
+            return true;
+        }
+
+        $maskByte = (0xFF00 >> $remainingBits) & 0xFF;
+        $ipByte = ord($ipBin[$fullBytes]) & $maskByte;
+        $subnetByte = ord($subnetBin[$fullBytes]) & $maskByte;
+
+        return $ipByte === $subnetByte;
     }
 }

@@ -116,8 +116,8 @@ final class FirewallTest extends TestCase
         // Fill the window
         $this->assertTrue($firewall->decide($serverRequest)->isPass());
         $this->assertTrue($firewall->decide($serverRequest)->isPass());
-        $throttled = $firewall->decide($serverRequest);
-        $this->assertSame(Outcome::THROTTLED, $throttled->outcome);
+        $firewallResult = $firewall->decide($serverRequest);
+        $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
 
         // Wait until the window has definitely expired
         sleep($period + 1);
@@ -161,7 +161,7 @@ final class FirewallTest extends TestCase
         $this->assertTrue($firewall->decide($failedRequest)->isPass());
 
         // Another normal request should still not be blocked
-        $normal = $firewall->decide($serverRequest);
-        $this->assertTrue($normal->isPass());
+        $firewallResult = $firewall->decide($serverRequest);
+        $this->assertTrue($firewallResult->isPass());
     }
 }
