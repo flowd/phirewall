@@ -49,7 +49,10 @@ final class FirewallTest extends TestCase
     {
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
-        $config->throttle('ip', 2, 10, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
+        $period = 10;
+        $limit = 2;
+        $config->enableRateLimitHeaders();
+        $config->throttle('ip', $limit, $period, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
 
         $firewall = new Firewall($config);
 
@@ -58,8 +61,17 @@ final class FirewallTest extends TestCase
         $this->assertTrue($firewall->decide($serverRequest)->isPass());
         $firewallResult = $firewall->decide($serverRequest);
         $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
+
         $retryAfter = (int)($firewallResult->headers['Retry-After'] ?? '0');
         $this->assertGreaterThanOrEqual(1, $retryAfter);
+        $this->assertLessThanOrEqual($period, $retryAfter);
+
+        // Rate limit headers should be consistent with the throttled state
+        $this->assertSame((string)$limit, $firewallResult->headers['X-RateLimit-Limit'] ?? null);
+        $this->assertSame('0', $firewallResult->headers['X-RateLimit-Remaining'] ?? null);
+        $reset = (int)($firewallResult->headers['X-RateLimit-Reset'] ?? '0');
+        $this->assertGreaterThanOrEqual(1, $reset);
+        $this->assertLessThanOrEqual($period, $reset);
     }
 
     public function testFail2BanBlocksAfterThreshold(): void
@@ -87,5 +99,69 @@ final class FirewallTest extends TestCase
         $this->assertTrue($firewallResult->isBlocked());
         $this->assertSame('fail2ban', $firewallResult->headers['X-Phirewall'] ?? '');
         $this->assertSame('login', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
+    }
+
+    public function testThrottleWindowExpiresAndResetsCounter(): void
+    {
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
+        $period = 2; // short timeframe for testing
+        $limit = 2;
+        $config->enableRateLimitHeaders();
+        $config->throttle('ip', $limit, $period, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
+
+        $firewall = new Firewall($config);
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '9.8.7.6']);
+
+        // Fill the window
+        $this->assertTrue($firewall->decide($serverRequest)->isPass());
+        $this->assertTrue($firewall->decide($serverRequest)->isPass());
+        $throttled = $firewall->decide($serverRequest);
+        $this->assertSame(Outcome::THROTTLED, $throttled->outcome);
+
+        // Wait until the window has definitely expired
+        sleep($period + 1);
+
+        // After expiration the counter should start a new window
+        $afterReset = $firewall->decide($serverRequest);
+        $this->assertTrue($afterReset->isPass());
+        // RateLimit headers should be set for the first request in the new window
+        $this->assertArrayHasKey('X-RateLimit-Remaining', $afterReset->headers);
+        $this->assertSame((string)($limit - 1), $afterReset->headers['X-RateLimit-Remaining']);
+    }
+
+    public function testFail2BanFailCounterExpiresBeforeThreshold(): void
+    {
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
+        $period = 2; // short window for fail counters
+        $threshold = 2;
+        $banSeconds = 5;
+
+        $config->fail2ban(
+            'login-reset',
+            $threshold,
+            $period,
+            $banSeconds,
+            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1'
+        );
+
+        $firewall = new Firewall($config);
+        $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '4.3.2.1']);
+        $failedRequest = $serverRequest->withHeader('X-Login-Failed', '1');
+
+        // One failed attempt in the first window
+        $this->assertTrue($firewall->decide($failedRequest)->isPass());
+
+        // Let the window expire before issuing a second failure
+        sleep($period + 1);
+
+        // After expiration, counting should start again from 1 and not immediately ban
+        $this->assertTrue($firewall->decide($failedRequest)->isPass());
+
+        // Another normal request should still not be blocked
+        $normal = $firewall->decide($serverRequest);
+        $this->assertTrue($normal->isPass());
     }
 }

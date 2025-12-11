@@ -175,19 +175,31 @@ final readonly class Firewall
             return $cache->increment($key, $period);
         }
 
-        $value = $cache->get($key, 0);
-        if (!is_int($value)) {
-            $value = is_scalar($value) ? (int)$value : 0;
-        }
+        $now = time();
+        $entry = $cache->get($key);
 
-        ++$value;
-        if ($value === 1) {
-            $cache->set($key, $value, $period);
+        // Normalize legacy/plain values to structured entry
+        if (is_array($entry) && array_key_exists('count', $entry) && array_key_exists('expires_at', $entry)) {
+            $count = (int)($entry['count'] ?? 0);
+            $expiresAt = (int)($entry['expires_at'] ?? 0);
         } else {
-            $cache->set($key, $value);
+            // Legacy integer/scalar or cache miss → start (or restart) a window
+            $count = is_int($entry) ? $entry : (is_scalar($entry) ? (int)$entry : 0);
+            $expiresAt = $now + $period;
         }
 
-        return $value;
+        // If the window already expired, reset counter and expiry
+        if ($expiresAt <= $now || $count < 0) {
+            $count = 0;
+            $expiresAt = $now + $period;
+        }
+
+        ++$count;
+
+        $ttl = max(1, $expiresAt - $now);
+        $cache->set($key, ['count' => $count, 'expires_at' => $expiresAt], $ttl);
+
+        return $count;
     }
 
     private function ttlRemaining(string $key): int
@@ -197,7 +209,16 @@ final readonly class Firewall
             return $cache->ttlRemaining($key);
         }
 
-        return 60;
+        $entry = $cache->get($key);
+        if (!is_array($entry) || !array_key_exists('expires_at', $entry)) {
+            return 0;
+        }
+
+        $expiresAt = (int)($entry['expires_at'] ?? 0);
+        $now = time();
+        $remaining = $expiresAt - $now;
+
+        return $remaining > 0 ? $remaining : 0;
     }
 
     private function throttleKey(string $name, string $key): string
