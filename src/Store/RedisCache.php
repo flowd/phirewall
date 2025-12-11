@@ -139,24 +139,21 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
         local key = KEYS[1]
         local window_end = tonumber(ARGV[1])
         local val = redis.call('INCR', key)
-        local ttl = redis.call('TTL', key)
-        if ttl < 0 then
+        -- If this is the first hit for this window, align expiry to window_end
+        if val == 1 then
             redis.call('EXPIREAT', key, window_end)
-        else
-            -- If TTL extends beyond window_end (e.g., previous window), clamp it
-            local expire_at = math.floor(redis.call('TIME')[1]) + ttl
-            if expire_at > window_end then
-                redis.call('EXPIREAT', key, window_end)
-            end
         end
         return val
 LUA;
-        $counter = $this->client->eval($script, 1, $namespacedKey, (string)$windowEnd);
-        if (is_scalar($counter)) {
-            return (int)$counter;
+
+        try {
+            $counter = $this->client->eval($script, 1, $namespacedKey, (string)$windowEnd);
+        } catch (\Throwable) {
+            // In case of Redis errors, fail open and report 0 so callers can decide how to handle.
+            return 0;
         }
 
-        return 0;
+        return is_scalar($counter) ? (int) $counter : 0;
     }
 
     public function ttlRemaining(string $key): int

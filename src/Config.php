@@ -146,6 +146,13 @@ final class Config
      */
     private array $diagnosticsCounters = [];
 
+    /**
+     * Maximum number of distinct rule entries kept per diagnostics category.
+     * Once the cap is reached, additional rules still contribute to the
+     * category "total" counter but are not tracked individually in "by_rule".
+     */
+    private int $diagnosticsMaxRulesPerCategory = 100;
+
     public function __construct(
         public readonly CacheInterface $cache,
         public readonly ?EventDispatcherInterface $eventDispatcher = null,
@@ -255,11 +262,18 @@ final class Config
 
         ++$this->diagnosticsCounters[$category]['total'];
         if ($rule !== null) {
-            if (!isset($this->diagnosticsCounters[$category]['by_rule'][$rule])) {
-                $this->diagnosticsCounters[$category]['by_rule'][$rule] = 0;
+            $byRule =& $this->diagnosticsCounters[$category]['by_rule'];
+
+            if (!array_key_exists($rule, $byRule)) {
+                // Enforce cap on distinct rules per category
+                if (count($byRule) >= $this->diagnosticsMaxRulesPerCategory) {
+                    return;
+                }
+
+                $byRule[$rule] = 0;
             }
 
-            ++$this->diagnosticsCounters[$category]['by_rule'][$rule];
+            ++$byRule[$rule];
         }
     }
 

@@ -88,4 +88,19 @@ final class ConfigTypedApiTest extends TestCase
         $config->resetDiagnosticsCounters();
         $this->assertSame([], $config->getDiagnosticsCounters());
     }
+
+    public function testDiagnosticsCountersCapPerRuleEntries(): void
+    {
+        $config = new Config(new InMemoryCache());
+
+        // Simulate many distinct rules in the same category
+        for ($i = 0; $i < 150; ++$i) {
+            $config->incrementDiagnosticsCounter('throttle_exceeded', 'rule-' . $i);
+        }
+
+        $counters = $config->getDiagnosticsCounters();
+        $this->assertSame(150, $counters['throttle_exceeded']['total'] ?? 0);
+        // by_rule should be capped at 100 distinct entries
+        $this->assertLessThanOrEqual(100, count($counters['throttle_exceeded']['by_rule'] ?? []));
+    }
 }
