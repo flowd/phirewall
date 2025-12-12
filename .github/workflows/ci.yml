@@ -57,3 +57,10 @@ jobs:
         env:
           XDEBUG_MODE: coverage
         run: vendor/bin/phpunit --colors=always
+
+      - name: Run all example scripts
+        run: |
+          for file in examples/*.php; do
+            echo "Running $file"
+            php "$file"
+          done

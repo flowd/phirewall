@@ -69,10 +69,10 @@ echo $contents . "\n";
 // Normally you would register this listener with your application's PSR-14 dispatcher.
 $runner = new SyncNonBlockingRunner();
 $listener = new InfrastructureBanListener(
-    adapter: $adapter,
-    runner: $runner,
-    blockOnFail2Ban: true,      // mirror Fail2Ban bans to Apache
-    blockOnBlocklist: true      // mirror Blocklist matches to Apache
+    $adapter,
+    $runner,
+    true,  // blockOnFail2Ban: mirror Fail2Ban bans to Apache
+    true   // blockOnBlocklist: mirror Blocklist matches to Apache
 );
 
 // Minimal demo dispatcher that calls our listener methods for relevant events
