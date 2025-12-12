@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
+if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') !== __FILE__) {
+    throw new RuntimeException('Run this example via CLI: php examples/api_rate_limiting.php');
+}
+
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Flowd\Phirewall\KeyExtractors;
@@ -54,38 +58,31 @@ $config->throttle('api_user', 300, 900, KeyExtractors::header('X-User-Id'));
 
 $middleware = new Middleware($config, new Psr17Factory());
 
-// If executed directly, run a small demonstration without relying on external code.
-if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
-    $handler = new class () implements RequestHandlerInterface {
-        public function handle(ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
-        {
-            return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
+$handler = new class () implements RequestHandlerInterface {
+    public function handle(ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
+    {
+        return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
+    }
+};
+
+$run = static function (string $method, string $path, array $headers = [], array $server = []) use ($middleware, $handler): void {
+    $request = new ServerRequest($method, $path, $headers, null, '1.1', $server);
+    $response = $middleware->process($request, $handler);
+    $addr = $server['REMOTE_ADDR'] ?? 'n/a';
+    echo sprintf("%s %s from %s => %d\n", $method, $path, $addr, $response->getStatusCode());
+    foreach (['X-Phirewall','X-Phirewall-Matched','Retry-After','X-RateLimit-Limit','X-RateLimit-Remaining','X-RateLimit-Reset'] as $h) {
+        $val = $response->getHeaderLine($h);
+        if ($val !== '') {
+            echo $h . ': ' . $val . "\n";
         }
-    };
-
-    $run = static function (string $method, string $path, array $headers = [], array $server = []) use ($middleware, $handler): void {
-        $request = new ServerRequest($method, $path, $headers, null, '1.1', $server);
-        $response = $middleware->process($request, $handler);
-        $addr = $server['REMOTE_ADDR'] ?? 'n/a';
-        echo sprintf("%s %s from %s => %d\n", $method, $path, $addr, $response->getStatusCode());
-        foreach (['X-Phirewall','X-Phirewall-Matched','Retry-After','X-RateLimit-Limit','X-RateLimit-Remaining','X-RateLimit-Reset'] as $h) {
-            $val = $response->getHeaderLine($h);
-            if ($val !== '') {
-                echo $h . ': ' . $val . "\n";
-            }
-        }
-
-        echo "\n";
-    };
-
-    // Demonstrate a couple of requests
-    $run('GET', '/api/users', [], ['REMOTE_ADDR' => '198.51.100.1']);
-    for ($i = 1; $i <= 10; ++$i) {
-        $run('POST', '/api/users', ['X-User-Id' => '42'], ['REMOTE_ADDR' => '198.51.100.1']);
     }
 
-    exit(0);
+    echo "\n";
+};
+
+$run('GET', '/api/users', [], ['REMOTE_ADDR' => '198.51.100.1']);
+for ($i = 1; $i <= 10; ++$i) {
+    $run('POST', '/api/users', ['X-User-Id' => '42'], ['REMOTE_ADDR' => '198.51.100.1']);
 }
 
-// Return middleware so you can include() this file from your application bootstrap
-return $middleware;
+exit(0);

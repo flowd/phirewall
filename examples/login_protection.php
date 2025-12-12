@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
+if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') !== __FILE__) {
+    throw new RuntimeException('Run this example via CLI: php examples/login_protection.php');
+}
+
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Flowd\Phirewall\KeyExtractors;
@@ -56,39 +60,32 @@ $config->blocklistedResponse(fn(string $rule, string $type, ServerRequestInterfa
 
 $middleware = new Middleware($config, new Psr17Factory());
 
-// If executed directly, run a small demonstration with simulated requests.
-if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
-    $handler = new class () implements RequestHandlerInterface {
-        public function handle(ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
-        {
-            return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
+$handler = new class () implements RequestHandlerInterface {
+    public function handle(ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
+    {
+        return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
+    }
+};
+
+$run = static function (string $method, string $path, array $headers = [], array $server = []) use ($middleware, $handler): void {
+    $request = new ServerRequest($method, $path, $headers, null, '1.1', $server);
+    $response = $middleware->process($request, $handler);
+    $addr = $server['REMOTE_ADDR'] ?? 'n/a';
+    echo sprintf("%s %s from %s => %d\n", $method, $path, $addr, $response->getStatusCode());
+    foreach (['X-Phirewall','X-Phirewall-Matched','Retry-After'] as $h) {
+        $val = $response->getHeaderLine($h);
+        if ($val !== '') {
+            echo $h . ': ' . $val . "\n";
         }
-    };
-
-    $run = static function (string $method, string $path, array $headers = [], array $server = []) use ($middleware, $handler): void {
-        $request = new ServerRequest($method, $path, $headers, null, '1.1', $server);
-        $response = $middleware->process($request, $handler);
-        $addr = $server['REMOTE_ADDR'] ?? 'n/a';
-        echo sprintf("%s %s from %s => %d\n", $method, $path, $addr, $response->getStatusCode());
-        foreach (['X-Phirewall','X-Phirewall-Matched','Retry-After'] as $h) {
-            $val = $response->getHeaderLine($h);
-            if ($val !== '') {
-                echo $h . ': ' . $val . "\n";
-            }
-        }
-
-        echo "\n";
-    };
-
-    // Simulate 5 failed login attempts to trigger Fail2Ban, then a blocked request
-    for ($i = 1; $i <= 5; ++$i) {
-        $run('POST', '/login', ['X-Login-Failed' => '1'], ['REMOTE_ADDR' => '198.51.100.2']);
     }
 
-    // Next request (without failure header) should be banned
-    $run('GET', '/', [], ['REMOTE_ADDR' => '198.51.100.2']);
+    echo "\n";
+};
 
-    exit(0);
+for ($i = 1; $i <= 5; ++$i) {
+    $run('POST', '/login', ['X-Login-Failed' => '1'], ['REMOTE_ADDR' => '198.51.100.2']);
 }
 
-return $middleware;
+$run('GET', '/', [], ['REMOTE_ADDR' => '198.51.100.2']);
+
+exit(0);

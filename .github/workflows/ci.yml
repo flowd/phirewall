@@ -64,6 +64,9 @@ jobs:
       - name: Run all example scripts
         run: |
           for file in examples/*.php; do
-            echo "Running $file"
+            echo "################################################"
+            echo "### Running $file"
+            echo "################################################"
             php "$file"
+            echo ""
           done

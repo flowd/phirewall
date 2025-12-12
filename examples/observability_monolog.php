@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
+if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') !== __FILE__) {
+    throw new RuntimeException('Run this example via CLI: php examples/observability_monolog.php');
+}
+
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
@@ -55,22 +59,17 @@ $config->throttle('ip', limit: 5, period: 60, key: KeyExtractors::ip());
 
 $middleware = new Middleware($config, new Psr17Factory());
 
-// If executed directly, run a tiny demonstration
-if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
-    $handler = new class () implements RequestHandlerInterface {
-        public function handle(ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
-        {
-            return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
-        }
-    };
-
-    $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.10']);
-    for ($i = 1; $i <= 7; ++$i) {
-        $response = $middleware->process($request, $handler);
-        echo sprintf("Attempt %d => %d\n", $i, $response->getStatusCode());
+$handler = new class () implements RequestHandlerInterface {
+    public function handle(ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
+    {
+        return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
     }
+};
 
-    exit(0);
+$request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.10']);
+for ($i = 1; $i <= 7; ++$i) {
+    $response = $middleware->process($request, $handler);
+    echo sprintf("Attempt %d => %d\n", $i, $response->getStatusCode());
 }
 
-return $middleware;
+exit(0);

@@ -11,7 +11,8 @@ Features:
 - Fail2Ban — detect repeated failures and ban keys for a period
 - Track hooks — increment custom counters for diagnostics/metrics without affecting outcome
 - Pattern backends/frontends — pluggable pattern sources (file/redis/db/etc.) feeding blocklist frontends with IP/CIDR/path/header/regex kinds
-- PSR-14 events — optional domain events for observability (safelist matched, blocklist matched, throttle exceeded, fail2ban banned, track hit)
+- PSR-14 events — optional domain events for observability (safelist matched, blocklist matched, throttle exceeded, fail2ban banned, track hit, performance measured)
+- Diagnostics counters — lightweight per-category/rule counters for smoke tests or exposing metrics endpoints
 - Custom response factories — override 403/429 responses while keeping standard headers
 
 It uses a PSR-16 cache for counters/ban state. An in-memory cache is included for testing and simple usage. A Redis-backed store (via Predis client) is optionally available. The middleware can leverage enhanced capabilities via a lightweight CounterStoreInterface (increment/ttlRemaining) when the cache implements it; otherwise it falls back to generic PSR-16 behavior.
@@ -74,7 +75,7 @@ $config->fail2ban('login', threshold: 5, period: 300, ban: 3600,
 $middleware = new Middleware($config, $responseFactory);
 ```
 
-Add `$middleware` to your PSR-15 middleware pipeline.
+Add the middleware to your PSR-15 pipeline and ensure a PSR-17 ResponseFactory is available. The middleware will attempt to auto-detect one via `Flowd\Phirewall\Http\ResponseFactoryResolver`; if no supported implementation (Nyholm, Guzzle, Laminas, Slim, etc.) is installed you must pass your own factory instance, otherwise construction fails.
 
 ### Response headers
 
@@ -110,6 +111,7 @@ If you pass a PSR-14 EventDispatcher to Config, the middleware emits domain-spec
 - Events\ThrottleExceeded (fields: rule, key, limit, period, count, retryAfter, request)
 - Events\Fail2BanBanned (fields: rule, key, threshold, period, banSeconds, count, request)
 - Events\TrackHit (fields: rule, key, period, count, request)
+- Events\PerformanceMeasured (fields: decisionPath, durationMicros, ruleName) — dispatched for every decision so you can instrument latency
 
 Basic wiring with a minimal dispatcher:
 
@@ -226,7 +228,10 @@ $resolver = new TrustedProxyResolver([
 $config->throttle('client-ip', limit: 60, period: 60, key: KeyExtractors::clientIp($resolver));
 ```
 
-Security: the resolver only considers proxy headers if the immediate peer (REMOTE_ADDR) is trusted. It then walks X-Forwarded-For/Forwarded from right to left, skipping trusted proxies and selecting the first untrusted hop as the client IP. If uncertain, it falls back to REMOTE_ADDR.
+Security: the resolver only considers proxy headers if the immediate peer (REMOTE_ADDR) is trusted. It then walks X-Forwarded-For/Forwarded from right to left, skipping trusted proxies and selecting the first untrusted hop as the client IP. If uncertain, it falls back to REMOTE_ADDR. You can further harden resolution by:
+- Passing `allowedHeaders` (e.g., only `['Forwarded']`) when constructing `TrustedProxyResolver` to restrict which headers are honoured.
+- Tuning `maxChainEntries` to drop overly long X-Forwarded-For chains and mitigate header-injection attempts.
+- Using IPv4/IPv6 CIDR ranges (e.g., `2001:db8::/32`) in the trusted list so dual-stack deployments stay accurate.
 
 ### Custom responses (optional)
 You can customize responses while standard headers are still ensured:
@@ -244,7 +249,7 @@ $config->throttledResponse(function (string $rule, int $retryAfter, Psr\Http\Mes
 ### Storage backends
 - InMemoryCache (bundled) implements PSR-16 and CounterStoreInterface for accurate fixed windows.
 - ApcuCache (optional) implements PSR-16 and CounterStoreInterface using ext-apcu for fast in-process counters. Enable `apc.enable_cli=1` to use in CLI/testing environments.
-- RedisCache (optional) implements PSR-16 and CounterStoreInterface using Predis. Redis is not required to use this package.
+- RedisCache (optional) implements PSR-16 and CounterStoreInterface using Predis. It uses Lua (`INCR` + `EXPIREAT`) to align expiries with the end of the current window and falls back to returning `0` if Redis is unavailable so your app can decide how to fail open. Redis is not required to use this package.
 - Any PSR-16 cache will work; precision may be reduced without CounterStoreInterface.
 
 ### Key prefix (namespacing)
@@ -481,7 +486,7 @@ Security notes:
 
 ## OWASP Core Rule Set (CRS) adapter
 
-Phirewall can parse and evaluate a subset of the OWASP Core Rule Set (CRS) syntax to block malicious requests using familiar `SecRule` lines. 
+Phirewall can parse and evaluate a subset of the OWASP Core Rule Set (CRS) syntax to block malicious requests using familiar `SecRule` lines.
 This adapter is designed to be safe and performant while covering common operators and variables.
 
 This is not a full CRS implementation; it supports a practical subset suitable for many use cases. Unsupported features are ignored safely.
@@ -614,46 +619,31 @@ With the above rule loaded and the diagnostics header enabled, requests to `/adm
 
 ## Examples
 
-Real-world configuration snippets are available in the examples directory:
+Real-world configuration snippets are available in the examples directory. Each script is intended to be run directly via CLI (they throw if included) so that CI jobs can execute them and ensure they stay functional:
 
-- examples/api_rate_limiting.php — Global per-client IP limit, stricter write-endpoint limits, and per-user limits with optional rate-limit headers
-- examples/login_protection.php — Track login failures, Fail2Ban ban on repeated failures, and throttle login submissions
-- examples/ip_banlists.php — Safelist health/metrics endpoints plus file-backed pattern backend demo for IP/CIDR/path/header/regex
-- examples/redis_setup.php — Use Redis (Predis) via RedisCache for distributed counters/bans
-- examples/owasp_crs_basic.php — Load a small OWASP CRS-like rule set (including @pmFromFile), toggle rules, and integrate with Firewall; runnable demo prints block/pass outcomes in CLI
+- `php examples/api_rate_limiting.php`
+- `php examples/login_protection.php`
+- `php examples/ip_banlists.php`
+- `php examples/redis_setup.php`
+- `php examples/observability_monolog.php`
+- `php examples/observability_opentelemetry.php`
+- `php examples/owasp_crs_basic.php`
+- `php examples/benchmarks_counters.php`
 
-You can include any of these files from your bootstrap to obtain a configured middleware instance:
-
-```
-$firewall = require __DIR__ . '/examples/api_rate_limiting.php';
-```
-
-### Benchmarks
-
-A simple micro-benchmark script is provided to gauge counter store performance.
-
-Run in-memory benchmarks:
-
-```
-php examples/benchmarks_counters.php
-```
-
-Include Redis (optional) if Predis is installed and a Redis server is available:
-
-```
-REDIS_URL=redis://localhost:6379 php examples/benchmarks_counters.php
-```
-
-Outputs operations per second for increment and ttlRemaining.
+These scripts showcase:
+- API-wide rate limiting and per-route buckets
+- Login protection with track/fail2ban/throttle
+- File/IP blocklists, pattern backends, and infrastructure adapters
+- Redis/APCu/in-memory counter stores
+- Observability hooks (Monolog, OpenTelemetry)
 
 ## Development
 
-- Run unit tests: `XDEBUG_MODE=coverage vendor/bin/phpunit`
-- Static analysis: `vendor/bin/phpstan`
-- Code style: `vendor/bin/php-cs-fixer fix`
-- Mutation testing (optional): `vendor/bin/infection` or `composer test:mutation`
-    - With coverage pre-enabled: `composer test:mutation:coverage`
-    - Reports are written to `.build/infection.html` and logs under `.build/`
+- Run code fixes: `composer fix`
+- Run tests and code analysis: `composer test`
+- Mutation testing (optional): `composer test:mutation`
+  - With coverage pre-enabled: `composer test:mutation:coverage`
+  - Reports are written to `.build/infection.html` and logs under `.build/`
 
 ## Sponsors
 This project received funding from TYPO3 Association by its Community Budget program.
