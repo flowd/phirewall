@@ -29,7 +29,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 // Fallback stub to allow including the file without fatal errors
 if (!class_exists(\Predis\Client::class)) {
     fwrite(STDERR, "Predis is not installed. Run: composer require predis/predis\n");
-    exit(1);
+    exit(0);
 }
 
 $redisClient = new \Predis\Client(getenv('REDIS_URL') ?: 'redis://localhost:6379');
