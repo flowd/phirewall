@@ -225,7 +225,11 @@ final readonly class Firewall
         $entry = $cache->get($key);
 
         // Normalize legacy/plain values to structured entry
-        if (is_array($entry) && array_key_exists('count', $entry) && array_key_exists('expires_at', $entry)) {
+        if (
+            is_array($entry)
+            && is_scalar($entry['count'] ?? null)
+            && is_scalar($entry['expires_at'] ?? null)
+        ) {
             $count = (int)($entry['count'] ?? 0);
             $expiresAt = (int)($entry['expires_at'] ?? 0);
         } else {
@@ -256,7 +260,7 @@ final readonly class Firewall
         }
 
         $entry = $cache->get($key);
-        if (!is_array($entry) || !array_key_exists('expires_at', $entry)) {
+        if (!is_array($entry) || !is_scalar($entry['count'] ?? null)) {
             return 0;
         }
 

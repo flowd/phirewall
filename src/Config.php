@@ -262,7 +262,7 @@ final class Config
 
         ++$this->diagnosticsCounters[$category]['total'];
         if ($rule !== null) {
-            $byRule =& $this->diagnosticsCounters[$category]['by_rule'];
+            $byRule = & $this->diagnosticsCounters[$category]['by_rule'];
 
             if (!array_key_exists($rule, $byRule)) {
                 // Enforce cap on distinct rules per category

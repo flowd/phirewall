@@ -30,12 +30,15 @@ final class ResponseFactoryResolver
      */
     private static function factoryClasses(): array
     {
-        return [
-            \Nyholm\Psr7\Factory\Psr17Factory::class,
-            \GuzzleHttp\Psr7\HttpFactory::class,
-            \Http\Factory\Guzzle\ResponseFactory::class,
-            \Laminas\Diactoros\ResponseFactory::class,
-            \Slim\Psr7\Factory\ResponseFactory::class,
+        /** @var list<class-string<ResponseFactoryInterface>> $fallbackFactories */
+        $fallbackFactories =  [
+            '\\Nyholm\\Psr7\\Factory\\Psr17Factory',
+            '\\GuzzleHttp\\Psr7\\HttpFactory',
+            '\\Http\\Factory\\Guzzle\\ResponseFactory',
+            '\\Laminas\\Diactoros\\ResponseFactory',
+            '\\Slim\\Psr7\\Factory\\ResponseFactory',
         ];
+
+        return $fallbackFactories;
     }
 }

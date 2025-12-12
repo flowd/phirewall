@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Rector\Config\RectorConfig;
+use Rector\Php55\Rector\String_\StringClassNameToClassConstantRector;
 
 return RectorConfig::configure()
     ->withPaths([
@@ -27,4 +28,9 @@ return RectorConfig::configure()
         rectorPreset: true,
         phpunitCodeQuality: true,
         phpunit: true,
-    );
+    )
+    ->withSkip([
+        StringClassNameToClassConstantRector::class => [
+            __DIR__ . '/src/Http/ResponseFactoryResolver.php',
+        ],
+    ]);

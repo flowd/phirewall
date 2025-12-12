@@ -47,16 +47,19 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress --no-interaction
 
+      - name: Run Rector (dry-run)
+        run: composer rector:check
+
       - name: Run PHP-CS-Fixer (dry-run)
-        run: vendor/bin/php-cs-fixer fix --dry-run --diff
+        run: composer cs:check
 
       - name: Run PHPStan
-        run: vendor/bin/phpstan --no-ansi
+        run: composer phpstan
 
       - name: Run PHPUnit with coverage
         env:
           XDEBUG_MODE: coverage
-        run: vendor/bin/phpunit --colors=always
+        run: composer phpunit
 
       - name: Run all example scripts
         run: |

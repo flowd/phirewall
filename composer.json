@@ -46,12 +46,24 @@
       }
     },
   "scripts": {
-    "test": "XDEBUG_MODE=coverage vendor/bin/phpunit",
+    "phpunit": "XDEBUG_MODE=coverage vendor/bin/phpunit --color=always",
     "phpstan": "vendor/bin/phpstan",
-    "rector": "vendor/bin/rector",
-    "cs": "vendor/bin/php-cs-fixer fix --diff --verbose",
-    "test:mutation": "vendor/bin/infection --threads=4 --logger-html=.build/infection.html --min-msi=0 --min-covered-msi=0",
-    "test:mutation:coverage": "XDEBUG_MODE=coverage vendor/bin/infection --threads=4 --logger-html=.build/infection.html --initial-tests-php-options=\"-dxdebug.mode=coverage\" --min-msi=0 --min-covered-msi=0"
+    "rector:check": "vendor/bin/rector --dry-run",
+    "rector:fix": "vendor/bin/rector",
+    "cs:check": "vendor/bin/php-cs-fixer fix --diff --dry-run --verbose",
+    "cs:fix": "vendor/bin/php-cs-fixer fix --diff --verbose",
+    "infection": "vendor/bin/infection --threads=4 --logger-html=.build/infection.html --min-msi=0 --min-covered-msi=0",
+    "infection:coverage": "XDEBUG_MODE=coverage vendor/bin/infection --threads=4 --logger-html=.build/infection.html --initial-tests-php-options=\"-dxdebug.mode=coverage\" --min-msi=0 --min-covered-msi=0",
+    "fix": [
+        "@rector:fix",
+        "@cs:fix"
+    ],
+    "test": [
+        "@rector:check",
+        "@cs:check",
+        "@phpunit",
+        "@phpstan"
+    ]
   },
   "config": {
     "allow-plugins": {
