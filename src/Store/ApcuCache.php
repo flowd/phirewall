@@ -19,6 +19,13 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
 {
     private const EXP_SUFFIX = '::exp';
 
+    public function __construct()
+    {
+        if (!function_exists('apcu_enabled') || !apcu_enabled()) {
+            throw new \RuntimeException('APCu extension is not enabled.');
+        }
+    }
+
     public function get(string $key, mixed $default = null): mixed
     {
         $success = false;

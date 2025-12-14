@@ -87,30 +87,26 @@ if ($redisUrl && class_exists(\Predis\Client::class)) {
 }
 
 // Optional APCU benchmarks if APCU is available
-if (function_exists('apcu_enabled') && apcu_enabled()) {
-    try {
-        $mem = new ApcuCache();
-        $keyBase = 'bench:apcu:' . bin2hex(random_bytes(4));
+try {
+    $mem = new ApcuCache();
+    $keyBase = 'bench:apcu:' . bin2hex(random_bytes(4));
 
-        bench('APCU increment', static function (int $n) use ($mem, $period, $keyBase): void {
-            for ($i = 0; $i < $n; ++$i) {
-                $mem->increment($keyBase . ':' . ($i % 16), $period);
-            }
-        });
+    bench('APCU increment', static function (int $n) use ($mem, $period, $keyBase): void {
+        for ($i = 0; $i < $n; ++$i) {
+            $mem->increment($keyBase . ':' . ($i % 16), $period);
+        }
+    });
 
-        bench('APCU ttlRemaining', static function (int $n) use ($mem, $keyBase): void {
-            // ensure keys exist
-            for ($i = 0; $i < 16; ++$i) {
-                $mem->set($keyBase . ':ttl:' . $i, 1, 10);
-            }
+    bench('APCU ttlRemaining', static function (int $n) use ($mem, $keyBase): void {
+        // ensure keys exist
+        for ($i = 0; $i < 16; ++$i) {
+            $mem->set($keyBase . ':ttl:' . $i, 1, 10);
+        }
 
-            for ($i = 0; $i < $n; ++$i) {
-                $mem->ttlRemaining($keyBase . ':ttl:' . ($i % 16));
-            }
-        });
-    } catch (Throwable $e) {
-        fwrite(STDERR, "[WARN] APCU benchmarks skipped: " . $e->getMessage() . "\n");
-    }
-} else {
-    fwrite(STDERR, "[INFO] Enable APCU to include APCU benchmarks.\n");
+        for ($i = 0; $i < $n; ++$i) {
+            $mem->ttlRemaining($keyBase . ':ttl:' . ($i % 16));
+        }
+    });
+} catch (Throwable $e) {
+    fwrite(STDERR, "[WARN] APCU benchmarks skipped: " . $e->getMessage() . "\n");
 }
