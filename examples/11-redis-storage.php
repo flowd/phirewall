@@ -55,7 +55,7 @@ if (!class_exists(\Predis\Client::class)) {
 // =============================================================================
 
 $redisUrl = getenv('REDIS_URL') ?: 'redis://localhost:6379/0';
-echo "Connecting to Redis: $redisUrl\n";
+echo sprintf('Connecting to Redis: %s%s', $redisUrl, PHP_EOL);
 
 try {
     $redisClient = new \Predis\Client($redisUrl);
@@ -65,9 +65,10 @@ try {
     if (stripos($pong, 'PONG') === false) {
         throw new RuntimeException("Redis did not respond with PONG");
     }
+
     echo "Redis connection successful\n\n";
-} catch (\Throwable $e) {
-    echo "Failed to connect to Redis: " . $e->getMessage() . "\n";
+} catch (\Throwable $throwable) {
+    echo "Failed to connect to Redis: " . $throwable->getMessage() . "\n";
     echo "Make sure Redis is running and REDIS_URL is set correctly.\n";
     exit(1);
 }
@@ -80,7 +81,7 @@ try {
 $keyPrefix = 'phirewall:example:' . bin2hex(random_bytes(4)) . ':';
 $cache = new RedisCache($redisClient, $keyPrefix);
 
-echo "Redis cache configured with prefix: $keyPrefix\n\n";
+echo "Redis cache configured with prefix: {$keyPrefix}\n\n";
 
 // =============================================================================
 // CONFIGURATION
@@ -104,7 +105,7 @@ $config->fail2ban(
     threshold: 2,       // 2 blocked requests
     period: 60,         // In 1 minute
     ban: 300,           // 5 minute ban
-    filter: fn($req) => $req->getHeaderLine('X-Abuse') === '1',
+    filter: fn($req): bool => $req->getHeaderLine('X-Abuse') === '1',
     key: KeyExtractors::ip()
 );
 echo "Fail2Ban rule: 2 abuse markers = 5 minute ban\n\n";
@@ -116,7 +117,7 @@ echo "Fail2Ban rule: 2 abuse markers = 5 minute ban\n\n";
 $middleware = new Middleware($config, new Psr17Factory());
 
 $handler = new class implements RequestHandlerInterface {
-    public function handle(ServerRequestInterface $request): ResponseInterface
+    public function handle(ServerRequestInterface $serverRequest): ResponseInterface
     {
         return new Response(200, ['Content-Type' => 'application/json'], '{"status":"ok"}');
     }
@@ -133,12 +134,14 @@ $testRequest = function (string $desc, string $ip, array $headers = []) use ($mi
 
     echo sprintf("  %-40s => %d", $desc, $status);
     if ($remaining !== '') {
-        echo " [remaining: $remaining]";
+        echo sprintf(' [remaining: %s]', $remaining);
     }
+
     if ($phirewall === 'blocked') {
         $rule = $response->getHeaderLine('X-Phirewall-Matched');
-        echo " [blocked: $rule]";
+        echo sprintf(' [blocked: %s]', $rule);
     }
+
     echo "\n";
 };
 
@@ -150,23 +153,26 @@ echo "=== Request Simulation ===\n\n";
 
 echo "Test 1: Rate limiting with Redis storage\n";
 $testIp = '192.168.1.100';
-for ($i = 1; $i <= 5; $i++) {
-    $testRequest("Request $i from $testIp", $testIp);
+for ($i = 1; $i <= 5; ++$i) {
+    $testRequest(sprintf('Request %d from %s', $i, $testIp), $testIp);
 }
+
 echo "\n";
 
 echo "Test 2: Different IP has separate quota\n";
 $testIp2 = '192.168.1.200';
-for ($i = 1; $i <= 3; $i++) {
-    $testRequest("Request $i from $testIp2", $testIp2);
+for ($i = 1; $i <= 3; ++$i) {
+    $testRequest(sprintf('Request %d from %s', $i, $testIp2), $testIp2);
 }
+
 echo "\n";
 
 echo "Test 3: Fail2Ban with Redis storage\n";
 $abuserIp = '10.0.0.50';
-for ($i = 1; $i <= 4; $i++) {
-    $testRequest("Abuse attempt $i from $abuserIp", $abuserIp, ['X-Abuse' => '1']);
+for ($i = 1; $i <= 4; ++$i) {
+    $testRequest(sprintf('Abuse attempt %d from %s', $i, $abuserIp), $abuserIp, ['X-Abuse' => '1']);
 }
+
 echo "\n";
 
 // =============================================================================
@@ -182,6 +188,7 @@ foreach ($keys as $key) {
     $type = $redisClient->type($key);
     echo sprintf("  %s (type: %s, TTL: %ds)\n", $key, $type, $ttl);
 }
+
 echo "\n";
 
 // =============================================================================
@@ -194,6 +201,7 @@ echo "=== Cleanup ===\n\n";
 foreach ($keys as $key) {
     $redisClient->del($key);
 }
+
 echo "Deleted " . count($keys) . " keys from Redis\n";
 
 // =============================================================================

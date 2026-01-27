@@ -49,6 +49,7 @@ if (class_exists(\Monolog\Logger::class)) {
     echo "Monolog not installed - using error_log fallback\n";
     echo "Install with: composer require monolog/monolog\n";
 }
+
 echo "\n";
 
 // =============================================================================
@@ -72,7 +73,7 @@ $dispatcher = new class ($logger) implements EventDispatcherInterface {
 
         // Log the event
         if ($this->logger instanceof \Monolog\Logger) {
-            $this->logger->info("Firewall event: $eventType", $context);
+            $this->logger->info('Firewall event: ' . $eventType, $context);
         } else {
             error_log(sprintf('[Firewall] %s: %s', $eventType, json_encode($context, JSON_UNESCAPED_SLASHES)));
         }
@@ -110,9 +111,7 @@ $config->throttle(
 echo "Throttle rule configured: 3 requests/min per IP\n";
 
 // Blocklist to demonstrate blocked events
-$config->blocklist('scanner', function (ServerRequestInterface $req): bool {
-    return str_contains(strtolower($req->getHeaderLine('User-Agent')), 'scanner');
-});
+$config->blocklist('scanner', fn(ServerRequestInterface $serverRequest): bool => str_contains(strtolower($serverRequest->getHeaderLine('User-Agent')), 'scanner'));
 echo "Blocklist rule configured: block scanner User-Agents\n\n";
 
 // =============================================================================
@@ -122,7 +121,7 @@ echo "Blocklist rule configured: block scanner User-Agents\n\n";
 $middleware = new Middleware($config, new Psr17Factory());
 
 $handler = new class implements RequestHandlerInterface {
-    public function handle(ServerRequestInterface $request): ResponseInterface
+    public function handle(ServerRequestInterface $serverRequest): ResponseInterface
     {
         return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
     }
@@ -135,11 +134,12 @@ $handler = new class implements RequestHandlerInterface {
 echo "=== Request Simulation ===\n\n";
 
 echo "Test 1: Normal requests (hitting rate limit)\n";
-for ($i = 1; $i <= 5; $i++) {
+for ($i = 1; $i <= 5; ++$i) {
     $request = new ServerRequest('GET', '/api/users', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.10']);
     $response = $middleware->process($request, $handler);
     echo sprintf("  Request %d => %d\n", $i, $response->getStatusCode());
 }
+
 echo "\n";
 
 echo "Test 2: Blocked scanner request\n";
@@ -164,6 +164,7 @@ echo "Events fired:\n";
 foreach ($eventCounts as $type => $count) {
     echo sprintf("  - %s: %d\n", $type, $count);
 }
+
 echo "\n";
 
 // =============================================================================

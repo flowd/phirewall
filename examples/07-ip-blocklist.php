@@ -37,7 +37,7 @@ echo "=== File-Backed IP Blocklist Example ===\n\n";
 
 // Create temporary file for the blocklist
 $blocklistFile = sys_get_temp_dir() . '/phirewall-blocklist-demo.txt';
-echo "Blocklist file: $blocklistFile\n\n";
+echo "Blocklist file: {$blocklistFile}\n\n";
 
 // Clean up any existing file
 if (file_exists($blocklistFile)) {
@@ -120,7 +120,7 @@ echo "Added PATH_EXACT: /secret\n";
 
 $backend->append(new PatternEntry(
     kind: PatternKind::PATH_REGEX,
-    value: '/^\/api\/v[0-9]+\/internal/',
+    value: '/^\/api\/v\d+\/internal/',
     metadata: ['reason' => 'Block internal API versions'],
 ));
 echo "Added PATH_REGEX: /api/v*/internal\n";
@@ -154,7 +154,7 @@ echo "\n";
 $middleware = new Middleware($config, new Psr17Factory());
 
 $handler = new class implements RequestHandlerInterface {
-    public function handle(ServerRequestInterface $request): ResponseInterface
+    public function handle(ServerRequestInterface $serverRequest): ResponseInterface
     {
         return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
     }
@@ -173,7 +173,7 @@ $testRequest = function (
 
     $status = $response->getStatusCode();
     $result = $status === 200 ? 'ALLOW' : 'BLOCK';
-    $rule = $response->getHeaderLine('X-Phirewall-Matched') ?: '-';
+    $rule = in_array($response->getHeaderLine('X-Phirewall-Matched'), ['', '0'], true) ? '-' : $response->getHeaderLine('X-Phirewall-Matched');
 
     echo sprintf("  [%s] %-50s\n", $result, $desc);
     if ($status !== 200) {

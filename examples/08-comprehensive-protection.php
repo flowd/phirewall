@@ -87,10 +87,10 @@ echo "  Rate limit headers: enabled\n\n";
 
 echo "Layer 1: Safelists\n";
 
-$config->safelist('health', fn($req) => $req->getUri()->getPath() === '/health');
+$config->safelist('health', fn($req): bool => $req->getUri()->getPath() === '/health');
 echo "  - /health endpoint\n";
 
-$config->safelist('metrics', fn($req) => $req->getUri()->getPath() === '/metrics');
+$config->safelist('metrics', fn($req): bool => $req->getUri()->getPath() === '/metrics');
 echo "  - /metrics endpoint\n";
 
 $config->safelist('internal-ips', function ($req) use ($proxyResolver): bool {
@@ -98,6 +98,7 @@ $config->safelist('internal-ips', function ($req) use ($proxyResolver): bool {
     if ($ip === null) {
         return false;
     }
+
     // Allow localhost and specific internal range
     return $ip === '127.0.0.1' || str_starts_with($ip, '192.168.10.');
 });
@@ -112,12 +113,13 @@ echo "Layer 2: Blocklists\n";
 // Scanner User-Agents
 $scanners = ['sqlmap', 'nikto', 'nmap', 'burp', 'dirbuster', 'wfuzz', 'nuclei'];
 $config->blocklist('scanner-ua', function ($req) use ($scanners): bool {
-    $ua = strtolower($req->getHeaderLine('User-Agent'));
+    $ua = strtolower((string) $req->getHeaderLine('User-Agent'));
     foreach ($scanners as $scanner) {
         if (str_contains($ua, $scanner)) {
             return true;
         }
     }
+
     return false;
 });
 echo "  - Scanner User-Agents (" . count($scanners) . " patterns)\n";
@@ -125,12 +127,13 @@ echo "  - Scanner User-Agents (" . count($scanners) . " patterns)\n";
 // Scanner paths
 $blockedPaths = ['/wp-admin', '/phpmyadmin', '/.env', '/.git', '/phpinfo.php'];
 $config->blocklist('scanner-paths', function ($req) use ($blockedPaths): bool {
-    $path = strtolower($req->getUri()->getPath());
-    foreach ($blockedPaths as $blocked) {
-        if (str_starts_with($path, $blocked)) {
+    $path = strtolower((string) $req->getUri()->getPath());
+    foreach ($blockedPaths as $blockedPath) {
+        if (str_starts_with($path, $blockedPath)) {
             return true;
         }
     }
+
     return false;
 });
 echo "  - Scanner paths (" . count($blockedPaths) . " patterns)\n";
@@ -182,7 +185,7 @@ $config->fail2ban('login-brute',
     threshold: 5,
     period: 300,
     ban: 3600,
-    filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
+    filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::clientIp($proxyResolver)
 );
 echo "  - Login: 5 failures in 5min = 1 hour ban\n";
@@ -192,7 +195,7 @@ $config->fail2ban('api-abuse',
     threshold: 10,
     period: 60,
     ban: 1800,
-    filter: fn($req) => $req->getHeaderLine('X-API-Error') === '1',
+    filter: fn($req): bool => $req->getHeaderLine('X-API-Error') === '1',
     key: KeyExtractors::clientIp($proxyResolver)
 );
 echo "  - API: 10 errors in 1min = 30 min ban\n\n";
@@ -212,6 +215,7 @@ $config->throttle('write-ops', limit: 50, period: 60, key: function ($req) use (
     if (in_array($req->getMethod(), ['POST', 'PUT', 'PATCH', 'DELETE'])) {
         return $proxyResolver->resolve($req);
     }
+
     return null;
 });
 echo "  - Write ops: 50/min per IP\n";
@@ -221,6 +225,7 @@ $config->throttle('login', limit: 10, period: 60, key: function ($req) use ($pro
     if ($req->getUri()->getPath() === '/login') {
         return $proxyResolver->resolve($req);
     }
+
     return null;
 });
 echo "  - Login: 10/min per IP\n";
@@ -237,21 +242,17 @@ echo "  - Burst: 30/5s per IP\n\n";
 // CUSTOM RESPONSES
 // =============================================================================
 
-$config->blocklistedResponse(function (string $rule, string $type, $req): ResponseInterface {
-    return new Response(403, ['Content-Type' => 'application/json'], json_encode([
-        'error' => 'Forbidden',
-        'message' => 'Your request has been blocked by our security system.',
-        'code' => 'SECURITY_BLOCK',
-    ], JSON_THROW_ON_ERROR));
-});
+$config->blocklistedResponse(fn(string $rule, string $type, $req): ResponseInterface => new Response(403, ['Content-Type' => 'application/json'], json_encode([
+    'error' => 'Forbidden',
+    'message' => 'Your request has been blocked by our security system.',
+    'code' => 'SECURITY_BLOCK',
+], JSON_THROW_ON_ERROR)));
 
-$config->throttledResponse(function (string $rule, int $retryAfter, $req): ResponseInterface {
-    return new Response(429, ['Content-Type' => 'application/json'], json_encode([
-        'error' => 'Too Many Requests',
-        'message' => 'Rate limit exceeded. Please try again later.',
-        'retry_after' => $retryAfter,
-    ], JSON_THROW_ON_ERROR));
-});
+$config->throttledResponse(fn(string $rule, int $retryAfter, $req): ResponseInterface => new Response(429, ['Content-Type' => 'application/json'], json_encode([
+    'error' => 'Too Many Requests',
+    'message' => 'Rate limit exceeded. Please try again later.',
+    'retry_after' => $retryAfter,
+], JSON_THROW_ON_ERROR)));
 
 // =============================================================================
 // SIMULATION
@@ -260,7 +261,7 @@ $config->throttledResponse(function (string $rule, int $retryAfter, $req): Respo
 $middleware = new Middleware($config, new Psr17Factory());
 
 $handler = new class implements RequestHandlerInterface {
-    public function handle(ServerRequestInterface $request): ResponseInterface
+    public function handle(ServerRequestInterface $serverRequest): ResponseInterface
     {
         return new Response(200, ['Content-Type' => 'application/json'], '{"status":"ok"}');
     }
@@ -308,9 +309,9 @@ foreach ($tests as [$desc, $method, $path, $headers, $ip, $expected]) {
     $status = $actual === $expected ? 'PASS' : 'FAIL';
 
     if ($actual === $expected) {
-        $passed++;
+        ++$passed;
     } else {
-        $failed++;
+        ++$failed;
     }
 
     echo sprintf("[%s] %-25s => %d (expected %d)\n", $status, $desc, $actual, $expected);
@@ -321,39 +322,42 @@ echo "\n";
 // Fail2Ban test
 echo "Fail2Ban Test (simulating login brute force):\n";
 $bruteForceIp = '198.51.100.1';
-for ($i = 1; $i <= 7; $i++) {
+for ($i = 1; $i <= 7; ++$i) {
     // First 5 requests are "failed logins" (filter matches), then 2 normal requests
     $headers = $i <= 5 ? ['X-Login-Failed' => '1'] : [];
-    $status = $test("Login attempt $i", 'POST', '/login', $headers, $bruteForceIp);
+    $status = $test('Login attempt ' . $i, 'POST', '/login', $headers, $bruteForceIp);
     $desc = $i <= 5 ? '(failed login)' : '(normal request, should be banned)';
     echo sprintf("  Attempt %d %s: %d\n", $i, $desc, $status);
 }
+
 echo "\n";
 
 // Rate limiting test
 echo "Rate Limiting Test (30 rapid requests from single IP):\n";
 $ip = '10.20.30.40';
 $blocked = 0;
-for ($i = 1; $i <= 35; $i++) {
-    $status = $test("Request $i", 'GET', '/api/data', [], $ip);
+for ($i = 1; $i <= 35; ++$i) {
+    $status = $test('Request ' . $i, 'GET', '/api/data', [], $ip);
     if ($status === 429) {
-        $blocked++;
+        ++$blocked;
     }
+
     if ($i <= 3 || $i >= 30) {
         echo sprintf("  Request %d: %d\n", $i, $status);
     } elseif ($i === 4) {
         echo "  ... (requests 4-29) ...\n";
     }
 }
-echo "  Blocked by rate limit: $blocked requests\n\n";
+
+echo "  Blocked by rate limit: {$blocked} requests\n\n";
 
 // =============================================================================
 // RESULTS
 // =============================================================================
 
 echo "=== Results ===\n";
-echo "Attack tests passed: $passed\n";
-echo "Attack tests failed: $failed\n\n";
+echo sprintf('Attack tests passed: %d%s', $passed, PHP_EOL);
+echo "Attack tests failed: {$failed}\n\n";
 
 echo "=== Diagnostics Summary ===\n";
 $counters = $config->getDiagnosticsCounters();

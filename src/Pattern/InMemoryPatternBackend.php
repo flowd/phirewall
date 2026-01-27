@@ -42,8 +42,8 @@ final class InMemoryPatternBackend implements PatternBackendInterface
     {
         $this->now = $now ?? static fn(): int => time();
 
-        foreach ($initialEntries as $entry) {
-            $this->appendInternal($entry);
+        foreach ($initialEntries as $initialEntry) {
+            $this->appendInternal($initialEntry);
         }
     }
 

@@ -67,10 +67,11 @@ $config->throttle(
     name: 'write-ops',
     limit: 30,
     period: 60,
-    key: function (ServerRequestInterface $request): ?string {
-        if (in_array($request->getMethod(), ['POST', 'PUT', 'PATCH', 'DELETE'])) {
-            return $request->getServerParams()['REMOTE_ADDR'] ?? null;
+    key: function (ServerRequestInterface $serverRequest): ?string {
+        if (in_array($serverRequest->getMethod(), ['POST', 'PUT', 'PATCH', 'DELETE'])) {
+            return $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
         }
+
         return null; // Skip for GET requests
     }
 );
@@ -85,10 +86,11 @@ $config->throttle(
     name: 'search',
     limit: 10,
     period: 60,
-    key: function (ServerRequestInterface $request): ?string {
-        if ($request->getUri()->getPath() === '/api/search') {
-            return $request->getServerParams()['REMOTE_ADDR'] ?? null;
+    key: function (ServerRequestInterface $serverRequest): ?string {
+        if ($serverRequest->getUri()->getPath() === '/api/search') {
+            return $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
         }
+
         return null;
     }
 );
@@ -99,10 +101,11 @@ $config->throttle(
     name: 'export',
     limit: 2,
     period: 300, // 5 minutes
-    key: function (ServerRequestInterface $request): ?string {
-        if (str_starts_with($request->getUri()->getPath(), '/api/export')) {
-            return $request->getServerParams()['REMOTE_ADDR'] ?? null;
+    key: function (ServerRequestInterface $serverRequest): ?string {
+        if (str_starts_with($serverRequest->getUri()->getPath(), '/api/export')) {
+            return $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
         }
+
         return null;
     }
 );
@@ -133,17 +136,15 @@ echo "7. API key: 500 req/min per key\n";
 // -----------------------------------------------------------------------------
 // Custom response for rate limiting
 // -----------------------------------------------------------------------------
-$config->throttledResponse(function (string $rule, int $retryAfter, $request): ResponseInterface {
-    return new Response(429, [
-        'Content-Type' => 'application/json',
-        'Retry-After' => (string) $retryAfter,
-    ], json_encode([
-        'error' => 'rate_limit_exceeded',
-        'message' => "You've exceeded the rate limit. Please try again in {$retryAfter} seconds.",
-        'rule' => $rule,
-        'retry_after' => $retryAfter,
-    ], JSON_THROW_ON_ERROR));
-});
+$config->throttledResponse(fn(string $rule, int $retryAfter, $request): ResponseInterface => new Response(429, [
+    'Content-Type' => 'application/json',
+    'Retry-After' => (string) $retryAfter,
+], json_encode([
+    'error' => 'rate_limit_exceeded',
+    'message' => sprintf("You've exceeded the rate limit. Please try again in %d seconds.", $retryAfter),
+    'rule' => $rule,
+    'retry_after' => $retryAfter,
+], JSON_THROW_ON_ERROR)));
 
 echo "\n";
 
@@ -154,7 +155,7 @@ echo "\n";
 $middleware = new Middleware($config, new Psr17Factory());
 
 $handler = new class implements RequestHandlerInterface {
-    public function handle(ServerRequestInterface $request): ResponseInterface
+    public function handle(ServerRequestInterface $serverRequest): ResponseInterface
     {
         return new Response(200, ['Content-Type' => 'application/json'],
             json_encode(['status' => 'ok'], JSON_THROW_ON_ERROR));
@@ -179,11 +180,13 @@ $test = function (
     $rule = $response->getHeaderLine('X-Phirewall-Matched');
 
     if ($remaining !== '') {
-        echo " [remaining: $remaining]";
+        echo sprintf(' [remaining: %s]', $remaining);
     }
+
     if ($status === 429 && $rule !== '') {
-        echo " [rule: $rule]";
+        echo sprintf(' [rule: %s]', $rule);
     }
+
     echo "\n";
 };
 
@@ -191,23 +194,23 @@ echo "=== Test 1: Burst Detection ===\n";
 echo "25 rapid requests should trigger burst limit after 20...\n\n";
 
 $burstIp = '10.0.0.10';
-for ($i = 1; $i <= 25; $i++) {
-    $test("Burst request $i", 'GET', '/api/users', [], $burstIp);
+for ($i = 1; $i <= 25; ++$i) {
+    $test('Burst request ' . $i, 'GET', '/api/users', [], $burstIp);
 }
 
 echo "\n=== Test 2: Endpoint-Specific Limits ===\n";
 echo "Testing search endpoint (10/min limit)...\n\n";
 
 $searchIp = '10.0.0.20';
-for ($i = 1; $i <= 12; $i++) {
-    $test("Search request $i", 'GET', '/api/search', [], $searchIp);
+for ($i = 1; $i <= 12; ++$i) {
+    $test('Search request ' . $i, 'GET', '/api/search', [], $searchIp);
 }
 
 echo "\nTesting export endpoint (2/5min limit)...\n\n";
 
 $exportIp = '10.0.0.30';
-for ($i = 1; $i <= 4; $i++) {
-    $test("Export request $i", 'GET', '/api/export/csv', [], $exportIp);
+for ($i = 1; $i <= 4; ++$i) {
+    $test('Export request ' . $i, 'GET', '/api/export/csv', [], $exportIp);
 }
 
 echo "\n=== Test 3: Write Operations ===\n";
@@ -215,10 +218,10 @@ echo "Testing write operation limits...\n\n";
 
 $writeIp = '10.0.0.40';
 // Mix of write operations
-for ($i = 1; $i <= 5; $i++) {
+for ($i = 1; $i <= 5; ++$i) {
     $test("POST /api/items (create)", 'POST', '/api/items', [], $writeIp);
-    $test("PUT /api/items/$i (update)", 'PUT', "/api/items/$i", [], $writeIp);
-    $test("DELETE /api/items/$i (delete)", 'DELETE', "/api/items/$i", [], $writeIp);
+    $test(sprintf('PUT /api/items/%d (update)', $i), 'PUT', '/api/items/' . $i, [], $writeIp);
+    $test(sprintf('DELETE /api/items/%d (delete)', $i), 'DELETE', '/api/items/' . $i, [], $writeIp);
 }
 
 echo "\n=== Test 4: Authenticated User (Higher Quota) ===\n";
@@ -228,15 +231,15 @@ echo "User with X-User-Id gets 1000/min instead of 100/min...\n\n";
 $authIp = '10.0.0.50';
 $userId = 'user-12345';
 
-for ($i = 1; $i <= 5; $i++) {
-    $test("Authenticated request $i", 'GET', '/api/profile', ['X-User-Id' => $userId], $authIp);
+for ($i = 1; $i <= 5; ++$i) {
+    $test('Authenticated request ' . $i, 'GET', '/api/profile', ['X-User-Id' => $userId], $authIp);
 }
 
 echo "\n=== Test 5: API Key Based Limiting ===\n\n";
 
 $apiKey = 'key-abc123';
-for ($i = 1; $i <= 5; $i++) {
-    $test("API key request $i", 'GET', '/api/data', ['X-API-Key' => $apiKey], '10.0.0.60');
+for ($i = 1; $i <= 5; ++$i) {
+    $test('API key request ' . $i, 'GET', '/api/data', ['X-API-Key' => $apiKey], '10.0.0.60');
 }
 
 echo "\n=== Diagnostics ===\n";
@@ -244,7 +247,7 @@ $counters = $config->getDiagnosticsCounters();
 echo "Throttled requests: " . ($counters['throttle_exceeded']['total'] ?? 0) . "\n";
 echo "Breakdown by rule:\n";
 foreach ($counters['throttle_exceeded']['by_rule'] ?? [] as $rule => $count) {
-    echo "  - $rule: $count\n";
+    echo sprintf('  - %s: %d%s', $rule, $count, PHP_EOL);
 }
 
 echo "\n=== Example Complete ===\n";

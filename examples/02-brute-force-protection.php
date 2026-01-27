@@ -46,11 +46,10 @@ $config->fail2ban(
     threshold: 5,           // Number of failures before ban
     period: 300,            // Time window in seconds (5 minutes)
     ban: 3600,              // Ban duration in seconds (1 hour)
-    filter: function (ServerRequestInterface $request): bool {
+    filter: fn(ServerRequestInterface $serverRequest): bool =>
         // Track failed login attempts based on X-Login-Failed header
         // In a real app, your login handler sets this header on failed login
-        return $request->getHeaderLine('X-Login-Failed') === '1';
-    },
+        $serverRequest->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::ip()
 );
 echo "1. Fail2Ban configured: 5 failures in 5 min = 1 hour ban\n";
@@ -65,11 +64,12 @@ $config->throttle(
     name: 'login-throttle',
     limit: 10,
     period: 60,
-    key: function (ServerRequestInterface $request): ?string {
+    key: function (ServerRequestInterface $serverRequest): ?string {
         // Only apply to login endpoint
-        if ($request->getUri()->getPath() === '/login') {
-            return $request->getServerParams()['REMOTE_ADDR'] ?? null;
+        if ($serverRequest->getUri()->getPath() === '/login') {
+            return $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
         }
+
         return null; // Skip for other endpoints
     }
 );
@@ -84,12 +84,13 @@ $config->throttle(
     name: 'account-throttle',
     limit: 5,
     period: 60,
-    key: function (ServerRequestInterface $request): ?string {
+    key: function (ServerRequestInterface $serverRequest): ?string {
         // Only apply to login endpoint
-        if ($request->getUri()->getPath() === '/login' && $request->getMethod() === 'POST') {
+        if ($serverRequest->getUri()->getPath() === '/login' && $serverRequest->getMethod() === 'POST') {
             // Extract username from the request (in real app, parse body)
-            return $request->getHeaderLine('X-Username') ?: null;
+            return in_array($serverRequest->getHeaderLine('X-Username'), ['', '0'], true) ? null : $serverRequest->getHeaderLine('X-Username');
         }
+
         return null;
     }
 );
@@ -105,20 +106,21 @@ $middleware = new Middleware($config, new Psr17Factory());
 $handler = new class implements RequestHandlerInterface {
     private int $attemptCount = 0;
 
-    public function handle(ServerRequestInterface $request): ResponseInterface
+    public function handle(ServerRequestInterface $serverRequest): ResponseInterface
     {
-        $this->attemptCount++;
-        $path = $request->getUri()->getPath();
+        ++$this->attemptCount;
+        $path = $serverRequest->getUri()->getPath();
 
         if ($path === '/login') {
             // Simulate: first 4 attempts fail, then succeed
-            $username = $request->getHeaderLine('X-Username');
+            $username = $serverRequest->getHeaderLine('X-Username');
             if ($this->attemptCount < 5) {
                 return new Response(401, [
                     'Content-Type' => 'application/json',
                     'X-Login-Failed' => '1',  // Signal failure to firewall
                 ], json_encode(['error' => 'Invalid credentials'], JSON_THROW_ON_ERROR));
             }
+
             return new Response(200, ['Content-Type' => 'application/json'],
                 json_encode(['success' => true, 'user' => $username], JSON_THROW_ON_ERROR));
         }
@@ -139,10 +141,12 @@ $testRequest = function (string $desc, string $path, array $headers = [], string
     if ($banned) {
         echo " [BANNED]";
     }
+
     if ($throttled) {
         $retry = $response->getHeaderLine('Retry-After');
-        echo " [THROTTLED, retry after {$retry}s]";
+        echo sprintf(' [THROTTLED, retry after %ss]', $retry);
     }
+
     echo "\n";
 
     return $status;
@@ -154,9 +158,9 @@ echo "Simulating failed login attempts from attacker IP...\n\n";
 $attackerIp = '10.0.0.100';
 
 // First 5 attempts with failed logins (X-Login-Failed: 1)
-for ($i = 1; $i <= 6; $i++) {
+for ($i = 1; $i <= 6; ++$i) {
     $testRequest(
-        "Login attempt $i (will fail)",
+        sprintf('Login attempt %d (will fail)', $i),
         '/login',
         ['X-Username' => 'admin', 'X-Login-Failed' => '1'],
         $attackerIp
@@ -178,9 +182,9 @@ echo "\n=== Test 2: Legitimate User from Different IP ===\n";
 $legitIp = '10.0.0.200';
 
 // Legitimate user can still try from different IP
-for ($i = 1; $i <= 3; $i++) {
+for ($i = 1; $i <= 3; ++$i) {
     $testRequest(
-        "Legitimate user attempt $i",
+        'Legitimate user attempt ' . $i,
         '/login',
         ['X-Username' => 'user123'],
         $legitIp
@@ -191,9 +195,9 @@ echo "\n=== Test 3: Rate Limiting (Throttle) ===\n";
 echo "Rapid requests to /login endpoint...\n\n";
 
 $rapidIp = '10.0.0.300';
-for ($i = 1; $i <= 12; $i++) {
+for ($i = 1; $i <= 12; ++$i) {
     $testRequest(
-        "Rapid request $i",
+        'Rapid request ' . $i,
         '/login',
         ['X-Username' => 'testuser'],
         $rapidIp

@@ -52,8 +52,9 @@ $mockTracer = new class {
 
     public function startSpan(string $name, array $attributes = []): object
     {
-        $span = new class ($name, $attributes, $this->spans) {
-            private float $startTime;
+        return new class ($name, $attributes, $this->spans) {
+            private readonly float $startTime;
+
             private ?float $endTime = null;
 
             public function __construct(
@@ -86,8 +87,6 @@ $mockTracer = new class {
                 ];
             }
         };
-
-        return $span;
     }
 
     public function getSpans(): array
@@ -111,12 +110,13 @@ $dispatcher = new class ($mockTracer) implements EventDispatcherInterface {
         $eventType = (new \ReflectionClass($event))->getShortName();
 
         // Start a span for this event
-        $span = $this->tracer->startSpan("phirewall.$eventType");
+        $span = $this->tracer->startSpan('phirewall.' . $eventType);
 
         // Add event-specific attributes
         if (property_exists($event, 'rule')) {
             $span->setAttribute('phirewall.rule', $event->rule);
         }
+
         if (property_exists($event, 'key')) {
             $span->setAttribute('phirewall.key', $event->key);
         }
@@ -157,14 +157,10 @@ $config->throttle(
 );
 echo "Throttle rule: 3 requests/min per IP\n";
 
-$config->blocklist('malicious', function (ServerRequestInterface $req): bool {
-    return str_contains($req->getUri()->getQuery(), 'attack');
-});
+$config->blocklist('malicious', fn(ServerRequestInterface $serverRequest): bool => str_contains($serverRequest->getUri()->getQuery(), 'attack'));
 echo "Blocklist rule: block requests with 'attack' in query\n";
 
-$config->safelist('health', function (ServerRequestInterface $req): bool {
-    return $req->getUri()->getPath() === '/health';
-});
+$config->safelist('health', fn(ServerRequestInterface $serverRequest): bool => $serverRequest->getUri()->getPath() === '/health');
 echo "Safelist rule: allow /health endpoint\n\n";
 
 // =============================================================================
@@ -174,7 +170,7 @@ echo "Safelist rule: allow /health endpoint\n\n";
 $middleware = new Middleware($config, new Psr17Factory());
 
 $handler = new class implements RequestHandlerInterface {
-    public function handle(ServerRequestInterface $request): ResponseInterface
+    public function handle(ServerRequestInterface $serverRequest): ResponseInterface
     {
         return new Response(200, ['Content-Type' => 'application/json'], '{"status":"ok"}');
     }
@@ -200,6 +196,7 @@ foreach ($requests as [$method, $path, $desc]) {
     $response = $middleware->process($request, $handler);
     echo sprintf("  %-40s => %d\n", $desc, $response->getStatusCode());
 }
+
 echo "\n";
 
 // =============================================================================
@@ -214,6 +211,7 @@ foreach ($mockTracer->getSpans() as $span) {
     foreach ($span['attributes'] as $key => $value) {
         echo sprintf("  %s: %s\n", $key, $value);
     }
+
     echo "\n";
 }
 

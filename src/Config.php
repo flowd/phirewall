@@ -73,9 +73,9 @@ final class Config
      */
     public function inMemoryPatternBackend(string $name, array $entries = []): InMemoryPatternBackend
     {
-        $backend = new InMemoryPatternBackend($entries);
-        $this->addPatternBackend($name, $backend);
-        return $backend;
+        $inMemoryPatternBackend = new InMemoryPatternBackend($entries);
+        $this->addPatternBackend($name, $inMemoryPatternBackend);
+        return $inMemoryPatternBackend;
     }
 
     /**
@@ -88,9 +88,9 @@ final class Config
      */
     public function patternBlocklist(string $name, array $entries): InMemoryPatternBackend
     {
-        $backend = $this->inMemoryPatternBackend($name, $entries);
+        $inMemoryPatternBackend = $this->inMemoryPatternBackend($name, $entries);
         $this->blocklistFromBackend($name, $name);
-        return $backend;
+        return $inMemoryPatternBackend;
     }
 
     /**
@@ -101,9 +101,9 @@ final class Config
      */
     public function filePatternBlocklist(string $name, string $filePath): FilePatternBackend
     {
-        $backend = $this->filePatternBackend($name, $filePath);
+        $filePatternBackend = $this->filePatternBackend($name, $filePath);
         $this->blocklistFromBackend($name, $name);
-        return $backend;
+        return $filePatternBackend;
     }
 
     /**

@@ -125,7 +125,7 @@ echo "Loading OWASP-style XSS detection rules...\n";
 $result = SecRuleLoader::fromStringWithReport($xssRules);
 $coreRuleSet = $result['rules'];
 
-echo "Rules loaded: {$result['parsed']}\n";
+echo sprintf('Rules loaded: %d%s', $result['parsed'], PHP_EOL);
 echo "Rules skipped: {$result['skipped']}\n\n";
 
 // =============================================================================
@@ -280,20 +280,20 @@ $testCases = [
 $passed = 0;
 $failed = 0;
 
-foreach ($testCases as $test) {
-    $request = new ServerRequest('GET', $test['url']);
+foreach ($testCases as $testCase) {
+    $request = new ServerRequest('GET', $testCase['url']);
     $result = $firewall->decide($request);
 
     $actual = $result->isBlocked() ? 'BLOCK' : 'ALLOW';
-    $status = $actual === $test['expected'] ? 'PASS' : 'FAIL';
+    $status = $actual === $testCase['expected'] ? 'PASS' : 'FAIL';
 
     if ($status === 'PASS') {
-        $passed++;
+        ++$passed;
     } else {
-        $failed++;
+        ++$failed;
     }
 
-    echo sprintf("[%s] %s\n", $status, $test['description']);
+    echo sprintf("[%s] %s\n", $status, $testCase['description']);
 
     if ($result->isBlocked()) {
         $ruleId = $result->headers['X-Phirewall-Owasp-Rule'] ?? 'n/a';
@@ -301,13 +301,13 @@ foreach ($testCases as $test) {
     }
 
     if ($status === 'FAIL') {
-        echo sprintf("       Expected: %s, Got: %s\n", $test['expected'], $actual);
+        echo sprintf("       Expected: %s, Got: %s\n", $testCase['expected'], $actual);
     }
 }
 
 echo "\n=== Results ===\n";
-echo "Passed: $passed\n";
-echo "Failed: $failed\n";
+echo sprintf('Passed: %d%s', $passed, PHP_EOL);
+echo sprintf('Failed: %d%s', $failed, PHP_EOL);
 
 echo "\n=== Protection Summary ===\n";
 $counters = $config->getDiagnosticsCounters();

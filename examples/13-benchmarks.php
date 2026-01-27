@@ -131,8 +131,8 @@ try {
     echo formatResult($result) . "\n\n";
     $results['apcu_ttl'] = $result;
 
-} catch (Throwable $e) {
-    echo "[SKIP] APCu not available: " . $e->getMessage() . "\n";
+} catch (Throwable $throwable) {
+    echo "[SKIP] APCu not available: " . $throwable->getMessage() . "\n";
     echo "       Enable APCu extension for CLI: apc.enable_cli=1\n\n";
 }
 
@@ -190,12 +190,14 @@ if ($redisUrl && class_exists(\Predis\Client::class)) {
         echo "[SKIP] Redis benchmarks failed: " . $e->getMessage() . "\n\n";
     }
 } else {
-    if (!$redisUrl) {
+    if ($redisUrl === '' || $redisUrl === '0' || $redisUrl === [] || $redisUrl === false) {
         echo "[SKIP] Set REDIS_URL environment variable to include Redis benchmarks\n";
     }
+
     if (!class_exists(\Predis\Client::class)) {
         echo "[SKIP] Install predis/predis to include Redis benchmarks\n";
     }
+
     echo "\n";
 }
 
@@ -209,24 +211,30 @@ echo "Increment Performance (ops/sec):\n";
 if (isset($results['inmemory_increment'])) {
     echo "  InMemory: " . number_format($results['inmemory_increment']['ops_per_sec']) . "\n";
 }
+
 if (isset($results['apcu_increment'])) {
     echo "  APCu:     " . number_format($results['apcu_increment']['ops_per_sec']) . "\n";
 }
+
 if (isset($results['redis_increment'])) {
     echo "  Redis:    " . number_format($results['redis_increment']['ops_per_sec']) . "\n";
 }
+
 echo "\n";
 
 echo "TTL Check Performance (ops/sec):\n";
 if (isset($results['inmemory_ttl'])) {
     echo "  InMemory: " . number_format($results['inmemory_ttl']['ops_per_sec']) . "\n";
 }
+
 if (isset($results['apcu_ttl'])) {
     echo "  APCu:     " . number_format($results['apcu_ttl']['ops_per_sec']) . "\n";
 }
+
 if (isset($results['redis_ttl'])) {
     echo "  Redis:    " . number_format($results['redis_ttl']['ops_per_sec']) . "\n";
 }
+
 echo "\n";
 
 // =============================================================================

@@ -34,12 +34,12 @@ echo "=== OWASP CRS from Files Example ===\n\n";
 $rulesDir = __DIR__ . '/14-owasp_crs_basic';
 
 if (!is_dir($rulesDir)) {
-    echo "Rules directory not found: $rulesDir\n";
+    echo sprintf('Rules directory not found: %s%s', $rulesDir, PHP_EOL);
     echo "This example requires the owasp_crs_basic/ folder with rule files.\n";
     exit(1);
 }
 
-echo "Loading rules from: $rulesDir\n\n";
+echo "Loading rules from: {$rulesDir}\n\n";
 
 // Load all rules from the directory
 // This will parse .conf files and load .data files for @pmFromFile
@@ -59,6 +59,7 @@ foreach ($ruleIds as $id) {
     $enabled = $coreRuleSet->isEnabled($id) ? 'enabled' : 'disabled';
     echo sprintf("  Rule %d: %s\n", $id, $enabled);
 }
+
 echo "\n";
 
 // =============================================================================
@@ -123,9 +124,9 @@ foreach ($testCases as [$desc, $url, $expected]) {
     $status = $actual === $expected ? 'PASS' : 'FAIL';
 
     if ($status === 'PASS') {
-        $passed++;
+        ++$passed;
     } else {
-        $failed++;
+        ++$failed;
     }
 
     echo sprintf("[%s] %s\n", $status, $desc);
@@ -141,8 +142,8 @@ foreach ($testCases as [$desc, $url, $expected]) {
 }
 
 echo "\n=== Results ===\n";
-echo "Passed: $passed\n";
-echo "Failed: $failed\n";
+echo sprintf('Passed: %d%s', $passed, PHP_EOL);
+echo sprintf('Failed: %d%s', $failed, PHP_EOL);
 
 // =============================================================================
 // DIAGNOSTICS

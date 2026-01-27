@@ -46,7 +46,7 @@ if (!is_dir($demoDir) && !mkdir($demoDir, 0777, true) && !is_dir($demoDir)) {
 }
 
 $htaccessPath = $demoDir . '/.htaccess';
-echo "Demo .htaccess path: $htaccessPath\n\n";
+echo "Demo .htaccess path: {$htaccessPath}\n\n";
 
 // Create an .htaccess with some pre-existing content
 file_put_contents($htaccessPath, <<<'HTACCESS'
@@ -142,16 +142,18 @@ $listener = new InfrastructureBanListener(
 
 // Create a minimal event dispatcher
 $dispatcher = new class ($listener) implements EventDispatcherInterface {
-    public function __construct(private readonly InfrastructureBanListener $listener) {}
+    public function __construct(private readonly InfrastructureBanListener $infrastructureBanListener) {}
 
     public function dispatch(object $event): object
     {
         if ($event instanceof Fail2BanBanned) {
-            $this->listener->onFail2BanBanned($event);
+            $this->infrastructureBanListener->onFail2BanBanned($event);
         }
+
         if ($event instanceof BlocklistMatched) {
-            $this->listener->onBlocklistMatched($event);
+            $this->infrastructureBanListener->onBlocklistMatched($event);
         }
+
         return $event;
     }
 };

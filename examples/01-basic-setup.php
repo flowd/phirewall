@@ -57,15 +57,11 @@ echo "2. Configuration created with prefix 'demo'\n";
 // =============================================================================
 
 // SAFELIST: Allow health checks to bypass all rules
-$config->safelist('health', function (ServerRequestInterface $req): bool {
-    return $req->getUri()->getPath() === '/health';
-});
+$config->safelist('health', fn(ServerRequestInterface $serverRequest): bool => $serverRequest->getUri()->getPath() === '/health');
 echo "3a. Safelist rule added: health endpoint\n";
 
 // BLOCKLIST: Block requests to /wp-admin (WordPress scanner probe)
-$config->blocklist('wp-probe', function (ServerRequestInterface $req): bool {
-    return str_starts_with($req->getUri()->getPath(), '/wp-admin');
-});
+$config->blocklist('wp-probe', fn(ServerRequestInterface $serverRequest): bool => str_starts_with($serverRequest->getUri()->getPath(), '/wp-admin'));
 echo "3b. Blocklist rule added: WordPress probes\n";
 
 // THROTTLE: Limit to 5 requests per 60 seconds per IP
@@ -90,18 +86,18 @@ echo "4. Middleware created\n\n";
 
 // Simple handler that returns 200 OK
 $handler = new class implements RequestHandlerInterface {
-    public function handle(ServerRequestInterface $request): \Psr\Http\Message\ResponseInterface
+    public function handle(ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
     {
         return new Response(200, ['Content-Type' => 'text/plain'], "Hello, World!\n");
     }
 };
 
 // Helper function to display results
-$testRequest = function (string $description, ServerRequest $request) use ($middleware, $handler): void {
-    $response = $middleware->process($request, $handler);
+$testRequest = function (string $description, ServerRequest $serverRequest) use ($middleware, $handler): void {
+    $response = $middleware->process($serverRequest, $handler);
     $status = $response->getStatusCode();
-    $path = $request->getUri()->getPath();
-    $ip = $request->getServerParams()['REMOTE_ADDR'] ?? 'unknown';
+    $path = $serverRequest->getUri()->getPath();
+    $ip = $serverRequest->getServerParams()['REMOTE_ADDR'] ?? 'unknown';
 
     echo sprintf("  %-40s => %d\n", $description, $status);
 
@@ -136,12 +132,13 @@ echo "\n";
 // Test 3: Normal requests (throttled after 5)
 echo "Test 3: Normal requests (5 allowed, then throttled)\n";
 $ip = '192.168.1.102';
-for ($i = 1; $i <= 7; $i++) {
+for ($i = 1; $i <= 7; ++$i) {
     $testRequest(
-        "Request $i from $ip",
+        sprintf('Request %d from %s', $i, $ip),
         new ServerRequest('GET', '/api/users', [], null, '1.1', ['REMOTE_ADDR' => $ip])
     );
 }
+
 echo "\n";
 
 // Test 4: Different IP has its own quota

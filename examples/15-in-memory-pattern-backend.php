@@ -213,8 +213,8 @@ foreach ($testCases as [$desc, $method, $path, $headers, $ip, $expected]) {
 }
 
 echo "\n";
-echo "Passed: $passed\n";
-echo "Failed: $failed\n";
+echo sprintf('Passed: %d%s', $passed, PHP_EOL);
+echo sprintf('Failed: %d%s', $failed, PHP_EOL);
 
 // =============================================================================
 // BACKEND STATS
