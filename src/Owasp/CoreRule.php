@@ -346,10 +346,17 @@ final readonly class CoreRule
 
     private function ensureRegexDelimiters(string $pattern): string
     {
-        // If pattern starts with a delimiter char and has a closing one, keep it.
+        // If pattern starts with a valid delimiter char and has a closing one, keep it.
         // Otherwise, wrap in '~' and escape unescaped '~'.
+        // Valid delimiters: non-alphanumeric, non-whitespace, non-backslash,
+        // and NOT bracket-style openers (these require matching closers: (), {}, [], <>).
         if ($pattern !== '' && preg_match('/^(.)(.*)\1[imsxuADSUXJ]*$/', $pattern) === 1) {
-            return $pattern;
+            $firstChar = $pattern[0];
+            // Bracket openers are not valid single-char delimiters; they need matching closers
+            if (!ctype_alnum($firstChar) && !ctype_space($firstChar)
+                && $firstChar !== '\\' && !in_array($firstChar, ['(', '{', '[', '<'], true)) {
+                return $pattern;
+            }
         }
 
         $escaped = str_replace('~', '\~', $pattern);
