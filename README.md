@@ -72,7 +72,7 @@ php examples/08-comprehensive-protection.php
 
 ## Examples
 
-The [examples/](examples/) folder contains 14 runnable examples:
+The [examples/](examples/) folder contains 15 runnable examples:
 
 | # | Example | Description |
 |---|---------|-------------|
@@ -90,6 +90,7 @@ The [examples/](examples/) folder contains 14 runnable examples:
 | 12 | [apache-htaccess](examples/12-apache-htaccess.php) | Apache .htaccess IP blocking |
 | 13 | [benchmarks](examples/13-benchmarks.php) | Storage backend performance comparison |
 | 14 | [owasp-crs-files](examples/14-owasp-crs-files.php) | Loading OWASP CRS rules from files |
+| 15 | [in-memory-pattern-backend](examples/15-in-memory-pattern-backend.php) | Configuration-based CIDR/IP blocklists |
 
 ## Features
 

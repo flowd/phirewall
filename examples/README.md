@@ -46,10 +46,11 @@ php examples/01-basic-setup.php
 
 ### Infrastructure
 
-| Example | Description                                                                |
-|---------|----------------------------------------------------------------------------|
-| [12-apache-htaccess.php](12-apache-htaccess.php) | Apache .htaccess IP blocking integration                                   |
-| [14-owasp-crs-files.php](14-owasp-crs-files.php) | Loading OWASP CRS rules from files in [owasp_crs_basic/](owasp_crs_basic/) |
+| Example | Description                                                                     |
+|---------|---------------------------------------------------------------------------------|
+| [12-apache-htaccess.php](12-apache-htaccess.php) | Apache .htaccess IP blocking integration                                        |
+| [14-owasp-crs-files.php](14-owasp-crs-files.php) | Loading OWASP CRS rules from files in [14-owasp_crs_basic/](14-owasp_crs_basic/) |
+| [15-in-memory-pattern-backend.php](15-in-memory-pattern-backend.php) | Configuration-based blocklists without file I/O                                 |
 
 ## Optional Dependencies
 

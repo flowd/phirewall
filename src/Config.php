@@ -20,7 +20,9 @@ use Flowd\Phirewall\Config\Rule\TrackRule;
 use Flowd\Phirewall\Owasp\CoreRuleSet;
 use Flowd\Phirewall\Owasp\CoreRuleSetMatcher;
 use Flowd\Phirewall\Pattern\FilePatternBackend;
+use Flowd\Phirewall\Pattern\InMemoryPatternBackend;
 use Flowd\Phirewall\Pattern\PatternBackendInterface;
+use Flowd\Phirewall\Pattern\PatternEntry;
 use Flowd\Phirewall\Pattern\SnapshotBlocklistMatcher;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\SimpleCache\CacheInterface;
@@ -62,6 +64,18 @@ final class Config
         $filePatternBackend = new FilePatternBackend($filePath);
         $this->addPatternBackend($name, $filePatternBackend);
         return $filePatternBackend;
+    }
+
+    /**
+     * Create an in-memory pattern backend for configuration-based blocklists.
+     *
+     * @param list<PatternEntry> $entries Initial entries
+     */
+    public function inMemoryPatternBackend(string $name, array $entries = []): InMemoryPatternBackend
+    {
+        $backend = new InMemoryPatternBackend($entries);
+        $this->addPatternBackend($name, $backend);
+        return $backend;
     }
 
     /**
