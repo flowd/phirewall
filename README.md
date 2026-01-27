@@ -127,6 +127,7 @@ For detailed documentation, see the [docs/](docs/) folder:
 - [Common Attacks](docs/common-attacks.md) - Protection recipes for 10+ attack types
 - [Configuration](docs/configuration.md) - Complete API reference
 - [Storage Backends](docs/storage-backends.md) - Redis, APCu, and custom backends
+- [Pattern Backends](docs/pattern-backends.md) - IP, CIDR, path, and header blocklists
 - [OWASP CRS](docs/owasp-crs.md) - Loading and customizing rules
 - [Observability](docs/observability.md) - Events, logging, and monitoring
 - [Infrastructure Adapters](docs/infrastructure-adapters.md) - Apache .htaccess integration

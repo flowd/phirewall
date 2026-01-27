@@ -8,9 +8,10 @@ Phirewall is a PHP-based application firewall providing PSR-15 middleware for pr
 2. [Common Web Attacks & Protection](common-attacks.md)
 3. [Configuration Reference](configuration.md)
 4. [Storage Backends](storage-backends.md)
-5. [OWASP Core Rule Set](owasp-crs.md)
-6. [Observability & Events](observability.md)
-7. [Infrastructure Adapters](infrastructure-adapters.md)
+5. [Pattern Backends](pattern-backends.md)
+6. [OWASP Core Rule Set](owasp-crs.md)
+7. [Observability & Events](observability.md)
+8. [Infrastructure Adapters](infrastructure-adapters.md)
 
 ## Quick Links
 

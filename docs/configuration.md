@@ -198,6 +198,32 @@ $config->track('not-found', period: 600,
 
 ## Pattern Backends
 
+Pattern backends store blocklist entries (IPs, CIDRs, paths, headers) with optional expiration. For detailed documentation, see [Pattern Backends](pattern-backends.md).
+
+### inMemoryPatternBackend()
+
+Create an in-memory pattern backend for configuration-based blocklists.
+
+```php
+public function inMemoryPatternBackend(string $name, array $entries = []): InMemoryPatternBackend
+```
+
+**Example:**
+```php
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
+$backend = $config->inMemoryPatternBackend('private-networks', [
+    new PatternEntry(PatternKind::CIDR, '10.0.0.0/8'),
+    new PatternEntry(PatternKind::CIDR, '192.168.0.0/16'),
+    new PatternEntry(PatternKind::IP, '127.0.0.1'),
+]);
+
+$config->blocklistFromBackend('block-private', 'private-networks');
+```
+
+---
+
 ### filePatternBackend()
 
 Create a file-backed pattern storage.

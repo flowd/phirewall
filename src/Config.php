@@ -79,6 +79,34 @@ final class Config
     }
 
     /**
+     * Create an in-memory pattern blocklist in one step.
+     *
+     * Convenience method that creates a backend and registers it as a blocklist.
+     * Returns the backend so you can append entries later if needed.
+     *
+     * @param list<PatternEntry> $entries Pattern entries (IPs, CIDRs, paths, headers)
+     */
+    public function patternBlocklist(string $name, array $entries): InMemoryPatternBackend
+    {
+        $backend = $this->inMemoryPatternBackend($name, $entries);
+        $this->blocklistFromBackend($name, $name);
+        return $backend;
+    }
+
+    /**
+     * Create a file-backed pattern blocklist in one step.
+     *
+     * Convenience method that creates a file backend and registers it as a blocklist.
+     * Returns the backend so you can append entries programmatically.
+     */
+    public function filePatternBlocklist(string $name, string $filePath): FilePatternBackend
+    {
+        $backend = $this->filePatternBackend($name, $filePath);
+        $this->blocklistFromBackend($name, $name);
+        return $backend;
+    }
+
+    /**
      * Convenience to block requests whose client IP appears in a file-backed list.
      * Exposes the underlying store so callers can append IPs in-process while also
      * allowing third parties to replace the file externally.

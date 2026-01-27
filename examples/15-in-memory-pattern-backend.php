@@ -38,17 +38,16 @@ $config = new Config(new InMemoryCache());
 // EXAMPLE 1: CIDR-BASED IP BLOCKING
 // =============================================================================
 
-echo "--- Example 1: CIDR-Based IP Blocking ---\n\n";
+echo "--- Example 1: CIDR-Based IP Blocking (Simple One-Step) ---\n\n";
 
-// Block internal/private IP ranges from accessing public API
-$ipBackend = $config->inMemoryPatternBackend('private-networks', [
+// Simple approach: Create backend and register as blocklist in one step
+// Use patternBlocklist() for the most common case
+$ipBackend = $config->patternBlocklist('private-networks', [
     new PatternEntry(PatternKind::CIDR, '10.0.0.0/8'),
     new PatternEntry(PatternKind::CIDR, '172.16.0.0/12'),
     new PatternEntry(PatternKind::CIDR, '192.168.0.0/16'),
     new PatternEntry(PatternKind::IP, '127.0.0.1'),
 ]);
-
-$config->blocklistFromBackend('block-private-ips', 'private-networks');
 
 echo "Blocked ranges:\n";
 echo "  - 10.0.0.0/8 (Class A private)\n";
@@ -60,8 +59,10 @@ echo "  - 127.0.0.1 (localhost)\n\n";
 // EXAMPLE 2: PATH-BASED BLOCKING
 // =============================================================================
 
-echo "--- Example 2: Path-Based Blocking ---\n\n";
+echo "--- Example 2: Path-Based Blocking (Two-Step for Reusability) ---\n\n";
 
+// Two-step approach: Useful when sharing a backend between multiple rules
+// or when you need more control over backend configuration
 $pathBackend = $config->inMemoryPatternBackend('blocked-paths', [
     // Exact path matches
     new PatternEntry(PatternKind::PATH_EXACT, '/admin'),
