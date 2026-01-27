@@ -12,7 +12,7 @@ final class SecRuleLoaderLogicalLinesTest extends TestCase
     public function testLogicalLinesJoinFor933210(): void
     {
         $root = dirname(__DIR__, 2);
-        $path = $root . '/examples/owasp_crs_basic/REQUEST-933-APPLICATION-ATTACK-PHP.conf';
+        $path = $root . '/examples/14-owasp_crs_basic/REQUEST-933-APPLICATION-ATTACK-PHP.conf';
         $this->assertFileExists($path);
         $content = (string)file_get_contents($path);
 
