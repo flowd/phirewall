@@ -69,38 +69,35 @@ final class ConfigTypedApiTest extends TestCase
 
     public function testDiagnosticsCountersLifecycle(): void
     {
-        $config = new Config(new InMemoryCache());
-        $config->resetDiagnosticsCounters();
-        $this->assertSame([], $config->getDiagnosticsCounters());
+        $diagnosticsCounters = new \Flowd\Phirewall\Config\DiagnosticsCounters();
+        $this->assertSame([], $diagnosticsCounters->all());
 
-        $config->incrementDiagnosticsCounter('throttle_exceeded');
-        $config->incrementDiagnosticsCounter('throttle_exceeded', 't1');
-        $config->incrementDiagnosticsCounter('throttle_exceeded', 't1');
-        $config->incrementDiagnosticsCounter('blocklisted', 'b1');
+        $diagnosticsCounters->increment('throttle_exceeded');
+        $diagnosticsCounters->increment('throttle_exceeded', 't1');
+        $diagnosticsCounters->increment('throttle_exceeded', 't1');
+        $diagnosticsCounters->increment('blocklisted', 'b1');
 
-        $snapshot = $config->getDiagnosticsCounters();
+        $snapshot = $diagnosticsCounters->all();
         $this->assertArrayHasKey('throttle_exceeded', $snapshot);
         $this->assertSame(3, $snapshot['throttle_exceeded']['total']);
         $this->assertSame(2, $snapshot['throttle_exceeded']['by_rule']['t1']);
         $this->assertSame(1, $snapshot['blocklisted']['total']);
         $this->assertSame(1, $snapshot['blocklisted']['by_rule']['b1']);
 
-        $config->resetDiagnosticsCounters();
-        $this->assertSame([], $config->getDiagnosticsCounters());
+        $diagnosticsCounters->reset();
+        $this->assertSame([], $diagnosticsCounters->all());
     }
 
     public function testDiagnosticsCountersCapPerRuleEntries(): void
     {
-        $config = new Config(new InMemoryCache());
+        $diagnosticsCounters = new \Flowd\Phirewall\Config\DiagnosticsCounters();
 
-        // Simulate many distinct rules in the same category
         for ($i = 0; $i < 150; ++$i) {
-            $config->incrementDiagnosticsCounter('throttle_exceeded', 'rule-' . $i);
+            $diagnosticsCounters->increment('throttle_exceeded', 'rule-' . $i);
         }
 
-        $counters = $config->getDiagnosticsCounters();
+        $counters = $diagnosticsCounters->all();
         $this->assertSame(150, $counters['throttle_exceeded']['total'] ?? 0);
-        // by_rule should be capped at 100 distinct entries
         $this->assertLessThanOrEqual(100, count($counters['throttle_exceeded']['by_rule'] ?? []));
     }
 }
