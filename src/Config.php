@@ -7,6 +7,7 @@ namespace Flowd\Phirewall;
 use Flowd\Phirewall\Config\DeprecatedConfigMethods;
 use Flowd\Phirewall\Config\Response\BlocklistedResponseFactoryInterface;
 use Flowd\Phirewall\Config\Response\ThrottledResponseFactoryInterface;
+use Flowd\Phirewall\Config\Section\Allow2BanSection;
 use Flowd\Phirewall\Config\Section\BlocklistSection;
 use Flowd\Phirewall\Config\Section\Fail2BanSection;
 use Flowd\Phirewall\Config\Section\SafelistSection;
@@ -29,6 +30,8 @@ final class Config
 
     public readonly Fail2BanSection $fail2ban;
 
+    public readonly Allow2BanSection $allow2ban;
+
     public readonly TrackSection $tracks;
 
     // ── Response factories ───────────────────────────────────────────────
@@ -45,6 +48,8 @@ final class Config
 
     private string $keyPrefix = 'phirewall';
 
+    private ?BanManager $banManager = null;
+
     /** @var (\Closure(\Psr\Http\Message\ServerRequestInterface): ?string)|null */
     private ?\Closure $ipResolver = null;
 
@@ -56,6 +61,7 @@ final class Config
         $this->blocklists = new BlocklistSection($this);
         $this->throttles = new ThrottleSection();
         $this->fail2ban = new Fail2BanSection();
+        $this->allow2ban = new Allow2BanSection();
         $this->tracks = new TrackSection();
     }
 
@@ -120,5 +126,10 @@ final class Config
     public function getKeyPrefix(): string
     {
         return $this->keyPrefix;
+    }
+
+    public function banManager(): BanManager
+    {
+        return $this->banManager ??= new BanManager($this);
     }
 }

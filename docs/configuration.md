@@ -165,6 +165,62 @@ $config->fail2ban('api-abuse',
 
 ---
 
+### allow2ban
+
+Define an Allow2Ban rule that bans keys after exceeding a total request threshold. Unlike Fail2Ban, Allow2Ban counts **all** requests for a key -- no filter is needed.
+
+```php
+$config->allow2ban->add(
+    string $name,
+    int $threshold,
+    int $period,
+    int $banSeconds,
+    Closure $key
+): self
+```
+
+**Parameters:**
+- `$name` - Unique rule identifier
+- `$threshold` - Number of requests allowed before ban
+- `$period` - Time window for counting requests (seconds)
+- `$banSeconds` - Ban duration (seconds)
+- `$key` - `fn(ServerRequestInterface): ?string` - Return key to track, or `null` to skip
+
+**When to use allow2ban vs fail2ban vs throttle:**
+- Use **throttle** when you want to rate-limit with a `429 Too Many Requests` response and a `Retry-After` header -- the client is expected to retry later.
+- Use **fail2ban** when you want to ban based on specific "bad" requests (e.g. failed logins) that match a filter predicate.
+- Use **allow2ban** when you want a hard volume cap that bans the key entirely after a threshold -- no filter needed, every request counts.
+
+**Example:**
+```php
+// Ban any IP that sends more than 100 requests in 60 seconds, for 1 hour
+$config->allow2ban->add('high-volume-ban',
+    threshold: 100,
+    period: 60,
+    banSeconds: 3600,
+    key: KeyExtractors::ip()
+);
+
+// Ban by API key after 1000 requests per minute, for 5 minutes
+$config->allow2ban->add('api-key-ban',
+    threshold: 1000,
+    period: 60,
+    banSeconds: 300,
+    key: KeyExtractors::header('X-Api-Key')
+);
+```
+
+#### Throttle vs Fail2Ban vs Allow2Ban
+
+| Feature | Throttle | Fail2Ban | Allow2Ban |
+|---------|----------|----------|-----------|
+| Counts | All requests | Filtered requests only | All requests |
+| Response | 429 + Retry-After | Block | Block |
+| Use case | Rate limiting | Abuse pattern detection | Hard volume cap |
+| Filter needed | No | Yes | No |
+
+---
+
 ### track()
 
 Define a tracking rule for passive counting without blocking.

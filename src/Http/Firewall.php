@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Http;
 
+use Flowd\Phirewall\BanManager;
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Events\Allow2BanBanned;
 use Flowd\Phirewall\Events\BlocklistMatched;
 use Flowd\Phirewall\Events\Fail2BanBanned;
 use Flowd\Phirewall\Events\PerformanceMeasured;
@@ -90,6 +92,11 @@ final readonly class Firewall
 
         $cache = $this->config->cache;
 
+        // NOTE: The check → increment → threshold-check sequence is not atomic.
+        // Under high concurrency, a small number of requests may slip through
+        // at the exact moment the threshold is crossed. This is acceptable for
+        // rate-limiting (not a security boundary) and matches fail2ban's pattern.
+
         // 3) Fail2Ban
         foreach ($this->config->getFail2BanRules() as $fail2BanRule) {
             $name = $fail2BanRule->name();
@@ -117,6 +124,7 @@ final readonly class Firewall
 
                 if ($count >= $fail2BanRule->threshold()) {
                     $cache->set($banKey, 1, $fail2BanRule->banSeconds());
+                    BanManager::registerBan($cache, $this->config->getKeyPrefix(), 'fail2ban', $name, $key, microtime(true) + $fail2BanRule->banSeconds());
 
                     $this->dispatch(new Fail2BanBanned(
                         rule: $name,
@@ -191,6 +199,58 @@ final readonly class Firewall
                     'X-RateLimit-Reset' => (string)max(1, $retryAfter),
                 ];
             }
+        }
+
+        // 5) Allow2Ban
+        // Process all rules so every counter is incremented, then return the first block.
+        $allow2BanResult = null;
+        foreach ($this->config->allow2ban->rules() as $allow2BanRule) {
+            $name = $allow2BanRule->name();
+            $key = $allow2BanRule->keyExtractor()->extract($serverRequest);
+            if ($key === null) {
+                continue;
+            }
+
+            $a2bBanKey = $this->allow2BanBanKey($name, $key);
+            if ($cache->has($a2bBanKey)) {
+                $allow2BanResult ??= ['path' => 'allow2ban_blocked', 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', [
+                    'X-Phirewall' => 'allow2ban',
+                    'X-Phirewall-Matched' => $name,
+                    'Retry-After' => (string) $allow2BanRule->banSeconds(),
+                ])];
+                continue;
+            }
+
+            $a2bHitKey = $this->allow2BanHitKey($name, $key);
+            $count = $this->increment($a2bHitKey, $allow2BanRule->period());
+
+            if ($count >= $allow2BanRule->threshold()) {
+                $cache->set($a2bBanKey, 1, $allow2BanRule->banSeconds());
+                BanManager::registerBan($cache, $this->config->getKeyPrefix(), 'allow2ban', $name, $key, microtime(true) + $allow2BanRule->banSeconds());
+                $cache->delete($a2bHitKey);
+
+                $this->dispatch(new Allow2BanBanned(
+                    rule: $name,
+                    key: $key,
+                    threshold: $allow2BanRule->threshold(),
+                    period: $allow2BanRule->period(),
+                    banSeconds: $allow2BanRule->banSeconds(),
+                    count: $count,
+                    serverRequest: $serverRequest,
+                ));
+                $allow2BanResult ??= ['path' => 'allow2ban_banned', 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', [
+                    'X-Phirewall' => 'allow2ban',
+                    'X-Phirewall-Matched' => $name,
+                    'Retry-After' => (string) $allow2BanRule->banSeconds(),
+                ])];
+            }
+        }
+
+        if ($allow2BanResult !== null) {
+            $decisionPath = $allow2BanResult['path'];
+            $decisionRule = $allow2BanResult['rule'];
+            $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
+            return $allow2BanResult['result'];
         }
 
 
@@ -273,30 +333,60 @@ final readonly class Firewall
 
     private function throttleKey(string $name, string $key): string
     {
-        $safeName = $this->normalizeKeyComponent($name);
-        $safeKey = $this->normalizeKeyComponent($key);
-        return $this->config->getKeyPrefix() . ':throttle:' . $safeName . ':' . $safeKey;
+        $safeName = $this->cachedNormalize($name);
+        $hashedKey = $this->hashKeyComponent($key);
+        return $this->config->getKeyPrefix() . ':throttle:' . $safeName . ':' . $hashedKey;
     }
 
     private function failKey(string $name, string $key): string
     {
-        $safeName = $this->normalizeKeyComponent($name);
-        $safeKey = $this->normalizeKeyComponent($key);
-        return $this->config->getKeyPrefix() . ':fail2ban:fail:' . $safeName . ':' . $safeKey;
+        $safeName = $this->cachedNormalize($name);
+        $hashedKey = $this->hashKeyComponent($key);
+        return $this->config->getKeyPrefix() . ':fail2ban:fail:' . $safeName . ':' . $hashedKey;
     }
 
     private function banKey(string $name, string $key): string
     {
-        $safeName = $this->normalizeKeyComponent($name);
-        $safeKey = $this->normalizeKeyComponent($key);
-        return $this->config->getKeyPrefix() . ':fail2ban:ban:' . $safeName . ':' . $safeKey;
+        $safeName = $this->cachedNormalize($name);
+        $hashedKey = $this->hashKeyComponent($key);
+        return $this->config->getKeyPrefix() . ':fail2ban:ban:' . $safeName . ':' . $hashedKey;
+    }
+
+    private function allow2BanHitKey(string $name, string $key): string
+    {
+        $safeName = $this->cachedNormalize($name);
+        $hashedKey = $this->hashKeyComponent($key);
+        return $this->config->getKeyPrefix() . ':allow2ban:hit:' . $safeName . ':' . $hashedKey;
+    }
+
+    private function allow2BanBanKey(string $name, string $key): string
+    {
+        $safeName = $this->cachedNormalize($name);
+        $hashedKey = $this->hashKeyComponent($key);
+        return $this->config->getKeyPrefix() . ':allow2ban:ban:' . $safeName . ':' . $hashedKey;
     }
 
     private function trackKey(string $name, string $key): string
     {
-        $safeName = $this->normalizeKeyComponent($name);
-        $safeKey = $this->normalizeKeyComponent($key);
-        return $this->config->getKeyPrefix() . ':track:' . $safeName . ':' . $safeKey;
+        $safeName = $this->cachedNormalize($name);
+        $hashedKey = $this->hashKeyComponent($key);
+        return $this->config->getKeyPrefix() . ':track:' . $safeName . ':' . $hashedKey;
+    }
+
+    private function cachedNormalize(string $component): string
+    {
+        /** @var array<string, string> $cache */
+        static $cache = [];
+
+        return $cache[$component] ??= $this->normalizeKeyComponent($component);
+    }
+
+    private function hashKeyComponent(string $key): string
+    {
+        /** @var array<string, string> $cache */
+        static $cache = [];
+
+        return $cache[$key] ??= hash('sha256', $key);
     }
 
     private function normalizeKeyComponent(string $value): string
