@@ -36,7 +36,7 @@ final readonly class Firewall
                 if ($key !== null) {
                     $counterKey = $this->trackKey($name, (string)$key);
                     $count = $this->increment($counterKey, $trackRule->period());
-                    $this->config->incrementDiagnosticsCounter('track_hit', $name);
+
                     $this->dispatch(new TrackHit(
                         rule: $name,
                         key: (string)$key,
@@ -53,7 +53,7 @@ final readonly class Firewall
             $name = $safelistRule->name();
             if ($safelistRule->matcher()->match($serverRequest)->isMatch() === true) {
                 $this->dispatch(new SafelistMatched($name, $serverRequest));
-                $this->config->incrementDiagnosticsCounter('safelisted', $name);
+
                 $decisionPath = 'safelisted';
                 $decisionRule = $name;
                 $result = FirewallResult::safelisted($name, ['X-Phirewall-Safelist' => $name]);
@@ -68,7 +68,7 @@ final readonly class Firewall
             $match = $blocklistRule->matcher()->match($serverRequest);
             if ($match->isMatch() === true) {
                 $this->dispatch(new BlocklistMatched($name, $serverRequest));
-                $this->config->incrementDiagnosticsCounter('blocklisted', $name);
+
                 $headers = [
                     'X-Phirewall' => 'blocklist',
                     'X-Phirewall-Matched' => $name,
@@ -100,7 +100,7 @@ final readonly class Firewall
 
             $banKey = $this->banKey($name, (string)$key);
             if ($cache->has($banKey)) {
-                $this->config->incrementDiagnosticsCounter('fail2ban_blocked', $name);
+
                 $decisionPath = 'fail2ban_blocked';
                 $decisionRule = $name;
                 $result = FirewallResult::blocked($name, 'fail2ban', [
@@ -114,10 +114,10 @@ final readonly class Firewall
             if ($fail2BanRule->filter()->match($serverRequest)->isMatch() === true) {
                 $failKey = $this->failKey($name, $key);
                 $count = $this->increment($failKey, $fail2BanRule->period());
-                $this->config->incrementDiagnosticsCounter('fail2ban_fail_hit', $name);
+
                 if ($count >= $fail2BanRule->threshold()) {
                     $cache->set($banKey, 1, $fail2BanRule->banSeconds());
-                    $this->config->incrementDiagnosticsCounter('fail2ban_banned', $name);
+
                     $this->dispatch(new Fail2BanBanned(
                         rule: $name,
                         key: $key,
@@ -163,7 +163,7 @@ final readonly class Firewall
                     retryAfter: $retryAfter,
                     serverRequest: $serverRequest,
                 ));
-                $this->config->incrementDiagnosticsCounter('throttle_exceeded', $name);
+
                 $headers = [
                     'X-Phirewall' => 'throttle',
                     'X-Phirewall-Matched' => $name,
@@ -193,7 +193,7 @@ final readonly class Firewall
             }
         }
 
-        $this->config->incrementDiagnosticsCounter('passed');
+
         $result = FirewallResult::pass($pendingRateLimitHeaders ?? []);
         $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
         return $result;

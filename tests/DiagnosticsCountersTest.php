@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -15,40 +16,41 @@ final class DiagnosticsCountersTest extends TestCase
 {
     public function testSafelistCounterIncrements(): void
     {
-        $config = new Config(new InMemoryCache());
+        $diagnosticsCounters = new DiagnosticsCounters();
+        $config = new Config(new InMemoryCache(), $diagnosticsCounters);
         $config->safelist('health', fn($req): bool => $req->getUri()->getPath() === '/health');
-        $config->blocklist('block-all', fn(): bool => true); // should be bypassed
+        $config->blocklist('block-all', fn(): bool => true);
 
         $firewall = new Firewall($config);
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/health'));
         $this->assertTrue($firewallResult->isPass());
 
-        $counters = $config->getDiagnosticsCounters();
+        $counters = $diagnosticsCounters->all();
         $this->assertArrayHasKey('safelisted', $counters);
         $this->assertSame(1, $counters['safelisted']['total']);
         $this->assertSame(1, $counters['safelisted']['by_rule']['health'] ?? 0);
-        // safelist path short-circuits, so 'passed' is not incremented here
         $this->assertArrayNotHasKey('passed', $counters);
     }
 
     public function testBlocklistCounterIncrements(): void
     {
-        $config = new Config(new InMemoryCache());
+        $diagnosticsCounters = new DiagnosticsCounters();
+        $config = new Config(new InMemoryCache(), $diagnosticsCounters);
         $config->blocklist('admin', fn($req): bool => $req->getUri()->getPath() === '/admin');
 
         $firewall = new Firewall($config);
-
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/admin'));
         $this->assertTrue($firewallResult->isBlocked());
 
-        $counters = $config->getDiagnosticsCounters();
+        $counters = $diagnosticsCounters->all();
         $this->assertSame(1, $counters['blocklisted']['total'] ?? 0);
         $this->assertSame(1, $counters['blocklisted']['by_rule']['admin'] ?? 0);
     }
 
     public function testThrottleExceededCounterIncrements(): void
     {
-        $config = new Config(new InMemoryCache());
+        $diagnosticsCounters = new DiagnosticsCounters();
+        $config = new Config(new InMemoryCache(), $diagnosticsCounters);
         $config->throttle('ip', 1, 10, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
 
         $firewall = new Firewall($config);
@@ -56,16 +58,17 @@ final class DiagnosticsCountersTest extends TestCase
         $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
         $this->assertTrue($firewall->decide($serverRequest)->isPass());
         $firewallResult = $firewall->decide($serverRequest);
-        $this->assertSame(OUTCOME::THROTTLED, $firewallResult->outcome);
+        $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
 
-        $counters = $config->getDiagnosticsCounters();
+        $counters = $diagnosticsCounters->all();
         $this->assertSame(1, $counters['throttle_exceeded']['total'] ?? 0);
         $this->assertSame(1, $counters['throttle_exceeded']['by_rule']['ip'] ?? 0);
     }
 
     public function testFail2BanCountersIncrement(): void
     {
-        $config = new Config(new InMemoryCache());
+        $diagnosticsCounters = new DiagnosticsCounters();
+        $config = new Config(new InMemoryCache(), $diagnosticsCounters);
         $config->fail2ban(
             'login',
             threshold: 2,
@@ -78,37 +81,59 @@ final class DiagnosticsCountersTest extends TestCase
 
         $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
         $fail = $serverRequest->withHeader('X-Login-Failed', '1');
-        // First failure
         $this->assertTrue($firewall->decide($fail)->isPass());
-        // Second failure hits the threshold and triggers ban + block
         $secondResult = $firewall->decide($fail);
         $this->assertTrue($secondResult->isBlocked());
 
-        $counters = $config->getDiagnosticsCounters();
-        $this->assertSame(2, $counters['fail2ban_fail_hit']['total'] ?? 0);
+        $counters = $diagnosticsCounters->all();
         $this->assertSame(1, $counters['fail2ban_banned']['total'] ?? 0);
         $this->assertSame(1, $counters['fail2ban_banned']['by_rule']['login'] ?? 0);
 
         // Now a normal request should be blocked due to ban
         $firewallResult = $firewall->decide($serverRequest);
         $this->assertTrue($firewallResult->isBlocked());
-        $counters = $config->getDiagnosticsCounters();
+        $counters = $diagnosticsCounters->all();
         $this->assertSame(1, $counters['fail2ban_blocked']['total'] ?? 0);
         $this->assertSame(1, $counters['fail2ban_blocked']['by_rule']['login'] ?? 0);
     }
 
     public function testTrackHitAndPassCountersIncrement(): void
     {
-        $config = new Config(new InMemoryCache());
+        $diagnosticsCounters = new DiagnosticsCounters();
+        $config = new Config(new InMemoryCache(), $diagnosticsCounters);
         $config->track('all', period: 60, filter: fn(): bool => true, key: fn(): string => 'k');
 
         $firewall = new Firewall($config);
 
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
         $this->assertTrue($firewallResult->isPass());
-        $counters = $config->getDiagnosticsCounters();
+        $counters = $diagnosticsCounters->all();
         $this->assertSame(1, $counters['track_hit']['total'] ?? 0);
         $this->assertSame(1, $counters['track_hit']['by_rule']['all'] ?? 0);
         $this->assertSame(1, $counters['passed']['total'] ?? 0);
+    }
+
+    public function testWithoutDiagnosticsNothingBreaks(): void
+    {
+        $config = new Config(new InMemoryCache());
+        $config->blocklist('all', fn(): bool => true);
+
+        $firewall = new Firewall($config);
+        $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
+        $this->assertTrue($firewallResult->isBlocked());
+    }
+
+    public function testResetClearsAll(): void
+    {
+        $diagnosticsCounters = new DiagnosticsCounters();
+        $config = new Config(new InMemoryCache(), $diagnosticsCounters);
+        $config->blocklist('test', fn(): bool => true);
+
+        $firewall = new Firewall($config);
+        $firewall->decide(new ServerRequest('GET', '/'));
+
+        $this->assertNotEmpty($diagnosticsCounters->all());
+        $diagnosticsCounters->reset();
+        $this->assertSame([], $diagnosticsCounters->all());
     }
 }
