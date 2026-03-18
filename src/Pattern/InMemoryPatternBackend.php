@@ -79,20 +79,20 @@ final class InMemoryPatternBackend implements PatternBackendInterface
     public function pruneExpired(): void
     {
         $now = ($this->now)();
-        $changed = false;
+        $expiredKeys = [];
 
         foreach ($this->entries as $key => $entry) {
             if ($entry->expiresAt !== null && $entry->expiresAt <= $now) {
+                $expiredKeys[$key] = true;
                 unset($this->entries[$key]);
-                $this->order = array_values(array_filter(
-                    $this->order,
-                    static fn(string $k): bool => $k !== $key
-                ));
-                $changed = true;
             }
         }
 
-        if ($changed) {
+        if ($expiredKeys !== []) {
+            $this->order = array_values(array_filter(
+                $this->order,
+                static fn(string $k): bool => !isset($expiredKeys[$k]),
+            ));
             ++$this->version;
         }
     }
