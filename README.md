@@ -273,6 +273,9 @@ $config->blocklist('scanners', function($req) use ($scanners) {
 # Run tests
 composer test
 
+# Run tests including performance benchmarks
+PHIREWALL_RUN_BENCHMARKS=1 composer phpunit
+
 # Fix code style
 composer fix
 

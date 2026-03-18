@@ -61,6 +61,12 @@ jobs:
           XDEBUG_MODE: coverage
         run: composer phpunit
 
+      - name: Run performance benchmarks
+        env:
+          PHIREWALL_RUN_BENCHMARKS: '1'
+          XDEBUG_MODE: off
+        run: vendor/bin/phpunit --group=performance --no-coverage
+
       - name: Run all example scripts
         run: |
           for file in examples/*.php; do
