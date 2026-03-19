@@ -273,6 +273,9 @@ $config->blocklist('scanners', function($req) use ($scanners) {
 # Run tests
 composer test
 
+# Run performance benchmarks only (no coverage, Xdebug disabled)
+XDEBUG_MODE=off PHIREWALL_RUN_BENCHMARKS=1 vendor/bin/phpunit --group performance --no-coverage
+
 # Fix code style
 composer fix
 
