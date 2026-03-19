@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Config;
 
+use Flowd\Phirewall\KeyExtractors;
+use Flowd\Phirewall\Matchers\Support\CidrMatcher;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -39,11 +41,7 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
             throw new \InvalidArgumentException('minReloadIntervalSec must be >= 0');
         }
 
-        $this->ipResolver = $ipResolver ?? static function (ServerRequestInterface $serverRequest): ?string {
-            $params = $serverRequest->getServerParams();
-            $ip = $params['REMOTE_ADDR'] ?? null;
-            return is_string($ip) && $ip !== '' ? $ip : null;
-        };
+        $this->ipResolver = $ipResolver ?? KeyExtractors::ip();
     }
 
     /** @var callable(ServerRequestInterface):?string */
@@ -68,7 +66,7 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
         }
 
         foreach ($this->cidrBlocks as $cidrBlock) {
-            if ($this->matchesCidr($ipBinary, $cidrBlock['network'], $cidrBlock['bits'])) {
+            if (CidrMatcher::matches($ipBinary, $cidrBlock)) {
                 return MatchResult::matched('ip_file_blocklist', ['ip' => $ipAddress]);
             }
         }
@@ -182,46 +180,9 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
      */
     private function addCidrToList(array &$target, string $cidr): void
     {
-        [$network, $bits] = array_pad(explode('/', $cidr, 2), 2, null);
-        $prefixLength = is_numeric($bits) ? (int)$bits : -1;
-        $networkBinary = @inet_pton((string)$network);
-        if ($networkBinary === false) {
-            return;
+        $compiled = CidrMatcher::compile($cidr);
+        if ($compiled !== null) {
+            $target[] = $compiled;
         }
-
-        $length = strlen($networkBinary);
-        $maxBits = $length * 8;
-        if ($prefixLength < 0 || $prefixLength > $maxBits) {
-            return;
-        }
-
-        $target[] = [
-            'network' => $networkBinary,
-            'bits' => $prefixLength,
-        ];
-    }
-
-    private function matchesCidr(string $ipBinary, string $networkBinary, int $prefixLength): bool
-    {
-        if (strlen($ipBinary) !== strlen($networkBinary)) {
-            return false;
-        }
-
-        $fullBytes = intdiv($prefixLength, 8);
-        $remainingBits = $prefixLength % 8;
-
-        if ($fullBytes > 0 && strncmp($ipBinary, $networkBinary, $fullBytes) !== 0) {
-            return false;
-        }
-
-        if ($remainingBits === 0) {
-            return true;
-        }
-
-        $mask = (0xFF00 >> $remainingBits) & 0xFF;
-        $ipByte = ord($ipBinary[$fullBytes]) & $mask;
-        $networkByte = ord($networkBinary[$fullBytes]) & $mask;
-
-        return $ipByte === $networkByte;
     }
 }

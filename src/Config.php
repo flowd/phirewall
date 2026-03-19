@@ -45,15 +45,41 @@ final class Config
 
     private string $keyPrefix = 'phirewall';
 
+    /** @var (\Closure(\Psr\Http\Message\ServerRequestInterface): ?string)|null */
+    private ?\Closure $ipResolver = null;
+
     public function __construct(
         public readonly CacheInterface $cache,
         public readonly ?EventDispatcherInterface $eventDispatcher = null,
     ) {
-        $this->safelists = new SafelistSection();
-        $this->blocklists = new BlocklistSection();
+        $this->safelists = new SafelistSection($this);
+        $this->blocklists = new BlocklistSection($this);
         $this->throttles = new ThrottleSection();
         $this->fail2ban = new Fail2BanSection();
         $this->tracks = new TrackSection();
+    }
+
+    // ── IP Resolution ────────────────────────────────────────────────────
+
+    /**
+     * Set a global IP resolver for all IP-aware matchers created through Config sections.
+     *
+     * Use this when running behind a trusted proxy/load balancer:
+     *   $proxy = new TrustedProxyResolver(['10.0.0.0/8']);
+     *   $config->setIpResolver(KeyExtractors::clientIp($proxy));
+     */
+    public function setIpResolver(\Closure $ipResolver): self
+    {
+        $this->ipResolver = $ipResolver;
+        return $this;
+    }
+
+    /**
+     * @return (\Closure(\Psr\Http\Message\ServerRequestInterface): ?string)|null
+     */
+    public function getIpResolver(): ?\Closure
+    {
+        return $this->ipResolver;
     }
 
     // ── Toggles ──────────────────────────────────────────────────────────

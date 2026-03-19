@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Http;
 
+use Flowd\Phirewall\Matchers\Support\CidrMatcher;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -150,7 +151,7 @@ final readonly class TrustedProxyResolver
             }
 
             if (str_contains($trustedProxy, '/')) {
-                if ($this->ipInCidr($ip, $trustedProxy)) {
+                if (CidrMatcher::containsIp($ip, $trustedProxy)) {
                     return true;
                 }
 
@@ -184,46 +185,5 @@ final readonly class TrustedProxyResolver
         }
 
         return null;
-    }
-
-    private function ipInCidr(string $ip, string $cidr): bool
-    {
-        [$subnet, $mask] = explode('/', $cidr, 2) + [null, null];
-        if ($subnet === null || $mask === null) {
-            return false;
-        }
-
-        $mask = (int) $mask;
-        $ipBin = @inet_pton($ip);
-        $subnetBin = @inet_pton($subnet);
-        if ($ipBin === false || $subnetBin === false) {
-            return false;
-        }
-
-        if (strlen($ipBin) !== strlen($subnetBin)) {
-            return false;
-        }
-
-        $maxBits = strlen($ipBin) * 8;
-        if ($mask < 0 || $mask > $maxBits) {
-            return false;
-        }
-
-        $fullBytes = intdiv($mask, 8);
-        $remainingBits = $mask % 8;
-
-        if ($fullBytes > 0 && strncmp($ipBin, $subnetBin, $fullBytes) !== 0) {
-            return false;
-        }
-
-        if ($remainingBits === 0) {
-            return true;
-        }
-
-        $maskByte = (0xFF00 >> $remainingBits) & 0xFF;
-        $ipByte = ord($ipBin[$fullBytes]) & $maskByte;
-        $subnetByte = ord($subnetBin[$fullBytes]) & $maskByte;
-
-        return $ipByte === $subnetByte;
     }
 }
