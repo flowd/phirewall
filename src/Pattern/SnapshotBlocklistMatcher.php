@@ -316,7 +316,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
         }
 
         if ($headerParts !== []) {
-            $subject .= '\n' . implode('\n', $headerParts);
+            $subject .= "\n" . implode("\n", $headerParts);
         }
 
         return $subject;

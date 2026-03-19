@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Tests\Pattern;
 
 use Flowd\Phirewall\Pattern\FilePatternBackend;
+use Flowd\Phirewall\Pattern\InMemoryPatternBackend;
 use Flowd\Phirewall\Pattern\PatternEntry;
 use Flowd\Phirewall\Pattern\PatternKind;
 use Flowd\Phirewall\Pattern\SnapshotBlocklistMatcher;
@@ -69,5 +70,23 @@ final class SnapshotBlocklistMatcherTest extends TestCase
         $this->assertFalse($matcher->match($headerRequest)->isMatch());
 
         @unlink($file);
+    }
+
+    public function testRequestRegexMatchesHeaderOnOwnLine(): void
+    {
+        $inMemoryPatternBackend = new InMemoryPatternBackend([
+            new PatternEntry(PatternKind::REQUEST_REGEX, '/^user-agent:.*evil/mi'),
+        ]);
+
+        $snapshotBlocklistMatcher = new SnapshotBlocklistMatcher($inMemoryPatternBackend);
+
+        $evilRequest = new ServerRequest('GET', '/page', ['User-Agent' => 'EvilBot/1.0'], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertTrue($snapshotBlocklistMatcher->match($evilRequest)->isMatch(), 'REQUEST_REGEX with ^ anchor should match header on its own line');
+
+        $safeRequest = new ServerRequest('GET', '/page', ['User-Agent' => 'SafeBrowser/1.0'], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertFalse($snapshotBlocklistMatcher->match($safeRequest)->isMatch());
+
+        $safeRequest = new ServerRequest('GET', '/page', ['User-Agent' => 'SafeBrowser/1.0', 'X-Custom' => 'evil'], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertFalse($snapshotBlocklistMatcher->match($safeRequest)->isMatch());
     }
 }
