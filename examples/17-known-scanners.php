@@ -11,7 +11,7 @@ declare(strict_types=1);
  * The default list covers ~25 well-known tools. You can replace or extend it.
  */
 
-require_once __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;

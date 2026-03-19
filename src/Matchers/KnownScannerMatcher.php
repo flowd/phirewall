@@ -12,17 +12,17 @@ use Psr\Http\Message\ServerRequestInterface;
  * Blocks requests whose User-Agent matches known attack tools, vulnerability scanners,
  * and exploit frameworks.
  *
- * Ships with a curated default list. Pass your own list to the constructor to
- * extend, replace, or reduce it.
+ * Ships with a curated default list. Passing your own list to the constructor
+ * replaces the defaults; to extend or reduce them, explicitly merge with DEFAULT_PATTERNS.
  *
  * Usage:
  *   // Use defaults
  *   $config->blocklists->knownScanners();
  *
- *   // Add custom patterns on top of defaults
- *   $config->blocklists->knownScanners('scanners', [...self::DEFAULT_PATTERNS, 'my-tool']);
+ *   // Add custom patterns on top of defaults by merging with DEFAULT_PATTERNS
+ *   $config->blocklists->knownScanners('scanners', [...KnownScannerMatcher::DEFAULT_PATTERNS, 'my-tool']);
  *
- *   // Use only your own list
+ *   // Use only your own list (no defaults)
  *   new KnownScannerMatcher(['my-tool', 'other-tool']);
  */
 final readonly class KnownScannerMatcher implements RequestMatcherInterface
