@@ -9,6 +9,7 @@ use Flowd\Phirewall\Config\ClosureRequestMatcher;
 use Flowd\Phirewall\Config\FileIpBlocklistMatcher;
 use Flowd\Phirewall\Config\FileIpBlocklistStore;
 use Flowd\Phirewall\Config\Rule\BlocklistRule;
+use Flowd\Phirewall\Matchers\KnownScannerMatcher;
 use Flowd\Phirewall\Owasp\CoreRuleSet;
 use Flowd\Phirewall\Owasp\CoreRuleSetMatcher;
 use Flowd\Phirewall\Pattern\FilePatternBackend;
@@ -48,6 +49,16 @@ final class BlocklistSection
     public function owasp(string $name, CoreRuleSet $coreRuleSet): self
     {
         return $this->addRule(new BlocklistRule($name, new CoreRuleSetMatcher($coreRuleSet)));
+    }
+
+    /**
+     * Block requests from known attack tools and vulnerability scanners by User-Agent.
+     *
+     * @param list<string>|null $patterns UA substrings to block. Defaults to KnownScannerMatcher::DEFAULT_PATTERNS.
+     */
+    public function knownScanners(string $name = 'known-scanners', ?array $patterns = null): self
+    {
+        return $this->addRule(new BlocklistRule($name, new KnownScannerMatcher($patterns)));
     }
 
     /**
