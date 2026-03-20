@@ -22,6 +22,18 @@ final class ThrottleSection
     }
 
     /**
+     * Add a sliding-window throttle rule.
+     *
+     * Unlike fixed-window throttling, the sliding window uses a weighted
+     * average of the current and previous window counters to prevent the
+     * "double burst" problem at window boundaries.
+     */
+    public function sliding(string $name, int $limit, int $period, Closure $key): self
+    {
+        return $this->addRule(new ThrottleRule($name, $limit, $period, new ClosureKeyExtractor($key), sliding: true));
+    }
+
+    /**
      * Add a typed ThrottleRule directly.
      */
     public function addRule(ThrottleRule $throttleRule): self

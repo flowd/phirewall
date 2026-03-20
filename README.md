@@ -72,7 +72,7 @@ php examples/08-comprehensive-protection.php
 
 ## Examples
 
-The [examples/](examples/) folder contains 20 runnable examples:
+The [examples/](examples/) folder contains runnable examples:
 
 | # | Example | Description |
 |---|---------|-------------|
@@ -96,6 +96,7 @@ The [examples/](examples/) folder contains 20 runnable examples:
 | 18 | [trusted-bots](examples/18-trusted-bots.php) | Trusted bot verification via reverse DNS |
 | 19 | [header-analysis](examples/19-header-analysis.php) | Suspicious headers detection |
 | 20 | [rule-benchmarks](examples/20-rule-benchmarks.php) | Firewall rule performance benchmarks |
+| 21 | [sliding-window](examples/21-sliding-window.php) | Sliding window rate limiting |
 
 ## Features
 
@@ -105,7 +106,7 @@ The [examples/](examples/) folder contains 20 runnable examples:
 |---------|-------------|
 | **Safelists** | Bypass all checks for trusted requests (health checks, internal IPs) |
 | **Blocklists** | Immediately deny suspicious requests (403) |
-| **Throttling** | Rate limit by IP, user, API key, or custom key (429) |
+| **Throttling** | Fixed and sliding window rate limiting by IP, user, API key, or custom key (429) |
 | **Fail2Ban** | Auto-ban after repeated failures |
 | **Allow2Ban** | Hard volume cap -- ban after too many total requests |
 | **OWASP CRS** | SQL injection, XSS, and PHP injection detection |

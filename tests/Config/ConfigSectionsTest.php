@@ -62,6 +62,17 @@ final class ConfigSectionsTest extends TestCase
         $this->assertSame(Outcome::THROTTLED, $firewall->decide($serverRequest)->outcome);
     }
 
+    public function testThrottleSectionSliding(): void
+    {
+        $config = new Config(new InMemoryCache());
+        $config->throttles->sliding('api', 2, 60, fn($r): string => '127.0.0.1');
+
+        $rules = $config->throttles->rules();
+        $this->assertCount(1, $rules);
+        $this->assertArrayHasKey('api', $rules);
+        $this->assertTrue($rules['api']->isSliding());
+    }
+
     public function testFail2BanSectionAdd(): void
     {
         $config = new Config(new InMemoryCache());

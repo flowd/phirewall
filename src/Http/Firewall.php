@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Http;
 
 use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\Rule\ThrottleRule;
 use Flowd\Phirewall\Events\Allow2BanBanned;
 use Flowd\Phirewall\Events\BlocklistMatched;
 use Flowd\Phirewall\Events\Fail2BanBanned;
@@ -14,6 +15,9 @@ use Flowd\Phirewall\Events\SafelistMatched;
 use Flowd\Phirewall\Events\ThrottleExceeded;
 use Flowd\Phirewall\Events\TrackHit;
 use Flowd\Phirewall\Store\CounterStoreInterface;
+use Flowd\Phirewall\Throttle\FixedWindowStrategy;
+use Flowd\Phirewall\Throttle\SlidingWindowStrategy;
+use Flowd\Phirewall\Throttle\ThrottleStrategyInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 final readonly class Firewall
@@ -154,10 +158,13 @@ final readonly class Firewall
                 continue;
             }
 
-            $counterKey = $this->config->cacheKeyGenerator()->throttleKey($name, $key);
-            $count = $this->increment($counterKey, $throttleRule->period());
             $limit = $throttleRule->limit();
-            $retryAfter = $this->ttlRemaining($counterKey);
+            $strategy = $this->resolveStrategy($throttleRule);
+            $throttleIncrement = $strategy->increment($name, $key, $throttleRule->period());
+
+            // ceil() rounds up the floating-point sliding window estimate for a conservative safety margin
+            $count = (int) ceil($throttleIncrement->count);
+            $retryAfter = $throttleIncrement->retryAfter;
             $remaining = max(0, $limit - $count);
 
             if ($count > $limit) {
@@ -280,6 +287,27 @@ final readonly class Firewall
         }
 
         $dispatcher->dispatch(new PerformanceMeasured($decisionPath, $durationMicros, $ruleName));
+    }
+
+    private function resolveStrategy(ThrottleRule $throttleRule): ThrottleStrategyInterface
+    {
+        static $strategyCache = [];
+
+        $objectId = spl_object_id($this);
+
+        if (!isset($strategyCache[$objectId])) {
+            $cache = $this->config->cache;
+            $cacheKeyGenerator = $this->config->cacheKeyGenerator();
+
+            $strategyCache[$objectId] = [
+                'fixed' => new FixedWindowStrategy($cache, $cacheKeyGenerator),
+                'sliding' => new SlidingWindowStrategy($cache, $cacheKeyGenerator, $this->config->now(...)),
+            ];
+        }
+
+        return $throttleRule->isSliding()
+            ? $strategyCache[$objectId]['sliding']
+            : $strategyCache[$objectId]['fixed'];
     }
 
     private function increment(string $key, int $period): int

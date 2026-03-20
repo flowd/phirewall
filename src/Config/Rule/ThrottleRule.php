@@ -13,6 +13,7 @@ final readonly class ThrottleRule implements RuleInterface
         private int $limit,
         private int $period,
         private KeyExtractorInterface $keyExtractor,
+        private bool $sliding = false,
     ) {
     }
 
@@ -34,5 +35,13 @@ final readonly class ThrottleRule implements RuleInterface
     public function keyExtractor(): KeyExtractorInterface
     {
         return $this->keyExtractor;
+    }
+
+    /**
+     * Whether this rule uses sliding window rate limiting.
+     */
+    public function isSliding(): bool
+    {
+        return $this->sliding;
     }
 }

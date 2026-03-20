@@ -18,6 +18,11 @@ final class CacheKeyGenerator
         return $this->prefix . ':throttle:' . $this->normalizeName($name) . ':' . $this->hashKey($key);
     }
 
+    public function slidingWindowKey(string $name, string $key, int $windowStart): string
+    {
+        return $this->prefix . ':throttle:' . $this->normalizeName($name) . ':' . $this->hashKey($key) . ':w:' . $windowStart;
+    }
+
     public function fail2BanFailKey(string $name, string $key): string
     {
         return $this->prefix . ':fail2ban:fail:' . $this->normalizeName($name) . ':' . $this->hashKey($key);
