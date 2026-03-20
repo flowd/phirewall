@@ -212,10 +212,15 @@ final readonly class Firewall
 
             $a2bBanKey = $this->config->cacheKeyGenerator()->allow2BanBanKey($name, $key);
             if ($cache->has($a2bBanKey)) {
+                $banRetryAfter = $this->ttlRemaining($a2bBanKey);
+                if ($banRetryAfter < 1) {
+                    $banRetryAfter = $allow2BanRule->banSeconds();
+                }
+
                 $allow2BanResult ??= ['path' => 'allow2ban_blocked', 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', [
                     'X-Phirewall' => 'allow2ban',
                     'X-Phirewall-Matched' => $name,
-                    'Retry-After' => (string) $allow2BanRule->banSeconds(),
+                    'Retry-After' => (string) $banRetryAfter,
                 ])];
                 continue;
             }
@@ -236,10 +241,15 @@ final readonly class Firewall
                     count: $count,
                     serverRequest: $serverRequest,
                 ));
+                $newBanRetryAfter = $this->ttlRemaining($a2bBanKey);
+                if ($newBanRetryAfter < 1) {
+                    $newBanRetryAfter = $allow2BanRule->banSeconds();
+                }
+
                 $allow2BanResult ??= ['path' => 'allow2ban_banned', 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', [
                     'X-Phirewall' => 'allow2ban',
                     'X-Phirewall-Matched' => $name,
-                    'Retry-After' => (string) $allow2BanRule->banSeconds(),
+                    'Retry-After' => (string) $newBanRetryAfter,
                 ])];
             }
         }

@@ -22,6 +22,8 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
 
     public function get(string $key, mixed $default = null): mixed
     {
+        $this->maybePurge();
+
         if (!isset($this->data[$key])) {
             return $default;
         }
@@ -88,6 +90,8 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
 
     public function has(string $key): bool
     {
+        $this->maybePurge();
+
         if (!isset($this->data[$key])) {
             return false;
         }

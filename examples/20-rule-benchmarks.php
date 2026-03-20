@@ -53,12 +53,12 @@ function benchmarkRule(string $name, Config $config, int $iterations): array
     $freshConfig = new Config($freshCache);
 
     // Copy rule sections from original config
-    foreach ($config->allow2ban->rules() as $throttleRule) {
-        $freshConfig->allow2ban->addRule($throttleRule);
+    foreach ($config->allow2ban->rules() as $allow2BanRule) {
+        $freshConfig->allow2ban->addRule($allow2BanRule);
     }
 
-    foreach ($config->fail2ban->rules() as $throttleRule) {
-        $freshConfig->fail2ban->addRule($throttleRule);
+    foreach ($config->fail2ban->rules() as $fail2BanRule) {
+        $freshConfig->fail2ban->addRule($fail2BanRule);
     }
 
     foreach ($config->throttles->rules() as $throttleRule) {
