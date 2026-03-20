@@ -13,6 +13,7 @@ use Flowd\Phirewall\Config\Section\Fail2BanSection;
 use Flowd\Phirewall\Config\Section\SafelistSection;
 use Flowd\Phirewall\Config\Section\ThrottleSection;
 use Flowd\Phirewall\Config\Section\TrackSection;
+use Flowd\Phirewall\Store\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\SimpleCache\CacheInterface;
 
@@ -58,6 +59,7 @@ final class Config
     public function __construct(
         public readonly CacheInterface $cache,
         public readonly ?EventDispatcherInterface $eventDispatcher = null,
+        private readonly ?ClockInterface $clock = null,
     ) {
         $this->safelists = new SafelistSection($this);
         $this->blocklists = new BlocklistSection($this);
@@ -65,6 +67,17 @@ final class Config
         $this->fail2ban = new Fail2BanSection();
         $this->allow2ban = new Allow2BanSection();
         $this->tracks = new TrackSection();
+    }
+
+    // ── Clock ─────────────────────────────────────────────────────────────
+
+    /**
+     * Return the current time as a float (seconds since Unix epoch).
+     * Uses the injected clock if available, otherwise microtime(true).
+     */
+    public function now(): float
+    {
+        return $this->clock?->now() ?? microtime(true);
     }
 
     // ── IP Resolution ────────────────────────────────────────────────────

@@ -57,6 +57,25 @@ final class ConfigTypedApiTest extends TestCase
         $this->assertFalse($config->rateLimitHeadersEnabled());
     }
 
+    public function testConfigNowUsesClockWhenProvided(): void
+    {
+        $fakeClock = new \Flowd\Phirewall\Tests\Support\FakeClock(1_200_000_000.0);
+        $config = new Config(new InMemoryCache($fakeClock), clock: $fakeClock);
+
+        $this->assertEqualsWithDelta(1_200_000_000.0, $config->now(), PHP_FLOAT_EPSILON);
+
+        $fakeClock->advance(42.5);
+        $this->assertEqualsWithDelta(1_200_000_042.5, $config->now(), PHP_FLOAT_EPSILON);
+    }
+
+    public function testConfigNowFallsBackToMicrotimeWithoutClock(): void
+    {
+        $config = new Config(new InMemoryCache());
+        $now = $config->now();
+        $this->assertGreaterThan(0.0, $now);
+        $this->assertEqualsWithDelta(microtime(true), $now, 1.0);
+    }
+
     public function testSetKeyPrefixNormalizationAndValidation(): void
     {
         $config = new Config(new InMemoryCache());

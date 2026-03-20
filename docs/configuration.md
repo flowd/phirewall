@@ -12,16 +12,19 @@ The `Config` class is the central configuration object for Phirewall.
 use Flowd\Phirewall\Config;
 use Psr\SimpleCache\CacheInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Flowd\Phirewall\Store\ClockInterface;
 
 public function __construct(
     CacheInterface $cache,
-    ?EventDispatcherInterface $eventDispatcher = null
+    ?EventDispatcherInterface $eventDispatcher = null,
+    ?ClockInterface $clock = null
 )
 ```
 
 **Parameters:**
 - `$cache` - Any PSR-16 compatible cache for storing counters and ban states
 - `$eventDispatcher` - Optional PSR-14 event dispatcher for observability
+- `$clock` - Optional clock for deterministic time (useful for testing sliding window throttles)
 
 **Example:**
 ```php
@@ -29,6 +32,10 @@ $config = new Config(new InMemoryCache());
 
 // With event dispatcher
 $config = new Config(new RedisCache($redis), $eventDispatcher);
+
+// With custom clock for testing
+$clock = new FakeClock(1_200_000_000.0);
+$config = new Config(new InMemoryCache($clock), clock: $clock);
 ```
 
 ---
@@ -114,6 +121,20 @@ $config->throttle('search-limit', limit: 20, period: 60, key: function ($req): ?
 // Per-user limit
 $config->throttle('user-limit', limit: 1000, period: 3600, key: KeyExtractors::header('X-User-Id'));
 ```
+
+#### Sliding Window Throttle
+
+The default throttle uses fixed time windows. At window boundaries, a client can send `limit` requests at the end of one window and another `limit` at the start of the next ("double burst"). The sliding window prevents this by using a weighted average of the current and previous windows.
+
+```php
+$config->throttles->sliding('api', limit: 100, period: 60, key: KeyExtractors::ip());
+```
+
+The sliding window estimate: `previousCount * (1 - elapsed/period) + currentCount`. This produces smooth rate limiting without boundary spikes.
+
+> **Note:** The sliding window estimate is rounded up (`ceil`) before comparing to the limit. This provides a conservative safety margin and may cause throttling approximately one request before the mathematical limit.
+
+> **Concurrency note:** In multi-process environments (e.g. PHP-FPM), the sliding window counter always uses non-atomic read-then-write operations. When the configured cache implements `CounterStoreInterface` (e.g. `RedisCache`, `ApcuCache`, `InMemoryCache`), fixed-window throttles can use atomic increments, so their concurrency characteristics are slightly stronger than those of sliding windows. Under high concurrency, a small number of extra requests may slip through for sliding windows at the exact moment the limit is crossed; this trade-off is usually acceptable for rate limiting.
 
 ---
 

@@ -44,6 +44,17 @@ final class RuleValueObjectsTest extends TestCase
         $this->assertSame('k', $throttleRule->keyExtractor()->extract(new ServerRequest('GET', '/')));
     }
 
+    public function testThrottleRuleSlidingFlag(): void
+    {
+        $extractor = new ClosureKeyExtractor(static fn($r): string => 'k');
+
+        $fixedRule = new ThrottleRule('fixed', 5, 60, $extractor);
+        $this->assertFalse($fixedRule->isSliding());
+
+        $slidingRule = new ThrottleRule('sliding', 5, 60, $extractor, sliding: true);
+        $this->assertTrue($slidingRule->isSliding());
+    }
+
     public function testFail2BanRuleStoresValues(): void
     {
         $filter = new ClosureRequestMatcher(static fn($r): bool => $r->getHeaderLine('X') === '1');
