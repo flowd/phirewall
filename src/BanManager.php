@@ -57,6 +57,7 @@ final readonly class BanManager
             } catch (\JsonException) {
                 $decoded = null;
             }
+
             if (is_array($decoded)) {
                 /** @var array<string, float> $registry */
                 $registry = $decoded;
