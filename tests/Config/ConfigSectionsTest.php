@@ -98,6 +98,23 @@ final class ConfigSectionsTest extends TestCase
         $this->assertCount(1, $config->getTrackRules());
     }
 
+    public function testThrottleSectionMulti(): void
+    {
+        $config = new Config(new InMemoryCache());
+        $config->throttles->multi('api', [1 => 3, 60 => 100], fn($r): string => '127.0.0.1');
+
+        $rules = $config->throttles->rules();
+        $this->assertCount(2, $rules);
+        $this->assertArrayHasKey('api/1s', $rules);
+        $this->assertArrayHasKey('api/60s', $rules);
+
+        $serverRequest = new ServerRequest('GET', '/');
+        $this->assertSame(3, $rules['api/1s']->resolveLimit($serverRequest));
+        $this->assertSame(1, $rules['api/1s']->resolvePeriod($serverRequest));
+        $this->assertSame(100, $rules['api/60s']->resolveLimit($serverRequest));
+        $this->assertSame(60, $rules['api/60s']->resolvePeriod($serverRequest));
+    }
+
     public function testDeprecatedMethodsStillWork(): void
     {
         $config = new Config(new InMemoryCache());

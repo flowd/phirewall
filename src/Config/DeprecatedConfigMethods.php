@@ -103,8 +103,10 @@ trait DeprecatedConfigMethods
         return $this;
     }
 
-    /** @deprecated Use $config->throttles->add() instead. */
-    public function throttle(string $name, int $limit, int $period, Closure $key): static
+    /**
+     * @deprecated Use $config->throttles->add() instead.
+     */
+    public function throttle(string $name, int|\Closure $limit, int|\Closure $period, Closure $key): static
     {
         $this->throttles->add($name, $limit, $period, $key);
         return $this;

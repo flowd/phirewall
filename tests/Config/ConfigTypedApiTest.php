@@ -76,6 +76,18 @@ final class ConfigTypedApiTest extends TestCase
         $this->assertEqualsWithDelta(microtime(true), $now, 1.0);
     }
 
+    public function testIsEnabledByDefault(): void
+    {
+        $config = new Config(new InMemoryCache());
+        $this->assertTrue($config->isEnabled());
+    }
+
+    public function testDiscriminatorNormalizerDefaultsToNull(): void
+    {
+        $config = new Config(new InMemoryCache());
+        $this->assertNull($config->getDiscriminatorNormalizer());
+    }
+
     public function testSetKeyPrefixNormalizationAndValidation(): void
     {
         $config = new Config(new InMemoryCache());

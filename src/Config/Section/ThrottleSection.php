@@ -7,6 +7,7 @@ namespace Flowd\Phirewall\Config\Section;
 use Closure;
 use Flowd\Phirewall\Config\ClosureKeyExtractor;
 use Flowd\Phirewall\Config\Rule\ThrottleRule;
+use Psr\Http\Message\ServerRequestInterface;
 
 final class ThrottleSection
 {
@@ -15,8 +16,11 @@ final class ThrottleSection
 
     /**
      * Add a throttle rule with a closure key extractor.
+     *
+     * @param int|Closure(ServerRequestInterface): int $limit
+     * @param int|Closure(ServerRequestInterface): int $period
      */
-    public function add(string $name, int $limit, int $period, Closure $key): self
+    public function add(string $name, int|Closure $limit, int|Closure $period, Closure $key): self
     {
         return $this->addRule(new ThrottleRule($name, $limit, $period, new ClosureKeyExtractor($key)));
     }
@@ -31,6 +35,32 @@ final class ThrottleSection
     public function sliding(string $name, int $limit, int $period, Closure $key): self
     {
         return $this->addRule(new ThrottleRule($name, $limit, $period, new ClosureKeyExtractor($key), sliding: true));
+    }
+
+    /**
+     * Register multiple throttle windows under a single logical name.
+     *
+     * Each entry in $windowLimits maps a period (seconds) to a request limit.
+     * A sub-rule is created for each window, named "{$name}/{period}s".
+     *
+     * Example: $config->throttles->multi('api', [1 => 3, 60 => 100], $key)
+     *   → creates "api/1s" (3 req/s burst) and "api/60s" (100 req/min sustained).
+     *
+     * @param array<int, int> $windowLimits Map of period (seconds) => limit (max requests)
+     */
+    public function multi(string $name, array $windowLimits, Closure $key): self
+    {
+        if ($windowLimits === []) {
+            throw new \InvalidArgumentException(
+                sprintf('multiThrottle "%s": windowLimits must not be empty', $name)
+            );
+        }
+
+        foreach ($windowLimits as $period => $limit) {
+            $this->add($name . '/' . $period . 's', $limit, $period, $key);
+        }
+
+        return $this;
     }
 
     /**

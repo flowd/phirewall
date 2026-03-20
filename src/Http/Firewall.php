@@ -28,11 +28,17 @@ final readonly class Firewall
 
     public function decide(ServerRequestInterface $serverRequest): FirewallResult
     {
+        if (!$this->config->isEnabled()) {
+            return FirewallResult::pass();
+        }
+
         $start = microtime(true);
         $decisionPath = 'passed';
         $decisionRule = null;
 
         $pendingRateLimitHeaders = null;
+
+        $discriminatorNormalizer = $this->config->getDiscriminatorNormalizer();
 
         // 0) Track (passive)
         foreach ($this->config->getTrackRules() as $trackRule) {
@@ -40,7 +46,10 @@ final readonly class Firewall
             if ($trackRule->filter()->match($serverRequest)->isMatch() === true) {
                 $key = $trackRule->keyExtractor()->extract($serverRequest);
                 if ($key !== null) {
-                    $counterKey = $this->config->cacheKeyGenerator()->trackKey($name, (string)$key);
+                    $normalizedKey = $discriminatorNormalizer instanceof \Closure
+                        ? $discriminatorNormalizer((string) $key)
+                        : (string) $key;
+                    $counterKey = $this->config->cacheKeyGenerator()->trackKey($name, $normalizedKey);
                     $count = $this->increment($counterKey, $trackRule->period());
 
                     $this->dispatch(new TrackHit(
@@ -109,7 +118,10 @@ final readonly class Firewall
                 continue;
             }
 
-            $banKey = $this->config->cacheKeyGenerator()->fail2BanBanKey($name, (string)$key);
+            $normalizedFail2BanKey = $discriminatorNormalizer instanceof \Closure
+                ? $discriminatorNormalizer((string) $key)
+                : (string) $key;
+            $banKey = $this->config->cacheKeyGenerator()->fail2BanBanKey($name, $normalizedFail2BanKey);
             if ($cache->has($banKey)) {
 
                 $decisionPath = 'fail2ban_blocked';
@@ -123,15 +135,15 @@ final readonly class Firewall
             }
 
             if ($fail2BanRule->filter()->match($serverRequest)->isMatch() === true) {
-                $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($name, $key);
+                $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($name, $normalizedFail2BanKey);
                 $count = $this->increment($failKey, $fail2BanRule->period());
 
                 if ($count >= $fail2BanRule->threshold()) {
-                    $this->config->banManager()->ban($name, $key, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
+                    $this->config->banManager()->ban($name, $normalizedFail2BanKey, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
 
                     $this->dispatch(new Fail2BanBanned(
                         rule: $name,
-                        key: $key,
+                        key: $normalizedFail2BanKey,
                         threshold: $fail2BanRule->threshold(),
                         period: $fail2BanRule->period(),
                         banSeconds: $fail2BanRule->banSeconds(),
@@ -158,9 +170,13 @@ final readonly class Firewall
                 continue;
             }
 
-            $limit = $throttleRule->limit();
+            $normalizedThrottleKey = $discriminatorNormalizer instanceof \Closure
+                ? $discriminatorNormalizer((string) $key)
+                : (string) $key;
+            $limit = $throttleRule->resolveLimit($serverRequest);
+            $period = $throttleRule->resolvePeriod($serverRequest);
             $strategy = $this->resolveStrategy($throttleRule);
-            $throttleIncrement = $strategy->increment($name, $key, $throttleRule->period());
+            $throttleIncrement = $strategy->increment($name, $normalizedThrottleKey, $period);
 
             // ceil() rounds up the floating-point sliding window estimate for a conservative safety margin
             $count = (int) ceil($throttleIncrement->count);
@@ -172,7 +188,7 @@ final readonly class Firewall
                     rule: $name,
                     key: (string)$key,
                     limit: $limit,
-                    period: $throttleRule->period(),
+                    period: $period,
                     count: $count,
                     retryAfter: $retryAfter,
                     serverRequest: $serverRequest,
@@ -217,7 +233,10 @@ final readonly class Firewall
                 continue;
             }
 
-            $a2bBanKey = $this->config->cacheKeyGenerator()->allow2BanBanKey($name, $key);
+            $normalizedAllow2BanKey = $discriminatorNormalizer instanceof \Closure
+                ? $discriminatorNormalizer((string) $key)
+                : (string) $key;
+            $a2bBanKey = $this->config->cacheKeyGenerator()->allow2BanBanKey($name, $normalizedAllow2BanKey);
             if ($cache->has($a2bBanKey)) {
                 $banRetryAfter = $this->ttlRemaining($a2bBanKey);
                 if ($banRetryAfter < 1) {
@@ -232,16 +251,16 @@ final readonly class Firewall
                 continue;
             }
 
-            $a2bHitKey = $this->config->cacheKeyGenerator()->allow2BanHitKey($name, $key);
+            $a2bHitKey = $this->config->cacheKeyGenerator()->allow2BanHitKey($name, $normalizedAllow2BanKey);
             $count = $this->increment($a2bHitKey, $allow2BanRule->period());
 
             if ($count >= $allow2BanRule->threshold()) {
-                $this->config->banManager()->ban($name, $key, $allow2BanRule->banSeconds(), BanType::Allow2Ban);
+                $this->config->banManager()->ban($name, $normalizedAllow2BanKey, $allow2BanRule->banSeconds(), BanType::Allow2Ban);
                 $cache->delete($a2bHitKey);
 
                 $this->dispatch(new Allow2BanBanned(
                     rule: $name,
-                    key: $key,
+                    key: $normalizedAllow2BanKey,
                     threshold: $allow2BanRule->threshold(),
                     period: $allow2BanRule->period(),
                     banSeconds: $allow2BanRule->banSeconds(),
