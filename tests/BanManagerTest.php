@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\BanManager;
+use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -151,7 +152,7 @@ final class BanManagerTest extends TestCase
 
         // BanManager should report the ban with type='fail2ban'
         $this->assertTrue(
-            $banManager->isBanned('login-rule', '5.6.7.8', 'fail2ban'),
+            $banManager->isBanned('login-rule', '5.6.7.8', BanType::Fail2Ban),
             'isBanned should return true for a banned fail2ban key',
         );
     }
@@ -389,18 +390,6 @@ final class BanManagerTest extends TestCase
         );
     }
 
-    // ── Test 11: invalid type throws InvalidArgumentException ───────────
-
-    public function testInvalidTypeThrows(): void
-    {
-        $inMemoryCache = new InMemoryCache();
-        [, , $banManager] = $this->setupAllow2Ban($inMemoryCache);
-
-        $this->expectException(\InvalidArgumentException::class);
-
-        $banManager->isBanned('test-rule', '1.2.3.4', 'throttle');
-    }
-
     // ── Additional edge case: unban with fail2ban type ──────────────────
 
     public function testUnbanRemovesFail2Ban(): void
@@ -411,14 +400,14 @@ final class BanManagerTest extends TestCase
         $this->triggerFail2Ban($firewall, '5.6.7.8', 2);
 
         // Verify banned
-        $this->assertTrue($banManager->isBanned('login-rule', '5.6.7.8', 'fail2ban'));
+        $this->assertTrue($banManager->isBanned('login-rule', '5.6.7.8', BanType::Fail2Ban));
 
         // Unban
-        $result = $banManager->unban('login-rule', '5.6.7.8', 'fail2ban');
+        $result = $banManager->unban('login-rule', '5.6.7.8', BanType::Fail2Ban);
         $this->assertTrue($result, 'unban should return true for fail2ban ban removal');
 
         // Verify no longer banned
-        $this->assertFalse($banManager->isBanned('login-rule', '5.6.7.8', 'fail2ban'));
+        $this->assertFalse($banManager->isBanned('login-rule', '5.6.7.8', BanType::Fail2Ban));
 
         // Normal requests should pass again
         $this->assertTrue(
@@ -463,35 +452,4 @@ final class BanManagerTest extends TestCase
         $this->assertEmpty($fail2banRules, 'No fail2ban rules should have active bans');
     }
 
-    // ── Additional: invalid type throws on all methods ──────────────────
-
-    public function testInvalidTypeThrowsOnUnban(): void
-    {
-        $inMemoryCache = new InMemoryCache();
-        [, , $banManager] = $this->setupAllow2Ban($inMemoryCache);
-
-        $this->expectException(\InvalidArgumentException::class);
-
-        $banManager->unban('test-rule', '1.2.3.4', 'throttle');
-    }
-
-    public function testInvalidTypeThrowsOnListBans(): void
-    {
-        $inMemoryCache = new InMemoryCache();
-        [, , $banManager] = $this->setupAllow2Ban($inMemoryCache);
-
-        $this->expectException(\InvalidArgumentException::class);
-
-        $banManager->listBans('test-rule', 'throttle');
-    }
-
-    public function testInvalidTypeThrowsOnClearBans(): void
-    {
-        $inMemoryCache = new InMemoryCache();
-        [, , $banManager] = $this->setupAllow2Ban($inMemoryCache);
-
-        $this->expectException(\InvalidArgumentException::class);
-
-        $banManager->clearBans('test-rule', 'throttle');
-    }
 }

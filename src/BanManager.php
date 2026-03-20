@@ -8,31 +8,45 @@ use Psr\SimpleCache\CacheInterface;
 
 final readonly class BanManager
 {
-    private const VALID_TYPES = ['allow2ban', 'fail2ban'];
-
     public function __construct(private Config $config)
     {
     }
 
     /**
-     * Register a ban in the ban registry. Called by Firewall when a ban is set.
+     * Ban a key: set the ban cache key and register in the ban registry.
+     *
+     * @param string $ruleName The rule name
+     * @param string $key The original (unhashed) key value (e.g. IP address)
+     * @param int $banSeconds How long the ban lasts
+     * @param BanType $banType The ban type
+     */
+    public function ban(string $ruleName, string $key, int $banSeconds, BanType $banType = BanType::Allow2Ban): void
+    {
+        $cache = $this->config->cache;
+        $banKey = $this->buildBanCacheKey($banType, $ruleName, $key);
+
+        $cache->set($banKey, 1, $banSeconds);
+
+        $this->registerBan($cache, $banType, $ruleName, $key, microtime(true) + $banSeconds);
+    }
+
+    /**
+     * Register a ban in the ban registry.
      *
      * @param CacheInterface $cache The cache store
-     * @param string $prefix The key prefix (e.g. 'phirewall')
-     * @param string $type 'allow2ban' or 'fail2ban'
+     * @param BanType $banType The ban type
      * @param string $ruleName The rule name
      * @param string $key The original (unhashed) key value (e.g. IP address)
      * @param float $expiresAt microtime(true) + banSeconds
      */
-    public static function registerBan(
+    private function registerBan(
         CacheInterface $cache,
-        string $prefix,
-        string $type,
+        BanType $banType,
         string $ruleName,
         string $key,
         float $expiresAt,
     ): void {
-        $registryKey = self::registryKey($prefix, $type, $ruleName);
+        $registryKey = $this->config->cacheKeyGenerator()->banRegistryKey($banType->value, $ruleName);
 
         /** @var array<string, float> $registry */
         $registry = [];
@@ -53,12 +67,10 @@ final readonly class BanManager
     /**
      * Check if a specific key is currently banned for a rule.
      */
-    public function isBanned(string $ruleName, string $key, string $type = 'allow2ban'): bool
+    public function isBanned(string $ruleName, string $key, BanType $banType = BanType::Allow2Ban): bool
     {
-        $this->assertValidType($type);
-
         $cache = $this->config->cache;
-        $banKey = $this->buildBanCacheKey($type, $ruleName, $key);
+        $banKey = $this->buildBanCacheKey($banType, $ruleName, $key);
 
         return $cache->has($banKey);
     }
@@ -66,12 +78,10 @@ final readonly class BanManager
     /**
      * Unban a specific key for a rule. Returns true if the key was banned.
      */
-    public function unban(string $ruleName, string $key, string $type = 'allow2ban'): bool
+    public function unban(string $ruleName, string $key, BanType $banType = BanType::Allow2Ban): bool
     {
-        $this->assertValidType($type);
-
         $cache = $this->config->cache;
-        $banKey = $this->buildBanCacheKey($type, $ruleName, $key);
+        $banKey = $this->buildBanCacheKey($banType, $ruleName, $key);
 
         if (!$cache->has($banKey)) {
             return false;
@@ -80,7 +90,7 @@ final readonly class BanManager
         $cache->delete($banKey);
 
         // Remove from registry
-        $this->removeFromRegistry($type, $ruleName, $key);
+        $this->removeFromRegistry($banType, $ruleName, $key);
 
         return true;
     }
@@ -90,12 +100,10 @@ final readonly class BanManager
      *
      * @return list<array{key: string, expiresAt: float}>
      */
-    public function listBans(string $ruleName, string $type = 'allow2ban'): array
+    public function listBans(string $ruleName, BanType $banType = BanType::Allow2Ban): array
     {
-        $this->assertValidType($type);
-
         $cache = $this->config->cache;
-        $registry = $this->loadRegistry($type, $ruleName);
+        $registry = $this->loadRegistry($banType, $ruleName);
         $now = microtime(true);
         $active = [];
         $changed = false;
@@ -108,7 +116,7 @@ final readonly class BanManager
             }
 
             // Double-check the ban cache key still exists (cache may have evicted it)
-            $banKey = $this->buildBanCacheKey($type, $ruleName, $key);
+            $banKey = $this->buildBanCacheKey($banType, $ruleName, $key);
             if (!$cache->has($banKey)) {
                 unset($registry[$key]);
                 $changed = true;
@@ -120,7 +128,7 @@ final readonly class BanManager
 
         // Persist cleaned-up registry
         if ($changed) {
-            $this->saveRegistry($type, $ruleName, $registry);
+            $this->saveRegistry($banType, $ruleName, $registry);
         }
 
         return $active;
@@ -129,12 +137,10 @@ final readonly class BanManager
     /**
      * Clear all bans for a rule. Returns the number of bans cleared.
      */
-    public function clearBans(string $ruleName, string $type = 'allow2ban'): int
+    public function clearBans(string $ruleName, BanType $banType = BanType::Allow2Ban): int
     {
-        $this->assertValidType($type);
-
         $cache = $this->config->cache;
-        $registry = $this->loadRegistry($type, $ruleName);
+        $registry = $this->loadRegistry($banType, $ruleName);
         $now = microtime(true);
         $cleared = 0;
 
@@ -144,7 +150,7 @@ final readonly class BanManager
                 continue;
             }
 
-            $banKey = $this->buildBanCacheKey($type, $ruleName, $key);
+            $banKey = $this->buildBanCacheKey($banType, $ruleName, $key);
             if ($cache->has($banKey)) {
                 $cache->delete($banKey);
                 ++$cleared;
@@ -152,7 +158,7 @@ final readonly class BanManager
         }
 
         // Delete the registry itself
-        $registryKey = self::registryKey($this->config->getKeyPrefix(), $type, $ruleName);
+        $registryKey = $this->config->cacheKeyGenerator()->banRegistryKey($banType->value, $ruleName);
         $cache->delete($registryKey);
 
         return $cleared;
@@ -166,23 +172,23 @@ final readonly class BanManager
     public function listRulesWithBans(): array
     {
         $result = [
-            'allow2ban' => [],
-            'fail2ban' => [],
+            BanType::Allow2Ban->value => [],
+            BanType::Fail2Ban->value => [],
         ];
 
         // Check allow2ban rules
         foreach ($this->config->allow2ban->rules() as $fail2BanRule) {
-            $bans = $this->listBans($fail2BanRule->name(), 'allow2ban');
+            $bans = $this->listBans($fail2BanRule->name(), BanType::Allow2Ban);
             if ($bans !== []) {
-                $result['allow2ban'][] = $fail2BanRule->name();
+                $result[BanType::Allow2Ban->value][] = $fail2BanRule->name();
             }
         }
 
         // Check fail2ban rules
         foreach ($this->config->fail2ban->rules() as $fail2BanRule) {
-            $bans = $this->listBans($fail2BanRule->name(), 'fail2ban');
+            $bans = $this->listBans($fail2BanRule->name(), BanType::Fail2Ban);
             if ($bans !== []) {
-                $result['fail2ban'][] = $fail2BanRule->name();
+                $result[BanType::Fail2Ban->value][] = $fail2BanRule->name();
             }
         }
 
@@ -191,29 +197,15 @@ final readonly class BanManager
 
     /**
      * Build the ban cache key for a given type, rule name, and key value.
-     * Replicates the key generation logic from Firewall.
      */
-    private function buildBanCacheKey(string $type, string $ruleName, string $key): string
+    private function buildBanCacheKey(BanType $banType, string $ruleName, string $key): string
     {
-        $prefix = $this->config->getKeyPrefix();
-        $safeName = self::normalizeKeyComponent($ruleName);
-        $hashedKey = $this->hashKeyComponent($key);
+        $cacheKeyGenerator = $this->config->cacheKeyGenerator();
 
-        return match ($type) {
-            'allow2ban' => $prefix . ':allow2ban:ban:' . $safeName . ':' . $hashedKey,
-            'fail2ban' => $prefix . ':fail2ban:ban:' . $safeName . ':' . $hashedKey,
-            default => throw new \InvalidArgumentException(sprintf('Invalid ban type "%s".', $type)),
+        return match ($banType) {
+            BanType::Allow2Ban => $cacheKeyGenerator->allow2BanBanKey($ruleName, $key),
+            BanType::Fail2Ban => $cacheKeyGenerator->fail2BanBanKey($ruleName, $key),
         };
-    }
-
-    /**
-     * Build the registry cache key.
-     */
-    private static function registryKey(string $prefix, string $type, string $ruleName): string
-    {
-        $safeName = self::normalizeKeyComponent($ruleName);
-
-        return $prefix . ':ban-registry:' . $type . ':' . $safeName;
     }
 
     /**
@@ -221,10 +213,10 @@ final readonly class BanManager
      *
      * @return array<string, float>
      */
-    private function loadRegistry(string $type, string $ruleName): array
+    private function loadRegistry(BanType $banType, string $ruleName): array
     {
         $cache = $this->config->cache;
-        $registryKey = self::registryKey($this->config->getKeyPrefix(), $type, $ruleName);
+        $registryKey = $this->config->cacheKeyGenerator()->banRegistryKey($banType->value, $ruleName);
 
         $raw = $cache->get($registryKey);
         if (!is_string($raw)) {
@@ -245,10 +237,10 @@ final readonly class BanManager
      *
      * @param array<string, float> $registry
      */
-    private function saveRegistry(string $type, string $ruleName, array $registry): void
+    private function saveRegistry(BanType $banType, string $ruleName, array $registry): void
     {
         $cache = $this->config->cache;
-        $registryKey = self::registryKey($this->config->getKeyPrefix(), $type, $ruleName);
+        $registryKey = $this->config->cacheKeyGenerator()->banRegistryKey($banType->value, $ruleName);
 
         if ($registry === []) {
             $cache->delete($registryKey);
@@ -261,57 +253,11 @@ final readonly class BanManager
     /**
      * Remove a single key from the registry.
      */
-    private function removeFromRegistry(string $type, string $ruleName, string $key): void
+    private function removeFromRegistry(BanType $banType, string $ruleName, string $key): void
     {
-        $registry = $this->loadRegistry($type, $ruleName);
+        $registry = $this->loadRegistry($banType, $ruleName);
         unset($registry[$key]);
-        $this->saveRegistry($type, $ruleName, $registry);
+        $this->saveRegistry($banType, $ruleName, $registry);
     }
 
-    /**
-     * Validate that the type is one of the accepted values.
-     */
-    private function assertValidType(string $type): void
-    {
-        if (!in_array($type, self::VALID_TYPES, true)) {
-            throw new \InvalidArgumentException(
-                sprintf('Invalid ban type "%s". Expected one of: %s', $type, implode(', ', self::VALID_TYPES)),
-            );
-        }
-    }
-
-    /**
-     * Normalize a key component for use in cache keys.
-     * Replicates Firewall::normalizeKeyComponent().
-     */
-    private static function normalizeKeyComponent(string $value): string
-    {
-        $original = trim($value);
-        if ($original === '') {
-            return 'empty';
-        }
-
-        $sanitized = preg_replace('/[^A-Za-z0-9._:-]/', '_', $original);
-        if ($sanitized === null) {
-            $sanitized = 'invalid';
-        }
-
-        $sanitized = preg_replace('/_+/', '_', $sanitized) ?? $sanitized;
-        $max = 120;
-        if (strlen($sanitized) > $max) {
-            $hash = substr(sha1($original), 0, 12);
-            $sanitized = substr($sanitized, 0, $max - 13) . '-' . $hash;
-        }
-
-        return $sanitized;
-    }
-
-    /**
-     * Hash a key component for use in cache keys.
-     * Replicates Firewall::hashKeyComponent().
-     */
-    private function hashKeyComponent(string $key): string
-    {
-        return hash('sha256', $key);
-    }
 }

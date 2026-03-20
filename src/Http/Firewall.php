@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Http;
 
-use Flowd\Phirewall\BanManager;
+use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Events\Allow2BanBanned;
 use Flowd\Phirewall\Events\BlocklistMatched;
@@ -36,7 +36,7 @@ final readonly class Firewall
             if ($trackRule->filter()->match($serverRequest)->isMatch() === true) {
                 $key = $trackRule->keyExtractor()->extract($serverRequest);
                 if ($key !== null) {
-                    $counterKey = $this->trackKey($name, (string)$key);
+                    $counterKey = $this->config->cacheKeyGenerator()->trackKey($name, (string)$key);
                     $count = $this->increment($counterKey, $trackRule->period());
 
                     $this->dispatch(new TrackHit(
@@ -105,7 +105,7 @@ final readonly class Firewall
                 continue;
             }
 
-            $banKey = $this->banKey($name, (string)$key);
+            $banKey = $this->config->cacheKeyGenerator()->fail2BanBanKey($name, (string)$key);
             if ($cache->has($banKey)) {
 
                 $decisionPath = 'fail2ban_blocked';
@@ -119,12 +119,11 @@ final readonly class Firewall
             }
 
             if ($fail2BanRule->filter()->match($serverRequest)->isMatch() === true) {
-                $failKey = $this->failKey($name, $key);
+                $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($name, $key);
                 $count = $this->increment($failKey, $fail2BanRule->period());
 
                 if ($count >= $fail2BanRule->threshold()) {
-                    $cache->set($banKey, 1, $fail2BanRule->banSeconds());
-                    BanManager::registerBan($cache, $this->config->getKeyPrefix(), 'fail2ban', $name, $key, microtime(true) + $fail2BanRule->banSeconds());
+                    $this->config->banManager()->ban($name, $key, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
 
                     $this->dispatch(new Fail2BanBanned(
                         rule: $name,
@@ -155,7 +154,7 @@ final readonly class Firewall
                 continue;
             }
 
-            $counterKey = $this->throttleKey($name, $key);
+            $counterKey = $this->config->cacheKeyGenerator()->throttleKey($name, $key);
             $count = $this->increment($counterKey, $throttleRule->period());
             $limit = $throttleRule->limit();
             $retryAfter = $this->ttlRemaining($counterKey);
@@ -211,7 +210,7 @@ final readonly class Firewall
                 continue;
             }
 
-            $a2bBanKey = $this->allow2BanBanKey($name, $key);
+            $a2bBanKey = $this->config->cacheKeyGenerator()->allow2BanBanKey($name, $key);
             if ($cache->has($a2bBanKey)) {
                 $allow2BanResult ??= ['path' => 'allow2ban_blocked', 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', [
                     'X-Phirewall' => 'allow2ban',
@@ -221,12 +220,11 @@ final readonly class Firewall
                 continue;
             }
 
-            $a2bHitKey = $this->allow2BanHitKey($name, $key);
+            $a2bHitKey = $this->config->cacheKeyGenerator()->allow2BanHitKey($name, $key);
             $count = $this->increment($a2bHitKey, $allow2BanRule->period());
 
             if ($count >= $allow2BanRule->threshold()) {
-                $cache->set($a2bBanKey, 1, $allow2BanRule->banSeconds());
-                BanManager::registerBan($cache, $this->config->getKeyPrefix(), 'allow2ban', $name, $key, microtime(true) + $allow2BanRule->banSeconds());
+                $this->config->banManager()->ban($name, $key, $allow2BanRule->banSeconds(), BanType::Allow2Ban);
                 $cache->delete($a2bHitKey);
 
                 $this->dispatch(new Allow2BanBanned(
@@ -329,86 +327,6 @@ final readonly class Firewall
         $remaining = $expiresAt - $now;
 
         return max($remaining, 0);
-    }
-
-    private function throttleKey(string $name, string $key): string
-    {
-        $safeName = $this->cachedNormalize($name);
-        $hashedKey = $this->hashKeyComponent($key);
-        return $this->config->getKeyPrefix() . ':throttle:' . $safeName . ':' . $hashedKey;
-    }
-
-    private function failKey(string $name, string $key): string
-    {
-        $safeName = $this->cachedNormalize($name);
-        $hashedKey = $this->hashKeyComponent($key);
-        return $this->config->getKeyPrefix() . ':fail2ban:fail:' . $safeName . ':' . $hashedKey;
-    }
-
-    private function banKey(string $name, string $key): string
-    {
-        $safeName = $this->cachedNormalize($name);
-        $hashedKey = $this->hashKeyComponent($key);
-        return $this->config->getKeyPrefix() . ':fail2ban:ban:' . $safeName . ':' . $hashedKey;
-    }
-
-    private function allow2BanHitKey(string $name, string $key): string
-    {
-        $safeName = $this->cachedNormalize($name);
-        $hashedKey = $this->hashKeyComponent($key);
-        return $this->config->getKeyPrefix() . ':allow2ban:hit:' . $safeName . ':' . $hashedKey;
-    }
-
-    private function allow2BanBanKey(string $name, string $key): string
-    {
-        $safeName = $this->cachedNormalize($name);
-        $hashedKey = $this->hashKeyComponent($key);
-        return $this->config->getKeyPrefix() . ':allow2ban:ban:' . $safeName . ':' . $hashedKey;
-    }
-
-    private function trackKey(string $name, string $key): string
-    {
-        $safeName = $this->cachedNormalize($name);
-        $hashedKey = $this->hashKeyComponent($key);
-        return $this->config->getKeyPrefix() . ':track:' . $safeName . ':' . $hashedKey;
-    }
-
-    private function cachedNormalize(string $component): string
-    {
-        /** @var array<string, string> $cache */
-        static $cache = [];
-
-        return $cache[$component] ??= $this->normalizeKeyComponent($component);
-    }
-
-    private function hashKeyComponent(string $key): string
-    {
-        /** @var array<string, string> $cache */
-        static $cache = [];
-
-        return $cache[$key] ??= hash('sha256', $key);
-    }
-
-    private function normalizeKeyComponent(string $value): string
-    {
-        $original = trim($value);
-        if ($original === '') {
-            return 'empty';
-        }
-
-        $sanitized = preg_replace('/[^A-Za-z0-9._:-]/', '_', $original);
-        if ($sanitized === null) {
-            $sanitized = 'invalid';
-        }
-
-        $sanitized = preg_replace('/_+/', '_', $sanitized) ?? $sanitized;
-        $max = 120;
-        if (strlen($sanitized) > $max) {
-            $hash = substr(sha1($original), 0, 12);
-            $sanitized = substr($sanitized, 0, $max - 13) . '-' . $hash;
-        }
-
-        return $sanitized;
     }
 
     private function dispatch(object $event): void

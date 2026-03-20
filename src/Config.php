@@ -50,6 +50,8 @@ final class Config
 
     private ?BanManager $banManager = null;
 
+    private ?CacheKeyGenerator $cacheKeyGenerator = null;
+
     /** @var (\Closure(\Psr\Http\Message\ServerRequestInterface): ?string)|null */
     private ?\Closure $ipResolver = null;
 
@@ -120,6 +122,7 @@ final class Config
         }
 
         $this->keyPrefix = rtrim($normalized, ':');
+        $this->cacheKeyGenerator = null;
         return $this;
     }
 
@@ -131,5 +134,10 @@ final class Config
     public function banManager(): BanManager
     {
         return $this->banManager ??= new BanManager($this);
+    }
+
+    public function cacheKeyGenerator(): CacheKeyGenerator
+    {
+        return $this->cacheKeyGenerator ??= new CacheKeyGenerator($this->keyPrefix);
     }
 }
