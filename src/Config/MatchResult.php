@@ -26,7 +26,8 @@ final readonly class MatchResult
 
     public static function noMatch(): self
     {
-        return new self(false, '', []);
+        static $instance;
+        return $instance ??= new self(false, '', []);
     }
 
     public function isMatch(): bool

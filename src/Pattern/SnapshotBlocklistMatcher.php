@@ -6,14 +6,13 @@ namespace Flowd\Phirewall\Pattern;
 
 use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Config\RequestMatcherInterface;
+use Flowd\Phirewall\KeyExtractors;
+use Flowd\Phirewall\Matchers\Support\CidrMatcher;
+use Flowd\Phirewall\Matchers\Support\RegexMatcher;
 use Psr\Http\Message\ServerRequestInterface;
 
 final class SnapshotBlocklistMatcher implements RequestMatcherInterface, PatternFrontendInterface
 {
-    private const MAX_REGEX_LENGTH = 4096;
-
-    private const MAX_SUBJECT_LENGTH = 8192;
-
     private ?PatternSnapshot $patternSnapshot = null;
 
     /**
@@ -21,17 +20,25 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
      */
     private array $compiled = [];
 
-    public function __construct(private readonly PatternBackendInterface $patternBackend)
-    {
+    /** @var callable(ServerRequestInterface): ?string */
+    private $ipExtractor;
+
+    public function __construct(
+        private readonly PatternBackendInterface $patternBackend,
+        ?callable $ipResolver = null,
+    ) {
+        $this->ipExtractor = $ipResolver ?? KeyExtractors::ip();
     }
 
     public function match(ServerRequestInterface $serverRequest): MatchResult
     {
         $patternSnapshot = $this->loadSnapshot();
-        $ip = $this->extractIp($serverRequest);
+        $ip = ($this->ipExtractor)($serverRequest);
         $path = $serverRequest->getUri()->getPath();
         $query = $serverRequest->getUri()->getQuery();
-        $headers = $this->normalizeHeaders($serverRequest->getHeaders());
+
+        // Pre-compute binary IP once (used by CIDR matching)
+        $ipBinary = ($ip !== null) ? @inet_pton($ip) : false;
 
         foreach ($patternSnapshot->entries as $entry) {
             $compiled = $this->compiled[$entry->kind][$this->entryKey($entry)] ?? null;
@@ -49,7 +56,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
                 case PatternKind::CIDR:
                     /** @var array{network: string, bits: int}|null $cidrCompiled */
                     $cidrCompiled = is_array($compiled) ? $compiled : null;
-                    if ($ip !== null && $this->matchesCidr($ip, $cidrCompiled)) {
+                    if ($ipBinary !== false && $cidrCompiled !== null && CidrMatcher::matches($ipBinary, $cidrCompiled)) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind, 'value' => $entry->value]);
                     }
 
@@ -68,12 +75,13 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
                     break;
                 case PatternKind::PATH_REGEX:
                     $pathPattern = is_string($compiled) ? $compiled : null;
-                    if ($this->regexMatch($pathPattern, $path)) {
+                    if (RegexMatcher::matches($pathPattern, $path)) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind, 'value' => $entry->value]);
                     }
 
                     break;
                 case PatternKind::HEADER_EXACT:
+                    $headers ??= $this->normalizeHeaders($serverRequest->getHeaders());
                     $headerName = $entry->target ?? '';
                     if ($headerName !== '' && $this->headerEquals($headers, $headerName, $entry->value)) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind, 'value' => $entry->value, 'target' => $headerName]);
@@ -81,6 +89,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
 
                     break;
                 case PatternKind::HEADER_REGEX:
+                    $headers ??= $this->normalizeHeaders($serverRequest->getHeaders());
                     $headerName = $entry->target ?? '';
                     $headerPattern = is_string($compiled) ? $compiled : null;
                     if ($headerName !== '' && $this->headerRegex($headers, $headerName, $headerPattern)) {
@@ -89,9 +98,10 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
 
                     break;
                 case PatternKind::REQUEST_REGEX:
-                    $subject = $this->buildRequestSubject($path, $query, $headers);
+                    $headers ??= $this->normalizeHeaders($serverRequest->getHeaders());
+                    $requestSubject ??= $this->buildRequestSubject($path, $query, $headers);
                     $requestPattern = is_string($compiled) ? $compiled : null;
-                    if ($this->regexMatch($requestPattern, $subject)) {
+                    if (RegexMatcher::matches($requestPattern, $requestSubject)) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind, 'value' => $entry->value]);
                     }
 
@@ -105,7 +115,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
     private function loadSnapshot(): PatternSnapshot
     {
         $patternSnapshot = $this->patternBackend->consume();
-        if (!$this->patternSnapshot instanceof \Flowd\Phirewall\Pattern\PatternSnapshot || $patternSnapshot->version !== $this->patternSnapshot->version) {
+        if (!$this->patternSnapshot instanceof PatternSnapshot || $patternSnapshot->version !== $this->patternSnapshot->version) {
             $this->patternSnapshot = $patternSnapshot;
             $this->compiled = $this->compileSnapshot($patternSnapshot);
         }
@@ -136,8 +146,8 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
     private function compileEntry(PatternEntry $patternEntry): mixed
     {
         return match ($patternEntry->kind) {
-            PatternKind::CIDR => $this->compileCidr($patternEntry->value),
-            PatternKind::PATH_REGEX, PatternKind::HEADER_REGEX, PatternKind::REQUEST_REGEX => $this->compileRegex($patternEntry->value),
+            PatternKind::CIDR => CidrMatcher::compile($patternEntry->value),
+            PatternKind::PATH_REGEX, PatternKind::HEADER_REGEX, PatternKind::REQUEST_REGEX => RegexMatcher::compile($patternEntry->value),
             default => $patternEntry->value,
         };
     }
@@ -146,101 +156,6 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
     {
         $target = $patternEntry->target !== null ? strtolower($patternEntry->target) : '';
         return $patternEntry->kind . ':' . $target . ':' . $patternEntry->value;
-    }
-
-    /**
-     * @return array{network: string, bits: int}|null
-     */
-    private function compileCidr(string $cidr): ?array
-    {
-        [$network, $bits] = array_pad(explode('/', $cidr, 2), 2, null);
-        $prefixLength = is_numeric($bits) ? (int) $bits : -1;
-        $networkBinary = @inet_pton((string) $network);
-        if ($networkBinary === false) {
-            return null;
-        }
-
-        $length = strlen($networkBinary);
-        $maxBits = $length * 8;
-        if ($prefixLength < 0 || $prefixLength > $maxBits) {
-            return null;
-        }
-
-        return ['network' => $networkBinary, 'bits' => $prefixLength];
-    }
-
-    /**
-     * @param array{network: string, bits: int}|null $compiled
-     */
-    private function matchesCidr(string $ipAddress, ?array $compiled): bool
-    {
-        if ($compiled === null) {
-            return false;
-        }
-
-        $ipBinary = @inet_pton($ipAddress);
-        if ($ipBinary === false) {
-            return false;
-        }
-
-        if (strlen($ipBinary) !== strlen($compiled['network'])) {
-            return false;
-        }
-
-        $fullBytes = intdiv($compiled['bits'], 8);
-        $remainingBits = $compiled['bits'] % 8;
-
-        if ($fullBytes > 0 && strncmp($ipBinary, $compiled['network'], $fullBytes) !== 0) {
-            return false;
-        }
-
-        if ($remainingBits === 0) {
-            return true;
-        }
-
-        $mask = (0xFF00 >> $remainingBits) & 0xFF;
-        $ipByte = ord($ipBinary[$fullBytes]) & $mask;
-        $networkByte = ord($compiled['network'][$fullBytes]) & $mask;
-
-        return $ipByte === $networkByte;
-    }
-
-    private function compileRegex(string $pattern): ?string
-    {
-        if (strlen($pattern) > self::MAX_REGEX_LENGTH) {
-            return null;
-        }
-
-        set_error_handler(static fn(): bool => true);
-        try {
-            $result = @preg_match($pattern, '');
-            if ($result === false) {
-                return null;
-            }
-        } finally {
-            restore_error_handler();
-        }
-
-        return $pattern;
-    }
-
-    private function regexMatch(?string $pattern, string $subject): bool
-    {
-        if ($pattern === null) {
-            return false;
-        }
-
-        if (strlen($subject) > self::MAX_SUBJECT_LENGTH) {
-            $subject = substr($subject, 0, self::MAX_SUBJECT_LENGTH);
-        }
-
-        set_error_handler(static fn(): bool => true);
-        try {
-            $result = @preg_match($pattern, $subject);
-            return $result === 1;
-        } finally {
-            restore_error_handler();
-        }
     }
 
     /**
@@ -277,7 +192,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
         }
 
         foreach ($headers[$normalizedName] as $value) {
-            if ($this->regexMatch($pattern, $value)) {
+            if (RegexMatcher::matches($pattern, $value)) {
                 return true;
             }
         }
@@ -286,8 +201,6 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
     }
 
     /**
-     * Normalize header array to lower-case keys for case-insensitive lookup.
-     *
      * @param array<string, array<int, string>> $headers
      * @return array<string, array<int, string>>
      */
@@ -295,8 +208,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
     {
         $normalized = [];
         foreach ($headers as $name => $values) {
-            $normalizedName = strtolower($name);
-            $normalized[$normalizedName] = $values;
+            $normalized[strtolower($name)] = $values;
         }
 
         return $normalized;
@@ -320,12 +232,5 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
         }
 
         return $subject;
-    }
-
-    private function extractIp(ServerRequestInterface $serverRequest): ?string
-    {
-        $params = $serverRequest->getServerParams();
-        $ip = $params['REMOTE_ADDR'] ?? null;
-        return is_string($ip) && $ip !== '' ? $ip : null;
     }
 }

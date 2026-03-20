@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Infrastructure;
 
 use Flowd\Phirewall\Events\BlocklistMatched;
 use Flowd\Phirewall\Events\Fail2BanBanned;
+use Flowd\Phirewall\KeyExtractors;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -43,11 +44,7 @@ final class InfrastructureBanListener
         ?callable $requestToIp = null,
     ) {
         $this->keyToIp = $keyToIp ?? static fn(string $key): string => $key;
-        $this->requestToIp = $requestToIp ?? static function (ServerRequestInterface $serverRequest): ?string {
-            $params = $serverRequest->getServerParams();
-            $ip = $params['REMOTE_ADDR'] ?? null;
-            return is_string($ip) ? $ip : null;
-        };
+        $this->requestToIp = $requestToIp ?? KeyExtractors::ip();
     }
 
     /** Listener for Fail2Ban bans. */

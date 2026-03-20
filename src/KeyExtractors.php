@@ -23,14 +23,9 @@ final class KeyExtractors
     public static function ip(): Closure
     {
         return static function (ServerRequestInterface $serverRequest): ?string {
-            $params = $serverRequest->getServerParams();
-            $ip = $params['REMOTE_ADDR'] ?? null;
-            if ($ip === null || $ip === '') {
-                return null;
-            }
+            $ip = $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
 
-            // Basic normalization to string type
-            return (string) $ip;
+            return is_string($ip) && $ip !== '' ? $ip : null;
         };
     }
 
