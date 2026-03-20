@@ -9,8 +9,12 @@ use Psr\SimpleCache\CacheInterface;
 
 final class InMemoryCache implements CacheInterface, CounterStoreInterface
 {
+    private const PURGE_INTERVAL = 1000;
+
     /** @var array<string, array{value:mixed,expires:float|null}> */
     private array $data = [];
+
+    private int $operationsSinceLastPurge = 0;
 
     public function __construct(private readonly ?ClockInterface $clock = null)
     {
@@ -18,14 +22,14 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
 
     public function get(string $key, mixed $default = null): mixed
     {
-        $this->purgeExpired();
+        $this->maybePurge();
+
         if (!isset($this->data[$key])) {
             return $default;
         }
 
         $entry = $this->data[$key];
-        $now = $this->clock?->now() ?? microtime(true);
-        if ($entry['expires'] !== null && $entry['expires'] < $now) {
+        if ($entry['expires'] !== null && $entry['expires'] < ($this->clock?->now() ?? microtime(true))) {
             unset($this->data[$key]);
             return $default;
         }
@@ -37,6 +41,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
     {
         $expires = $this->computeExpiry($ttl);
         $this->data[$key] = ['value' => $value, 'expires' => $expires];
+        $this->maybePurge();
         return true;
     }
 
@@ -85,9 +90,18 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
 
     public function has(string $key): bool
     {
-        $this->purgeExpired();
-        $now = $this->clock?->now() ?? microtime(true);
-        return isset($this->data[$key]) && ($this->data[$key]['expires'] === null || $this->data[$key]['expires'] >= $now);
+        $this->maybePurge();
+
+        if (!isset($this->data[$key])) {
+            return false;
+        }
+
+        if ($this->data[$key]['expires'] !== null && $this->data[$key]['expires'] < ($this->clock?->now() ?? microtime(true))) {
+            unset($this->data[$key]);
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -114,6 +128,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
 
         ++$entry['value'];
         $this->data[$key] = $entry;
+        $this->maybePurge();
         return $entry['value'];
     }
 
@@ -145,13 +160,22 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
         return $now + $timeToLive;
     }
 
-    private function purgeExpired(): void
+    public function purgeExpired(): void
     {
         $now = $this->clock?->now() ?? microtime(true);
         foreach ($this->data as $key => $entry) {
             if ($entry['expires'] !== null && $entry['expires'] < $now) {
                 unset($this->data[$key]);
             }
+        }
+
+        $this->operationsSinceLastPurge = 0;
+    }
+
+    private function maybePurge(): void
+    {
+        if (++$this->operationsSinceLastPurge >= self::PURGE_INTERVAL) {
+            $this->purgeExpired();
         }
     }
 }
