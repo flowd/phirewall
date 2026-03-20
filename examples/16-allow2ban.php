@@ -5,9 +5,9 @@ declare(strict_types=1);
 /**
  * Example 16: allow2ban -- ban keys after too many requests.
  *
- * allow2ban is the inverse of fail2banSeconds:
- * - fail2banSeconds: only counts filtered "bad" requests (e.g. failed logins), bans after threshold
- * - allow2banSeconds: counts EVERY request for a key, bans after threshold
+ * allow2ban is the inverse of fail2ban:
+ * - fail2ban: only counts filtered "bad" requests (e.g. failed logins), bans after threshold
+ * - allow2ban: counts EVERY request for a key, bans after threshold
  *
  * Use allow2ban when you want a "n requests and you're out" policy
  * without needing a separate filter predicate.

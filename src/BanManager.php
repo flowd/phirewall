@@ -52,7 +52,11 @@ final readonly class BanManager
         $registry = [];
         $existing = $cache->get($registryKey);
         if (is_string($existing)) {
-            $decoded = json_decode($existing, true);
+            try {
+                $decoded = json_decode($existing, true, 512, JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                $decoded = null;
+            }
             if (is_array($decoded)) {
                 /** @var array<string, float> $registry */
                 $registry = $decoded;
@@ -61,7 +65,11 @@ final readonly class BanManager
 
         $registry[$key] = $expiresAt;
 
-        $cache->set($registryKey, json_encode($registry, JSON_THROW_ON_ERROR));
+        try {
+            $cache->set($registryKey, json_encode($registry, JSON_THROW_ON_ERROR));
+        } catch (\JsonException) {
+            // Fail closed: the ban cache key is already set, just the registry entry is lost.
+        }
     }
 
     /**
@@ -177,10 +185,10 @@ final readonly class BanManager
         ];
 
         // Check allow2ban rules
-        foreach ($this->config->allow2ban->rules() as $fail2BanRule) {
-            $bans = $this->listBans($fail2BanRule->name(), BanType::Allow2Ban);
+        foreach ($this->config->allow2ban->rules() as $allow2BanRule) {
+            $bans = $this->listBans($allow2BanRule->name(), BanType::Allow2Ban);
             if ($bans !== []) {
-                $result[BanType::Allow2Ban->value][] = $fail2BanRule->name();
+                $result[BanType::Allow2Ban->value][] = $allow2BanRule->name();
             }
         }
 
@@ -223,7 +231,12 @@ final readonly class BanManager
             return [];
         }
 
-        $decoded = json_decode($raw, true);
+        try {
+            $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return [];
+        }
+
         if (!is_array($decoded)) {
             return [];
         }
@@ -247,7 +260,11 @@ final readonly class BanManager
             return;
         }
 
-        $cache->set($registryKey, json_encode($registry, JSON_THROW_ON_ERROR));
+        try {
+            $cache->set($registryKey, json_encode($registry, JSON_THROW_ON_ERROR));
+        } catch (\JsonException) {
+            // Fail closed: skip registry update rather than breaking request handling.
+        }
     }
 
     /**

@@ -124,6 +124,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
 
         ++$entry['value'];
         $this->data[$key] = $entry;
+        $this->maybePurge();
         return $entry['value'];
     }
 

@@ -63,12 +63,13 @@ final class CacheKeyGenerator
 
     /**
      * Hash a user-extracted key for use in cache keys (collision-free).
+     *
+     * Not memoized: user-extracted keys are unbounded (IPs, tokens, etc.)
+     * and caching them would grow without limit in long-lived processes.
      */
     public function hashKey(string $key): string
     {
-        $cacheKey = 'h:' . $key;
-
-        return $this->cache[$cacheKey] ??= hash('sha256', $key);
+        return hash('sha256', $key);
     }
 
     private function doNormalize(string $value): string

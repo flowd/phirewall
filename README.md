@@ -72,7 +72,7 @@ php examples/08-comprehensive-protection.php
 
 ## Examples
 
-The [examples/](examples/) folder contains 16 runnable examples:
+The [examples/](examples/) folder contains 20 runnable examples:
 
 | # | Example | Description |
 |---|---------|-------------|
@@ -92,6 +92,10 @@ The [examples/](examples/) folder contains 16 runnable examples:
 | 14 | [owasp-crs-files](examples/14-owasp-crs-files.php) | Loading OWASP CRS rules from files |
 | 15 | [in-memory-pattern-backend](examples/15-in-memory-pattern-backend.php) | Configuration-based CIDR/IP blocklists |
 | 16 | [allow2ban](examples/16-allow2ban.php) | Hard volume cap with auto-ban |
+| 17 | [known-scanners](examples/17-known-scanners.php) | Block known attack tools and vulnerability scanners |
+| 18 | [trusted-bots](examples/18-trusted-bots.php) | Trusted bot verification via reverse DNS |
+| 19 | [header-analysis](examples/19-header-analysis.php) | Suspicious headers detection |
+| 20 | [rule-benchmarks](examples/20-rule-benchmarks.php) | Firewall rule performance benchmarks |
 
 ## Features
 

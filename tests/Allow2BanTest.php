@@ -191,7 +191,7 @@ final class Allow2BanTest extends TestCase
     public function testThresholdZeroThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('threshold must be >= 1');
+        $this->expectExceptionMessage('Allow2BanRule threshold must be >= 1, got 0.');
 
         new Allow2BanRule(
             'test',
@@ -205,7 +205,7 @@ final class Allow2BanTest extends TestCase
     public function testThresholdNegativeThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('threshold must be >= 1');
+        $this->expectExceptionMessage('Allow2BanRule threshold must be >= 1, got -5.');
 
         new Allow2BanRule(
             'test',
@@ -219,7 +219,7 @@ final class Allow2BanTest extends TestCase
     public function testPeriodZeroThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('period must be >= 1');
+        $this->expectExceptionMessage('Allow2BanRule period must be >= 1, got 0.');
 
         new Allow2BanRule(
             'test',
@@ -233,7 +233,7 @@ final class Allow2BanTest extends TestCase
     public function testPeriodNegativeThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('period must be >= 1');
+        $this->expectExceptionMessage('Allow2BanRule period must be >= 1, got -10.');
 
         new Allow2BanRule(
             'test',
@@ -247,7 +247,7 @@ final class Allow2BanTest extends TestCase
     public function testBanSecondsZeroThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('banSeconds must be >= 1');
+        $this->expectExceptionMessage('Allow2BanRule banSeconds must be >= 1, got 0.');
 
         new Allow2BanRule(
             'test',
@@ -261,7 +261,7 @@ final class Allow2BanTest extends TestCase
     public function testBanSecondsNegativeThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('banSeconds must be >= 1');
+        $this->expectExceptionMessage('Allow2BanRule banSeconds must be >= 1, got -1.');
 
         new Allow2BanRule(
             'test',
@@ -275,7 +275,7 @@ final class Allow2BanTest extends TestCase
     public function testEmptyNameThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('name must not be empty');
+        $this->expectExceptionMessage('Allow2BanRule name must not be empty.');
 
         new Allow2BanRule(
             '',

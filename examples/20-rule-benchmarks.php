@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Example 18: Firewall Rule Benchmarks
+ * Example 20: Firewall Rule Benchmarks
  *
  * Benchmarks the overhead of the Firewall::decide() loop with various
  * rule configurations to catch performance regressions.
@@ -15,7 +15,7 @@
  *
  * All benchmarks use InMemoryCache -- no external dependencies required.
  *
- * Run: php examples/18-rule-benchmarks.php
+ * Run: php examples/20-rule-benchmarks.php
  */
 
 declare(strict_types=1);
@@ -48,8 +48,6 @@ function benchmarkRule(string $name, Config $config, int $iterations): array
 
     // Re-create firewall + cache to start clean
     $freshCache = new InMemoryCache();
-    $reflClass = new ReflectionClass($config);
-    $reflClass->getProperty('cache');
 
     // Rebuild config with a fresh cache for the actual run
     $freshConfig = new Config($freshCache);
