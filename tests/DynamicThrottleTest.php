@@ -10,6 +10,7 @@ use Flowd\Phirewall\Config\Rule\ThrottleRule;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\InMemoryCache;
+use Flowd\Phirewall\Tests\Support\FakeClock;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ServerRequestInterface;
@@ -18,12 +19,22 @@ use RuntimeException;
 final class DynamicThrottleTest extends TestCase
 {
     /**
+     * Create a Config with a deterministic clock to avoid flaky time-boundary issues.
+     */
+    private function createConfig(): Config
+    {
+        $fakeClock = new FakeClock(1_200_000_000.0);
+        $inMemoryCache = new InMemoryCache($fakeClock);
+
+        return new Config($inMemoryCache, clock: $fakeClock);
+    }
+
+    /**
      * Backward compatibility: static integer values for limit and period still work.
      */
     public function testStaticLimitStillWorks(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
         $config->throttles->add(
             'ip',
             2,
@@ -47,8 +58,7 @@ final class DynamicThrottleTest extends TestCase
      */
     public function testDynamicLimitViaClosure(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
 
         $dynamicLimit = fn(ServerRequestInterface $serverRequest): int =>
             $serverRequest->getHeaderLine('X-User-Role') === 'admin' ? 10 : 2;
@@ -90,8 +100,7 @@ final class DynamicThrottleTest extends TestCase
      */
     public function testDynamicPeriodViaClosure(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
 
         $dynamicPeriod = fn(ServerRequestInterface $serverRequest): int =>
             $serverRequest->getHeaderLine('X-Tier') === 'premium' ? 10 : 60;
@@ -125,8 +134,7 @@ final class DynamicThrottleTest extends TestCase
      */
     public function testDeprecatedThrottleAcceptsDynamicLimit(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
 
         $dynamicLimit = fn(ServerRequestInterface $serverRequest): int => 3;
 
@@ -153,8 +161,7 @@ final class DynamicThrottleTest extends TestCase
      */
     public function testDynamicLimitReturnsCorrectRateLimitHeaders(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
         $config->enableRateLimitHeaders();
 
         $dynamicLimit = fn(ServerRequestInterface $serverRequest): int => 5;
@@ -216,6 +223,42 @@ final class DynamicThrottleTest extends TestCase
         $this->assertSame(10, $requestDependentRule->resolveLimit($serverRequest));
         $adminRequest = $serverRequest->withHeader('X-User-Role', 'admin');
         $this->assertSame(1000, $requestDependentRule->resolveLimit($adminRequest));
+    }
+
+    /**
+     * A static negative limit should throw an InvalidArgumentException at construction time.
+     */
+    public function testNegativeStaticLimitThrowsException(): void
+    {
+        $keyExtractor = new ClosureKeyExtractor(fn($request): string => '127.0.0.1');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('static limit must be non-negative');
+        new ThrottleRule('negative-static', -1, 60, $keyExtractor);
+    }
+
+    /**
+     * A static period of zero should throw an InvalidArgumentException at construction time.
+     */
+    public function testZeroStaticPeriodThrowsException(): void
+    {
+        $keyExtractor = new ClosureKeyExtractor(fn($request): string => '127.0.0.1');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('static period must be >= 1');
+        new ThrottleRule('zero-period-static', 10, 0, $keyExtractor);
+    }
+
+    /**
+     * A static negative period should throw an InvalidArgumentException at construction time.
+     */
+    public function testNegativeStaticPeriodThrowsException(): void
+    {
+        $keyExtractor = new ClosureKeyExtractor(fn($request): string => '127.0.0.1');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('static period must be >= 1');
+        new ThrottleRule('negative-period-static', 10, -5, $keyExtractor);
     }
 
     /**

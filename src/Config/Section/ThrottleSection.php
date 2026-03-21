@@ -31,8 +31,11 @@ final class ThrottleSection
      * Unlike fixed-window throttling, the sliding window uses a weighted
      * average of the current and previous window counters to prevent the
      * "double burst" problem at window boundaries.
+     *
+     * @param int|Closure(ServerRequestInterface): int $limit
+     * @param int|Closure(ServerRequestInterface): int $period
      */
-    public function sliding(string $name, int $limit, int $period, Closure $key): self
+    public function sliding(string $name, int|Closure $limit, int|Closure $period, Closure $key): self
     {
         return $this->addRule(new ThrottleRule($name, $limit, $period, new ClosureKeyExtractor($key), sliding: true));
     }
@@ -60,6 +63,18 @@ final class ThrottleSection
         ksort($windowLimits);
 
         foreach ($windowLimits as $period => $limit) {
+            if ($period < 1) {
+                throw new \InvalidArgumentException(
+                    sprintf('multiThrottle "%s": period must be >= 1, got %d', $name, $period)
+                );
+            }
+
+            if ($limit < 0) {
+                throw new \InvalidArgumentException(
+                    sprintf('multiThrottle "%s": limit must be non-negative, got %d for period %d', $name, $limit, $period)
+                );
+            }
+
             $this->add($name . '/' . $period . 's', $limit, $period, $key);
         }
 

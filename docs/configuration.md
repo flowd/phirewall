@@ -96,7 +96,7 @@ $config->blocklist('bad-ips', function ($req): bool {
 Define a rate limiting rule that returns 429 Too Many Requests when exceeded.
 
 ```php
-public function throttle(string $name, int|Closure $limit, int|Closure $period, Closure $key): self
+public function throttle(string $name, int|Closure $limit, int|Closure $period, Closure $key): static
 ```
 
 **Parameters:**

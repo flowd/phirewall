@@ -9,6 +9,7 @@ use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
+use Flowd\Phirewall\Tests\Support\FakeClock;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
@@ -19,17 +20,27 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 final class DisableToggleTest extends TestCase
 {
+    /**
+     * Create a Config with a deterministic clock to avoid flaky time-boundary issues.
+     */
+    private function createConfig(): Config
+    {
+        $fakeClock = new FakeClock(1_200_000_000.0);
+        $inMemoryCache = new InMemoryCache($fakeClock);
+
+        return new Config($inMemoryCache, clock: $fakeClock);
+    }
+
     public function testEnabledByDefault(): void
     {
-        $config = new Config(new InMemoryCache());
+        $config = $this->createConfig();
 
         $this->assertTrue($config->isEnabled());
     }
 
     public function testDisableSkipsBlocklist(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
         $config->blocklist('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
         $config->disable();
 
@@ -43,8 +54,7 @@ final class DisableToggleTest extends TestCase
 
     public function testDisableSkipsThrottle(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
         $config->throttle('ip', 1, 60, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
         $config->disable();
 
@@ -61,8 +71,7 @@ final class DisableToggleTest extends TestCase
 
     public function testReEnableAppliesRules(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
         $config->blocklist('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
         $config->disable();
 
@@ -85,7 +94,7 @@ final class DisableToggleTest extends TestCase
 
     public function testSetEnabledToggle(): void
     {
-        $config = new Config(new InMemoryCache());
+        $config = $this->createConfig();
 
         $this->assertTrue($config->isEnabled());
 
@@ -101,8 +110,7 @@ final class DisableToggleTest extends TestCase
 
     public function testMiddlewareShortCircuitsWhenDisabled(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
         $config->blocklist('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
         $config->disable();
 
@@ -124,8 +132,7 @@ final class DisableToggleTest extends TestCase
 
     public function testDisabledFirewallDoesNotIncrementCounters(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
         $limit = 3;
         $period = 60;
         $config->throttle('ip', $limit, $period, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');

@@ -9,6 +9,7 @@ use Flowd\Phirewall\Events\TrackHit;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\InMemoryCache;
+use Flowd\Phirewall\Tests\Support\FakeClock;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -16,13 +17,23 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 final class DiscriminatorNormalizerTest extends TestCase
 {
     /**
+     * Create a Config with a deterministic clock to avoid flaky time-boundary issues.
+     */
+    private function createConfig(?EventDispatcherInterface $eventDispatcher = null): Config
+    {
+        $fakeClock = new FakeClock(1_200_000_000.0);
+        $inMemoryCache = new InMemoryCache($fakeClock);
+
+        return new Config($inMemoryCache, $eventDispatcher, clock: $fakeClock);
+    }
+
+    /**
      * Without a normalizer, "USER_A" and "user_a" are treated as separate discriminator keys.
      * Each variant gets its own counter, so neither should hit the throttle limit.
      */
     public function testWithoutNormalizerDifferentCasesCountSeparately(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
 
         $config->throttle(
             'user-throttle',
@@ -53,8 +64,7 @@ final class DiscriminatorNormalizerTest extends TestCase
      */
     public function testLowercaseNormalizerCountsCaseVariantsTogether(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
 
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
@@ -90,8 +100,7 @@ final class DiscriminatorNormalizerTest extends TestCase
      */
     public function testNormalizerAppliesToFail2BanKeys(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
 
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
@@ -136,8 +145,6 @@ final class DiscriminatorNormalizerTest extends TestCase
      */
     public function testNormalizerAppliesToTrackKeys(): void
     {
-        $inMemoryCache = new InMemoryCache();
-
         $dispatcher = new class () implements EventDispatcherInterface {
             /** @var list<object> */
             public array $events = [];
@@ -149,7 +156,7 @@ final class DiscriminatorNormalizerTest extends TestCase
             }
         };
 
-        $config = new Config($inMemoryCache, $dispatcher);
+        $config = $this->createConfig($dispatcher);
 
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
@@ -192,8 +199,7 @@ final class DiscriminatorNormalizerTest extends TestCase
      */
     public function testNullNormalizerPreservesOriginalBehavior(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
 
         $this->assertNull($config->getDiscriminatorNormalizer());
 
@@ -230,8 +236,7 @@ final class DiscriminatorNormalizerTest extends TestCase
      */
     public function testFail2BanBanCreatedWithUppercaseBlocksLowercaseVariant(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
 
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
@@ -274,8 +279,7 @@ final class DiscriminatorNormalizerTest extends TestCase
      */
     public function testAllow2BanNormalizerConsistency(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
 
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
@@ -310,8 +314,7 @@ final class DiscriminatorNormalizerTest extends TestCase
      */
     public function testNormalizerSetterReturnsSelfForFluency(): void
     {
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = $this->createConfig();
 
         $result = $config->setDiscriminatorNormalizer(fn(string $key): string => $key);
 

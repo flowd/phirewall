@@ -15,22 +15,19 @@ use PHPUnit\Framework\TestCase;
 final class MultiThrottleTest extends TestCase
 {
     /**
-     * Create a test stack with a deterministic clock to avoid flaky time-boundary issues.
-     *
-     * @return array{FakeClock, InMemoryCache, Config}
+     * Create a Config with a deterministic clock to avoid flaky time-boundary issues.
      */
-    private function createStack(): array
+    private function createConfig(): Config
     {
         $fakeClock = new FakeClock(1_200_000_000.0);
         $inMemoryCache = new InMemoryCache($fakeClock);
-        $config = new Config($inMemoryCache, clock: $fakeClock);
 
-        return [$fakeClock, $inMemoryCache, $config];
+        return new Config($inMemoryCache, clock: $fakeClock);
     }
 
     public function testRegistersMultipleThrottleRules(): void
     {
-        [, , $config] = $this->createStack();
+        $config = $this->createConfig();
 
         $config->throttles->multi(
             'api',
@@ -55,7 +52,7 @@ final class MultiThrottleTest extends TestCase
 
     public function testBurstWindowBlocksFirst(): void
     {
-        [, , $config] = $this->createStack();
+        $config = $this->createConfig();
 
         $config->throttles->multi(
             'api',
@@ -77,7 +74,7 @@ final class MultiThrottleTest extends TestCase
 
     public function testEmptyWindowsThrows(): void
     {
-        [, , $config] = $this->createStack();
+        $config = $this->createConfig();
 
         $this->expectException(\InvalidArgumentException::class);
 
@@ -86,7 +83,7 @@ final class MultiThrottleTest extends TestCase
 
     public function testMultiThrottleDoesNotInterfereWithSingleThrottle(): void
     {
-        [, , $config] = $this->createStack();
+        $config = $this->createConfig();
 
         $config->throttles->multi(
             'api',
@@ -120,9 +117,37 @@ final class MultiThrottleTest extends TestCase
         $this->assertCount(3, $rules);
     }
 
+    public function testMultiThrottleRejectsZeroPeriod(): void
+    {
+        $config = $this->createConfig();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('period must be >= 1');
+
+        $config->throttles->multi(
+            'api',
+            [0 => 10, 60 => 100],
+            fn($request): string => '127.0.0.1'
+        );
+    }
+
+    public function testMultiThrottleRejectsNegativeLimit(): void
+    {
+        $config = $this->createConfig();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('limit must be non-negative');
+
+        $config->throttles->multi(
+            'api',
+            [10 => -1, 60 => 100],
+            fn($request): string => '127.0.0.1'
+        );
+    }
+
     public function testMultiThrottleSubRulesHaveCorrectNames(): void
     {
-        [, , $config] = $this->createStack();
+        $config = $this->createConfig();
 
         $config->throttles->multi(
             'api',
