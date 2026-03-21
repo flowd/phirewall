@@ -37,17 +37,17 @@ final class MultiThrottleTest extends TestCase
 
         $rules = $config->throttles->rules();
 
-        $this->assertArrayHasKey('api/10s', $rules);
-        $this->assertArrayHasKey('api/60s', $rules);
+        $this->assertArrayHasKey('api:10s', $rules);
+        $this->assertArrayHasKey('api:60s', $rules);
         $this->assertCount(2, $rules);
 
         $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
 
-        $this->assertSame(3, $rules['api/10s']->resolveLimit($serverRequest));
-        $this->assertSame(10, $rules['api/10s']->resolvePeriod($serverRequest));
+        $this->assertSame(3, $rules['api:10s']->resolveLimit($serverRequest));
+        $this->assertSame(10, $rules['api:10s']->resolvePeriod($serverRequest));
 
-        $this->assertSame(100, $rules['api/60s']->resolveLimit($serverRequest));
-        $this->assertSame(60, $rules['api/60s']->resolvePeriod($serverRequest));
+        $this->assertSame(100, $rules['api:60s']->resolveLimit($serverRequest));
+        $this->assertSame(60, $rules['api:60s']->resolvePeriod($serverRequest));
     }
 
     public function testBurstWindowBlocksFirst(): void
@@ -67,7 +67,7 @@ final class MultiThrottleTest extends TestCase
         $this->assertTrue($firewall->decide($serverRequest)->isPass());
         $this->assertTrue($firewall->decide($serverRequest)->isPass());
 
-        // Third request should be throttled by the burst window (api/10s)
+        // Third request should be throttled by the burst window (api:10s)
         $firewallResult = $firewall->decide($serverRequest);
         $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
     }
@@ -111,8 +111,8 @@ final class MultiThrottleTest extends TestCase
 
         // Verify 'other' rule exists independently alongside multi rules
         $rules = $config->throttles->rules();
-        $this->assertArrayHasKey('api/10s', $rules);
-        $this->assertArrayHasKey('api/60s', $rules);
+        $this->assertArrayHasKey('api:10s', $rules);
+        $this->assertArrayHasKey('api:60s', $rules);
         $this->assertArrayHasKey('other', $rules);
         $this->assertCount(3, $rules);
     }
@@ -156,7 +156,7 @@ final class MultiThrottleTest extends TestCase
         );
 
         $rules = $config->throttles->rules();
-        $expectedNames = ['api/1s', 'api/10s', 'api/60s', 'api/3600s'];
+        $expectedNames = ['api:1s', 'api:10s', 'api:60s', 'api:3600s'];
 
         foreach ($expectedNames as $expectedName) {
             $this->assertArrayHasKey($expectedName, $rules);

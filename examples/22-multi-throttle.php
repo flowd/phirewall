@@ -26,8 +26,8 @@ $config = new Config($cache);
 $config->enableRateLimitHeaders();
 
 // Register burst + sustained rate limiting with a single call.
-// "api/1s" allows 3 requests per second (burst protection).
-// "api/60s" allows 60 requests per minute (sustained throughput).
+// "api:1s" allows 3 requests per second (burst protection).
+// "api:60s" allows 60 requests per minute (sustained throughput).
 $config->throttles->multi('api', [
     1  => 3,   // 3 req/s burst limit
     60 => 60,  // 60 req/min sustained limit

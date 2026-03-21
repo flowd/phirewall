@@ -47,7 +47,7 @@ final class ThrottleSection
      * A sub-rule is created for each window, named "{$name}/{period}s".
      *
      * Example: $config->throttles->multi('api', [1 => 3, 60 => 100], $key)
-     *   → creates "api/1s" (3 req/s burst) and "api/60s" (100 req/min sustained).
+     *   → creates "api:1s" (3 req/s burst) and "api:60s" (100 req/min sustained).
      *
      * @param array<int, int> $windowLimits Map of period (seconds) => limit (max requests)
      */

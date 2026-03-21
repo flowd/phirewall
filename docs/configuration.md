@@ -156,7 +156,7 @@ $config->throttles->multi('api', [
     1  => 5,     // 5 req/s burst
     60 => 200,   // 200 req/min sustained
 ], KeyExtractors::ip());
-// Creates rules: "api/1s" and "api/60s"
+// Creates rules: "api:1s" and "api:60s"
 ```
 
 ---
