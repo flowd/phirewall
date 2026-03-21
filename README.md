@@ -99,6 +99,7 @@ The [examples/](examples/) folder contains runnable examples:
 | 21 | [sliding-window](examples/21-sliding-window.php) | Sliding window rate limiting |
 | 22 | [multi-throttle](examples/22-multi-throttle.php) | Multi-window burst + sustained rate limiting |
 | 23 | [dynamic-limits](examples/23-dynamic-limits.php) | Role-based dynamic throttle limits |
+| 24 | [pdo-storage](examples/24-pdo-storage.php) | PdoCache with SQLite, MySQL, PostgreSQL |
 | 25 | [track-threshold](examples/25-track-threshold.php) | Track with optional threshold and thresholdReached flag |
 
 ## Features
@@ -129,6 +130,7 @@ The [examples/](examples/) folder contains runnable examples:
 | `InMemoryCache` | Development, testing, single requests |
 | `ApcuCache` | Single-server production |
 | `RedisCache` | Multi-server production |
+| `PdoCache` | SQL-backed persistence (MySQL, PostgreSQL, SQLite) |
 
 ## Documentation
 
@@ -137,7 +139,7 @@ For detailed documentation, see the [docs/](docs/) folder:
 - [Getting Started](docs/getting-started.md) - Step-by-step setup guide
 - [Common Attacks](docs/common-attacks.md) - Protection recipes for 10+ attack types
 - [Configuration](docs/configuration.md) - Complete API reference
-- [Storage Backends](docs/storage-backends.md) - Redis, APCu, and custom backends
+- [Storage Backends](docs/storage-backends.md) - Redis, APCu, PDO, and custom backends
 - [Pattern Backends](docs/pattern-backends.md) - IP, CIDR, path, and header blocklists
 - [OWASP CRS](docs/owasp-crs.md) - Loading and customizing rules
 - [Observability](docs/observability.md) - Events, logging, and monitoring
