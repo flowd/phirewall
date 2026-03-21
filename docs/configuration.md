@@ -265,12 +265,27 @@ $config->allow2ban->add('api-key-ban',
 
 ---
 
-### track()
+### tracks->add()
 
-Define a tracking rule for passive counting without blocking.
+Define a tracking rule for passive counting without blocking. Track rules count matching requests and dispatch `TrackHit` events via the PSR-14 event dispatcher, but they never interfere with traffic — every request passes through regardless of the counter value.
+
+> The deprecated `Config::track()` method is also available as an alias with the same parameters.
+
+**Use cases:**
+- **Observability**: Count login attempts, API calls, or error rates per IP/user for dashboards and metrics
+- **Alerting**: Get notified when a counter crosses a threshold (e.g., 50+ failed logins in 5 minutes) without blocking
+- **Forensics**: Log all matching traffic for post-incident analysis
+
+Track rules complement blocking rules: use Track for visibility and Throttle/Fail2Ban for enforcement.
 
 ```php
-public function track(string $name, int $period, Closure $filter, Closure $key): self
+public function add(
+    string $name,
+    int $period,
+    Closure $filter,
+    Closure $key,
+    ?int $limit = null
+): self
 ```
 
 **Parameters:**
@@ -278,21 +293,52 @@ public function track(string $name, int $period, Closure $filter, Closure $key):
 - `$period` - Time window for counting (seconds)
 - `$filter` - `fn(ServerRequestInterface): bool` - Return `true` to count
 - `$key` - `fn(ServerRequestInterface): ?string` - Return key to track, or `null` to skip
+- `$limit` - Optional threshold. When set, each `TrackHit` event includes `thresholdReached: true` once the counter reaches this value. Events are always dispatched regardless. Must be >= 1 when provided.
 
 **Example:**
 ```php
-// Track login failures for observability
-$config->track('login-failures', period: 3600,
+// Track login failures for observability (fires on every match)
+$config->tracks->add('login-failures', period: 3600,
     filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::ip()
 );
 
 // Track 404 errors by path
-$config->track('not-found', period: 600,
+$config->tracks->add('not-found', period: 600,
     filter: fn($req) => $req->getHeaderLine('X-Response-Status') === '404',
     key: KeyExtractors::path()
 );
 ```
+
+#### Track with Threshold (Limit)
+
+When a `limit` is set, the `TrackHit` event includes a `thresholdReached` boolean flag. The event is always dispatched on every matching request -- the flag simply indicates whether the counter has reached the threshold. This is useful for alerting only when suspicious activity exceeds a noise floor, while still preserving full observability for below-threshold traffic.
+
+```php
+// TrackHit fires on every match; thresholdReached=true once count >= 10
+$config->tracks->add('suspicious-login-burst',
+    period: 300,
+    filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
+    key: KeyExtractors::ip(),
+    limit: 10,
+);
+```
+
+**Event behavior:**
+- Without a limit: `TrackHit` fires on every match with `thresholdReached: false` and `limit: null`
+- With a limit: `TrackHit` fires on every match with `thresholdReached: true` once `count >= limit`
+
+Listeners can filter on the flag. How you register listeners depends on your event dispatcher implementation (PSR-14 defines dispatching, not registration). For example, with a listener provider:
+```php
+// In your listener
+function onTrackHit(TrackHit $event): void {
+    if ($event->thresholdReached) {
+        $logger->warning('Threshold reached', ['rule' => $event->rule, 'key' => $event->key]);
+    }
+}
+```
+
+> **Note:** Track rules are always passive -- they never block traffic, even when the threshold is exceeded. Use fail2ban or throttle rules for blocking.
 
 ---
 

@@ -99,6 +99,7 @@ The [examples/](examples/) folder contains runnable examples:
 | 21 | [sliding-window](examples/21-sliding-window.php) | Sliding window rate limiting |
 | 22 | [multi-throttle](examples/22-multi-throttle.php) | Multi-window burst + sustained rate limiting |
 | 23 | [dynamic-limits](examples/23-dynamic-limits.php) | Role-based dynamic throttle limits |
+| 25 | [track-threshold](examples/25-track-threshold.php) | Track with optional threshold and thresholdReached flag |
 
 ## Features
 
@@ -111,12 +112,13 @@ The [examples/](examples/) folder contains runnable examples:
 | **Throttling** | Fixed and sliding window rate limiting by IP, user, API key, or custom key (429) with dynamic limits and multiThrottle |
 | **Fail2Ban** | Auto-ban after repeated failures |
 | **Allow2Ban** | Hard volume cap -- ban after too many total requests |
+| **Track with Threshold** | Passive counting with optional alert threshold |
 | **OWASP CRS** | SQL injection, XSS, and PHP injection detection |
 | **Pattern Backends** | File/Redis-backed blocklists with IP, CIDR, path, and header patterns |
 
 ### Observability
 
-- **PSR-14 Events** - `SafelistMatched`, `BlocklistMatched`, `ThrottleExceeded`, `Fail2BanBanned`
+- **PSR-14 Events** - `SafelistMatched`, `BlocklistMatched`, `ThrottleExceeded`, `Fail2BanBanned`, `TrackHit`
 - **Diagnostics Counters** - Per-rule statistics for monitoring
 - **Standard Headers** - `X-RateLimit-*`, `Retry-After`, `X-Phirewall-*`
 

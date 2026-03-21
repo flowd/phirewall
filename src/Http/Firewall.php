@@ -51,6 +51,7 @@ final readonly class Firewall
                         : (string) $key;
                     $counterKey = $this->config->cacheKeyGenerator()->trackKey($name, $normalizedKey);
                     $count = $this->increment($counterKey, $trackRule->period());
+                    $limit = $trackRule->limit();
 
                     $this->dispatch(new TrackHit(
                         rule: $name,
@@ -58,6 +59,7 @@ final readonly class Firewall
                         period: $trackRule->period(),
                         count: $count,
                         serverRequest: $serverRequest,
+                        limit: $limit,
                     ));
                 }
             }

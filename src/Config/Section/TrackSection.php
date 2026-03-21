@@ -16,10 +16,13 @@ final class TrackSection
 
     /**
      * Add a track rule with closure filter and key extractor.
+     *
+     * When $limit is set, the TrackHit event includes a thresholdReached flag
+     * that becomes true once the counter reaches the threshold within the period.
      */
-    public function add(string $name, int $period, Closure $filter, Closure $key): self
+    public function add(string $name, int $period, Closure $filter, Closure $key, ?int $limit = null): self
     {
-        return $this->addRule(new TrackRule($name, $period, new ClosureRequestMatcher($filter), new ClosureKeyExtractor($key)));
+        return $this->addRule(new TrackRule($name, $period, new ClosureRequestMatcher($filter), new ClosureKeyExtractor($key), $limit));
     }
 
     /**

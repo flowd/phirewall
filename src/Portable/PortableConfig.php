@@ -27,7 +27,7 @@ use Psr\SimpleCache\CacheInterface;
  * @phpstan-type SchemaBlocklists list<array{name: string, filter: Filter}>
  * @phpstan-type SchemaThrottles list<array{name: string, limit: int, period: int, key: Key}>
  * @phpstan-type SchemaFail2Bans list<array{name: string, threshold: int, period: int, ban: int, filter: Filter, key: Key}>
- * @phpstan-type SchemaTracks list<array{name: string, period: int, filter: Filter, key: Key}>
+ * @phpstan-type SchemaTracks list<array{name: string, period: int, filter: Filter, key: Key, limit?: int}>
  * @phpstan-type SchemaOptions array{rateLimitHeaders?: bool, keyPrefix?: string}
  * @phpstan-type Schema array{
  *   safelists: SchemaSafelists,
@@ -184,16 +184,27 @@ final class PortableConfig
      * @param FilterTypeGeneric $filter
      * @param Key $key
      */
-    public function track(string $name, int $period, array $filter, array $key): self
+    public function track(string $name, int $period, array $filter, array $key, ?int $limit = null): self
     {
         $this->assertValidFilter($filter);
         $this->assertValidKey($key);
-        $this->schema['tracks'][] = [
+        if ($limit !== null && $limit < 1) {
+            throw new \InvalidArgumentException(
+                sprintf('Track rule "%s" limit must be at least 1, got %d.', $name, $limit)
+            );
+        }
+
+        $entry = [
             'name' => $name,
             'period' => $period,
             'filter' => $filter,
             'key' => $key,
         ];
+        if ($limit !== null) {
+            $entry['limit'] = $limit;
+        }
+
+        $this->schema['tracks'][] = $entry;
         return $this;
     }
 
@@ -310,11 +321,13 @@ final class PortableConfig
 
         // Tracks
         foreach ($this->schema['tracks'] as $t) {
+            $trackLimit = isset($t['limit']) ? (int) $t['limit'] : null;
             $config->addTrack(new \Flowd\Phirewall\Config\Rule\TrackRule(
                 $t['name'],
                 (int)$t['period'],
                 new \Flowd\Phirewall\Config\ClosureRequestMatcher($this->compileFilter($t['filter'])),
-                new \Flowd\Phirewall\Config\ClosureKeyExtractor($this->compileKey($t['key']))
+                new \Flowd\Phirewall\Config\ClosureKeyExtractor($this->compileKey($t['key'])),
+                $trackLimit,
             ));
         }
 

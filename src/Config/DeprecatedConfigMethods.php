@@ -120,9 +120,9 @@ trait DeprecatedConfigMethods
     }
 
     /** @deprecated Use $config->tracks->add() instead. */
-    public function track(string $name, int $period, Closure $filter, Closure $key): static
+    public function track(string $name, int $period, Closure $filter, Closure $key, ?int $limit = null): static
     {
-        $this->tracks->add($name, $period, $filter, $key);
+        $this->tracks->add($name, $period, $filter, $key, $limit);
         return $this;
     }
 
