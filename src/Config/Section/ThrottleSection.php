@@ -75,7 +75,7 @@ final class ThrottleSection
                 );
             }
 
-            $this->add($name . '/' . $period . 's', $limit, $period, $key);
+            $this->add($name . ':' . $period . 's', $limit, $period, $key);
         }
 
         return $this;
