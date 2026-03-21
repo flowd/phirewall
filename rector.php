@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Rector\Config\RectorConfig;
+use Rector\Naming\Rector\Assign\RenameVariableToMatchMethodCallReturnTypeRector;
 use Rector\Naming\Rector\Class_\RenamePropertyToMatchTypeRector;
 use Rector\Php55\Rector\String_\StringClassNameToClassConstantRector;
 
@@ -34,7 +35,6 @@ return RectorConfig::configure()
         StringClassNameToClassConstantRector::class => [
             __DIR__ . '/src/Http/ResponseFactoryResolver.php',
         ],
-        RenamePropertyToMatchTypeRector::class => [
-            __DIR__ . '/src/Http/Firewall.php',
-        ],
+        RenamePropertyToMatchTypeRector::class,
+        RenameVariableToMatchMethodCallReturnTypeRector::class,
     ]);

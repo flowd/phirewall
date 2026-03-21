@@ -247,15 +247,15 @@ final class DiscriminatorNormalizerTest extends TestCase
         $firewall = new Firewall($config);
 
         // Trigger ban with UPPERCASE variant only
-        $uppercaseFailedRequest = (new ServerRequest('POST', '/login'))
+        $serverRequest = (new ServerRequest('POST', '/login'))
             ->withHeader('X-Login-Failed', '1')
             ->withHeader('X-User-Id', 'USER_A');
 
         // First failure — count = 1, passes
-        $this->assertSame(Outcome::PASS, $firewall->decide($uppercaseFailedRequest)->outcome);
+        $this->assertSame(Outcome::PASS, $firewall->decide($serverRequest)->outcome);
 
         // Second failure — count = 2, triggers ban
-        $this->assertSame(Outcome::BLOCKED, $firewall->decide($uppercaseFailedRequest)->outcome);
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($serverRequest)->outcome);
 
         // Now a clean request from lowercase variant must also be blocked
         $lowercaseCleanRequest = (new ServerRequest('POST', '/login'))
@@ -290,14 +290,14 @@ final class DiscriminatorNormalizerTest extends TestCase
         $firewall = new Firewall($config);
 
         // Trigger ban with UPPERCASE variant only
-        $uppercaseRequest = (new ServerRequest('GET', '/'))
+        $serverRequest = (new ServerRequest('GET', '/'))
             ->withHeader('X-User-Id', 'USER_B');
 
         // First hit — count = 1, passes
-        $this->assertSame(Outcome::PASS, $firewall->decide($uppercaseRequest)->outcome);
+        $this->assertSame(Outcome::PASS, $firewall->decide($serverRequest)->outcome);
 
         // Second hit — count = 2, triggers ban
-        $this->assertSame(Outcome::BLOCKED, $firewall->decide($uppercaseRequest)->outcome);
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($serverRequest)->outcome);
 
         // Lowercase variant must also be blocked
         $lowercaseRequest = (new ServerRequest('GET', '/'))
