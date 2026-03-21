@@ -176,7 +176,13 @@ final readonly class Firewall
             $limit = $throttleRule->resolveLimit($serverRequest);
             $period = $throttleRule->resolvePeriod($serverRequest);
             $strategy = $this->resolveStrategy($throttleRule);
-            $throttleIncrement = $strategy->increment($name, $normalizedThrottleKey, $period);
+
+            // When period is dynamic, include the resolved period in the cache key so
+            // different periods for the same discriminator get independent counters.
+            $effectiveRuleName = $throttleRule->hasDynamicPeriod()
+                ? $name . ':p' . $period
+                : $name;
+            $throttleIncrement = $strategy->increment($effectiveRuleName, $normalizedThrottleKey, $period);
 
             // ceil() rounds up the floating-point sliding window estimate for a conservative safety margin
             $count = (int) ceil($throttleIncrement->count);
@@ -186,7 +192,7 @@ final readonly class Firewall
             if ($count > $limit) {
                 $this->dispatch(new ThrottleExceeded(
                     rule: $name,
-                    key: (string)$key,
+                    key: $normalizedThrottleKey,
                     limit: $limit,
                     period: $period,
                     count: $count,

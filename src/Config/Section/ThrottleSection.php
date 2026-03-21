@@ -56,6 +56,9 @@ final class ThrottleSection
             );
         }
 
+        // Ensure deterministic evaluation order: shortest period (burst) first.
+        ksort($windowLimits);
+
         foreach ($windowLimits as $period => $limit) {
             $this->add($name . '/' . $period . 's', $limit, $period, $key);
         }

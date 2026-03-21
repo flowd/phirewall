@@ -90,6 +90,14 @@ final readonly class ThrottleRule implements RuleInterface
     }
 
     /**
+     * Whether the period is a closure (resolved per request).
+     */
+    public function hasDynamicPeriod(): bool
+    {
+        return $this->period instanceof Closure;
+    }
+
+    /**
      * Whether this rule uses sliding window rate limiting.
      */
     public function isSliding(): bool
