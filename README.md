@@ -97,6 +97,8 @@ The [examples/](examples/) folder contains runnable examples:
 | 19 | [header-analysis](examples/19-header-analysis.php) | Suspicious headers detection |
 | 20 | [rule-benchmarks](examples/20-rule-benchmarks.php) | Firewall rule performance benchmarks |
 | 21 | [sliding-window](examples/21-sliding-window.php) | Sliding window rate limiting |
+| 22 | [multi-throttle](examples/22-multi-throttle.php) | Multi-window burst + sustained rate limiting |
+| 23 | [dynamic-limits](examples/23-dynamic-limits.php) | Role-based dynamic throttle limits |
 
 ## Features
 
@@ -106,7 +108,7 @@ The [examples/](examples/) folder contains runnable examples:
 |---------|-------------|
 | **Safelists** | Bypass all checks for trusted requests (health checks, internal IPs) |
 | **Blocklists** | Immediately deny suspicious requests (403) |
-| **Throttling** | Fixed and sliding window rate limiting by IP, user, API key, or custom key (429) |
+| **Throttling** | Fixed and sliding window rate limiting by IP, user, API key, or custom key (429) with dynamic limits and multiThrottle |
 | **Fail2Ban** | Auto-ban after repeated failures |
 | **Allow2Ban** | Hard volume cap -- ban after too many total requests |
 | **OWASP CRS** | SQL injection, XSS, and PHP injection detection |
@@ -236,11 +238,16 @@ See [04-sql-injection-blocking.php](examples/04-sql-injection-blocking.php) and 
 // Global limit
 $config->throttle('global', limit: 1000, period: 60, key: KeyExtractors::ip());
 
-// Burst detection
-$config->throttle('burst', limit: 30, period: 5, key: KeyExtractors::ip());
+// Burst + sustained rate limiting with multiThrottle
+$config->throttles->multi('api', [
+    1  => 5,     // 5 req/s burst
+    60 => 200,   // 200 req/min sustained
+], KeyExtractors::ip());
 
-// Higher limits for authenticated users
-$config->throttle('user', limit: 5000, period: 60, key: KeyExtractors::header('X-User-Id'));
+// Dynamic limits based on user role
+$config->throttles->add('user', fn($req) => $req->getHeaderLine('X-Plan') === 'pro' ? 5000 : 100, 60,
+    KeyExtractors::header('X-User-Id')
+);
 ```
 
 ### Login Protection

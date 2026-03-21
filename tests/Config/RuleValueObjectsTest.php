@@ -55,6 +55,24 @@ final class RuleValueObjectsTest extends TestCase
         $this->assertTrue($slidingRule->isSliding());
     }
 
+    public function testThrottleRuleWithClosureLimitAndPeriod(): void
+    {
+        $extractor = new ClosureKeyExtractor(static fn($r): string => 'k');
+        $dynamicLimit = static fn($r): int => $r->getHeaderLine('X-Role') === 'admin' ? 100 : 10;
+        $dynamicPeriod = static fn($r): int => 120;
+        $throttleRule = new ThrottleRule('dynamic', $dynamicLimit, $dynamicPeriod, $extractor);
+
+        $this->assertSame('dynamic', $throttleRule->name());
+        $this->assertInstanceOf(\Closure::class, $throttleRule->limit());
+        $this->assertInstanceOf(\Closure::class, $throttleRule->period());
+
+        $adminRequest = (new ServerRequest('GET', '/'))->withHeader('X-Role', 'admin');
+        $serverRequest = new ServerRequest('GET', '/');
+        $this->assertSame(100, $throttleRule->resolveLimit($adminRequest));
+        $this->assertSame(10, $throttleRule->resolveLimit($serverRequest));
+        $this->assertSame(120, $throttleRule->resolvePeriod($serverRequest));
+    }
+
     public function testFail2BanRuleStoresValues(): void
     {
         $filter = new ClosureRequestMatcher(static fn($r): bool => $r->getHeaderLine('X') === '1');

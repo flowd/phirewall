@@ -32,7 +32,7 @@ final class SlidingThrottleTest extends TestCase
      * The start time (1_200_000_000.0) is divisible by 60, making window
      * boundary calculations straightforward for a 60-second period.
      *
-     * @return array{FakeClock, InMemoryCache, Config}
+     * @return array{Config, FakeClock}
      */
     private function createStack(): array
     {
@@ -40,7 +40,7 @@ final class SlidingThrottleTest extends TestCase
         $inMemoryCache = new InMemoryCache($fakeClock);
         $config = new Config($inMemoryCache, clock: $fakeClock);
 
-        return [$fakeClock, $inMemoryCache, $config];
+        return [$config, $fakeClock];
     }
 
     /**
@@ -49,7 +49,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testSlidingThrottleAllowsUpToLimitThenBlocks(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $limit = 10;
         $period = 60;
@@ -85,7 +85,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testSlidingWindowCatchesBurstAtBoundary(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $limit = 10;
         $period = 60;
@@ -120,7 +120,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testFixedWindowAllowsBurstAtBoundaryForComparison(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $limit = 10;
         $period = 60;
@@ -152,7 +152,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testDifferentKeysAreIsolated(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $limit = 5;
         $period = 60;
@@ -183,7 +183,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testSlidingWindowReleasesAfterTimePasses(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $limit = 5;
         $period = 60;
@@ -213,7 +213,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testSlidingThrottleRetryAfterHeader(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $limit = 3;
         $period = 60;
@@ -242,7 +242,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testSlidingThrottleWithRateLimitHeaders(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $limit = 3;
         $period = 60;
@@ -285,7 +285,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testSlidingWindowWeightDecaysOverTime(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $limit = 10;
         $period = 60;
@@ -316,7 +316,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testNullKeySkipsThrottle(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $limit = 1;
         $period = 60;
@@ -338,7 +338,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testSlidingFlagViaAddRule(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $limit = 10;
         $period = 60;
@@ -385,7 +385,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testSlidingWindowAtExactBoundary(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $limit = 5;
         $period = 60;
@@ -420,7 +420,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testMultipleSlidingRulesOnSameRequest(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $keyExtractor = fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null;
 
@@ -457,7 +457,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testMixedSlidingAndFixedThrottleRules(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $keyExtractor = fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null;
 
@@ -501,7 +501,7 @@ final class SlidingThrottleTest extends TestCase
      */
     public function testSlidingWindowWithSmallPeriod(): void
     {
-        [$clock, $cache, $config] = $this->createStack();
+        [$config, $clock] = $this->createStack();
 
         $limit = 5;
         $period = 1;

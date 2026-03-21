@@ -43,6 +43,8 @@ final class Config
 
     // ── Settings ─────────────────────────────────────────────────────────
 
+    private bool $enabled = true;
+
     private bool $rateLimitHeadersEnabled = false;
 
     private bool $owaspDiagnosticsHeaderEnabled = false;
@@ -55,6 +57,9 @@ final class Config
 
     /** @var (\Closure(\Psr\Http\Message\ServerRequestInterface): ?string)|null */
     private ?\Closure $ipResolver = null;
+
+    /** @var (\Closure(string): string)|null */
+    private ?\Closure $discriminatorNormalizer = null;
 
     public function __construct(
         public readonly CacheInterface $cache,
@@ -101,6 +106,67 @@ final class Config
     public function getIpResolver(): ?\Closure
     {
         return $this->ipResolver;
+    }
+
+    // ── Discriminator normalizer ────────────────────────────────────────
+
+    /**
+     * Set a normalizer applied to all discriminator keys (throttle, fail2ban, track)
+     * before they are used for cache lookups.
+     *
+     * Common use case: case-insensitive key matching via strtolower().
+     *
+     * @param \Closure(string): string $normalizer
+     */
+    public function setDiscriminatorNormalizer(\Closure $normalizer): self
+    {
+        $this->discriminatorNormalizer = $normalizer;
+        return $this;
+    }
+
+    /**
+     * @return (\Closure(string): string)|null
+     */
+    public function getDiscriminatorNormalizer(): ?\Closure
+    {
+        return $this->discriminatorNormalizer;
+    }
+
+    // ── Firewall toggle ─────────────────────────────────────────────────
+
+    /**
+     * Disable the firewall entirely. All requests will pass through without evaluation.
+     */
+    public function disable(): self
+    {
+        $this->enabled = false;
+        return $this;
+    }
+
+    /**
+     * Re-enable the firewall after it has been disabled.
+     */
+    public function enable(): self
+    {
+        $this->enabled = true;
+        return $this;
+    }
+
+    /**
+     * Set the firewall enabled state explicitly.
+     */
+    public function setEnabled(bool $enabled): self
+    {
+        $this->enabled = $enabled;
+        return $this;
+    }
+
+    /**
+     * Check whether the firewall is currently enabled.
+     */
+    public function isEnabled(): bool
+    {
+        return $this->enabled;
     }
 
     // ── Toggles ──────────────────────────────────────────────────────────

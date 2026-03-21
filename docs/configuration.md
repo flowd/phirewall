@@ -96,13 +96,13 @@ $config->blocklist('bad-ips', function ($req): bool {
 Define a rate limiting rule that returns 429 Too Many Requests when exceeded.
 
 ```php
-public function throttle(string $name, int $limit, int $period, Closure $key): self
+public function throttle(string $name, int|Closure $limit, int|Closure $period, Closure $key): static
 ```
 
 **Parameters:**
 - `$name` - Unique rule identifier
-- `$limit` - Maximum requests allowed in the period
-- `$period` - Time window in seconds
+- `$limit` - Maximum requests allowed in the period (int or closure for dynamic limits)
+- `$period` - Time window in seconds (int or closure for dynamic periods)
 - `$key` - `fn(ServerRequestInterface): ?string` - Return a key to group requests, or `null` to skip
 
 **Example:**
@@ -135,6 +135,29 @@ The sliding window estimate: `previousCount * (1 - elapsed/period) + currentCoun
 > **Note:** The sliding window estimate is rounded up (`ceil`) before comparing to the limit. This provides a conservative safety margin and may cause throttling approximately one request before the mathematical limit.
 
 > **Concurrency note:** In multi-process environments (e.g. PHP-FPM), the sliding window counter always uses non-atomic read-then-write operations. When the configured cache implements `CounterStoreInterface` (e.g. `RedisCache`, `ApcuCache`, `InMemoryCache`), fixed-window throttles can use atomic increments, so their concurrency characteristics are slightly stronger than those of sliding windows. Under high concurrency, a small number of extra requests may slip through for sliding windows at the exact moment the limit is crossed; this trade-off is usually acceptable for rate limiting.
+
+#### Dynamic Throttle Limits
+
+Both `$limit` and `$period` accept closures that receive the current request, allowing per-request rate limits:
+
+```php
+// Higher limits for authenticated users
+$config->throttles->add('api', fn($req) => $req->getHeaderLine('X-Role') === 'admin' ? 1000 : 100, 60,
+    key: KeyExtractors::ip()
+);
+```
+
+#### multiThrottle
+
+Register multiple time windows under one logical name (burst + sustained):
+
+```php
+$config->throttles->multi('api', [
+    1  => 5,     // 5 req/s burst
+    60 => 200,   // 200 req/min sustained
+], KeyExtractors::ip());
+// Creates rules: "api:1s" and "api:60s"
+```
 
 ---
 
@@ -453,6 +476,47 @@ $config->throttledResponse(function (string $rule, int $retryAfter, $req): Respo
 ---
 
 ## Global Options
+
+### disable() / enable() / setEnabled()
+
+Disable or enable the firewall at runtime. When disabled, all requests pass through without evaluation.
+
+```php
+$config->disable();          // Disable
+$config->enable();           // Re-enable
+$config->setEnabled(false);  // Explicit toggle
+$config->isEnabled();        // Check state (default: true)
+```
+
+**Use cases:**
+- Feature flag integration
+- Graceful degradation under load
+- Testing without removing rules
+
+---
+
+### setDiscriminatorNormalizer()
+
+Set a normalizer applied to all discriminator keys (throttle, fail2ban, track) before cache lookups.
+
+```php
+public function setDiscriminatorNormalizer(Closure $normalizer): self
+```
+
+**Closure signature:** `fn(string $key): string`
+
+**Example:**
+```php
+// Case-insensitive key matching
+$config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
+
+// Trim whitespace from keys
+$config->setDiscriminatorNormalizer(fn(string $key): string => trim($key));
+```
+
+This ensures that "USER_A" and "user_a" are counted as the same entity across all rate-limiting and tracking rules.
+
+---
 
 ### enableRateLimitHeaders()
 
