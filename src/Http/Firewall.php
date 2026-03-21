@@ -54,7 +54,7 @@ final readonly class Firewall
 
                     $this->dispatch(new TrackHit(
                         rule: $name,
-                        key: (string)$key,
+                        key: $normalizedKey,
                         period: $trackRule->period(),
                         count: $count,
                         serverRequest: $serverRequest,
