@@ -26,6 +26,40 @@ final readonly class Firewall
     {
     }
 
+    /**
+     * Reset a specific throttle counter so the key can make requests again.
+     *
+     * Deletes the fixed-window throttle cache key for the given rule and discriminator.
+     */
+    public function resetThrottle(string $ruleName, string $key): void
+    {
+        $cacheKey = $this->config->cacheKeyGenerator()->throttleKey($ruleName, $key);
+        $this->config->cache->delete($cacheKey);
+    }
+
+    /**
+     * Reset a fail2ban ban and hit counter for a specific key.
+     *
+     * Delegates ban removal to BanManager and also clears the fail counter.
+     */
+    public function resetFail2Ban(string $ruleName, string $key): void
+    {
+        $this->config->banManager()->unban($ruleName, $key, BanType::Fail2Ban);
+
+        $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($ruleName, $key);
+        $this->config->cache->delete($failKey);
+    }
+
+    /**
+     * Check whether a key is currently banned by a given rule.
+     *
+     * Convenience method that delegates to BanManager.
+     */
+    public function isBanned(string $ruleName, string $key, BanType $banType = BanType::Fail2Ban): bool
+    {
+        return $this->config->banManager()->isBanned($ruleName, $key, $banType);
+    }
+
     public function decide(ServerRequestInterface $serverRequest): FirewallResult
     {
         if (!$this->config->isEnabled()) {

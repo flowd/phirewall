@@ -219,4 +219,15 @@ final class Config
     {
         return $this->cacheKeyGenerator ??= new CacheKeyGenerator($this->keyPrefix);
     }
+
+    /**
+     * Clear all phirewall state from the cache (counters, bans, etc.).
+     *
+     * Note: calls cache->clear() which clears ALL keys in the cache instance.
+     * For production use with shared caches (Redis/APCu), use a dedicated cache instance for phirewall.
+     */
+    public function resetAll(): void
+    {
+        $this->cache->clear();
+    }
 }

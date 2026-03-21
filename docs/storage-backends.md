@@ -9,6 +9,7 @@ Phirewall uses PSR-16 (Simple Cache) compatible backends for storing counters an
 | InMemoryCache | No | No | Fastest | Testing, single-request scripts |
 | ApcuCache | Process restart | No | Very Fast | Single-server production |
 | RedisCache | Yes | Yes | Fast | Multi-server production |
+| PdoCache | Yes | Shared DB* | Moderate | SQL-backed persistence without Redis |
 | Any PSR-16 | Varies | Varies | Varies | Custom integrations |
 
 ---
@@ -238,6 +239,110 @@ maxmemory-policy volatile-ttl  ; Evict keys with TTL first
 
 ---
 
+## PdoCache
+
+SQL-backed cache using PDO for MySQL, PostgreSQL, or SQLite.
+
+### Characteristics
+
+- **Persistence:** Yes (stored in database)
+- **Distribution:** Yes, when multiple servers share the same MySQL/PostgreSQL database. SQLite is local only.
+- **Atomicity:** Transactional increments via `BEGIN`/`COMMIT`
+- **Dependencies:** `ext-pdo` (bundled with PHP)
+
+### Basic Usage
+
+```php
+use Flowd\Phirewall\Store\PdoCache;
+
+// SQLite (file-based, zero-config)
+$pdo = new PDO('sqlite:/var/lib/phirewall/cache.db');
+$cache = new PdoCache($pdo);
+$config = new Config($cache);
+
+// MySQL
+$pdo = new PDO('mysql:host=localhost;dbname=myapp', 'user', 'password');
+$cache = new PdoCache($pdo);
+$config = new Config($cache);
+
+// PostgreSQL
+$pdo = new PDO('pgsql:host=localhost;dbname=myapp', 'user', 'password');
+$cache = new PdoCache($pdo);
+$config = new Config($cache);
+```
+
+### Custom Table Name
+
+```php
+// Use a custom table name (alphanumeric and underscores only)
+$cache = new PdoCache($pdo, 'my_app_firewall_cache');
+```
+
+The table is auto-created on first use with the schema:
+
+```sql
+CREATE TABLE IF NOT EXISTS phirewall_cache (
+    cache_key VARCHAR(255) NOT NULL PRIMARY KEY,
+    cache_value TEXT NOT NULL,
+    expires_at INTEGER NULL
+);
+```
+
+### Features
+
+- **Auto-pruning:** Expired entries are probabilistically cleaned up (1% of reads)
+- **Table name validation:** Only safe alphanumeric names are accepted (prevents SQL injection)
+- **Prepared statements:** All queries use parameterized statements
+- **Upsert support:** SQLite (`INSERT OR REPLACE`), PostgreSQL (`ON CONFLICT`), MySQL (`ON DUPLICATE KEY`)
+
+### When to Use
+
+- Environments where only a SQL database is available (no Redis, no APCu)
+- Applications that already use a relational database
+- SQLite for lightweight single-server setups
+- Staging/development with persistence needs
+
+### When NOT to Use
+
+- High-traffic production (Redis or APCu are significantly faster)
+- Multi-server deployments without a shared database
+- Applications where microsecond latency matters
+
+### Performance Tips
+
+- Add an index on `expires_at` for faster pruning on large tables
+- Use SQLite WAL mode for better concurrent read performance
+- Consider a dedicated database/schema to avoid polluting application tables
+
+```php
+// Enable SQLite WAL mode
+$pdo = new PDO('sqlite:/var/lib/phirewall/cache.db');
+$pdo->exec('PRAGMA journal_mode=WAL');
+$cache = new PdoCache($pdo);
+```
+
+### Using with Doctrine DBAL
+
+If your application already uses Doctrine DBAL, you can pass its native PDO connection directly to PdoCache — no additional dependencies required:
+
+```php
+use Doctrine\DBAL\DriverManager;
+use Flowd\Phirewall\Store\PdoCache;
+
+$dbalConnection = DriverManager::getConnection(['url' => 'mysql://user:pass@localhost/myapp']);
+
+// Get the underlying PDO instance from DBAL
+$pdo = $dbalConnection->getNativeConnection();
+assert($pdo instanceof \PDO);
+
+$cache = new PdoCache($pdo);
+$config = new Config($cache);
+```
+
+This lets you reuse your existing database connection and configuration without adding `doctrine/dbal` as a dependency of Phirewall itself.
+
+---
+
 ## Using Any PSR-16 Cache
 
 Phirewall works with any PSR-16 compatible cache.
@@ -328,28 +433,48 @@ interface CounterStoreInterface
 ### Decision Tree
 
 ```
-Need multi-server support?
-├── Yes → Use RedisCache
-└── No
-    └── Need persistence between requests?
+Testing or development?
+├── Yes → InMemoryCache (no setup, deterministic with FakeClock)
+└── No (production)
+    └── Multiple application servers?
         ├── Yes
-        │   └── APCu available?
-        │       ├── Yes → Use ApcuCache
-        │       └── No → Use RedisCache
-        └── No → Use InMemoryCache
+        │   └── What is available?
+        │       ├── Redis → RedisCache (fastest distributed option, atomic Lua scripts)
+        │       └── Shared MySQL/PostgreSQL → PdoCache (no extra services needed)
+        └── No (single server)
+            └── What is your priority?
+                ├── Maximum performance
+                │   └── APCu available?
+                │       ├── Yes → ApcuCache (fastest, in-process, atomic)
+                │       └── No → RedisCache or PdoCache
+                ├── Persistence across restarts
+                │   └── Database already available?
+                │       ├── Yes → PdoCache (no extra infrastructure)
+                │       └── No → RedisCache or PdoCache with SQLite
+                └── Minimal dependencies
+                    └── PdoCache with SQLite (zero-config, file-based)
 ```
+
+**Key trade-offs:**
+- **ApcuCache** is fastest but data is lost on process restart (PHP-FPM reload, deploy). Fine when losing counters briefly is acceptable.
+- **RedisCache** is the most capable (distributed, persistent, atomic) but requires a Redis service.
+- **PdoCache** needs no extra infrastructure if you already have a database. With MySQL/PostgreSQL it supports multi-server deployments. Slower than Redis under high concurrency.
+- **InMemoryCache** resets every request in PHP-FPM — only useful for testing or single-run CLI scripts.
 
 ### Environment Recommendations
 
-| Environment | Recommended Backend |
-|-------------|---------------------|
-| Unit Tests | InMemoryCache |
-| Integration Tests | InMemoryCache or Redis (Docker) |
-| Development | InMemoryCache or ApcuCache |
-| Single Server | ApcuCache |
-| Multiple Servers | RedisCache |
-| Kubernetes | RedisCache |
-| Serverless (Lambda) | RedisCache (external) |
+| Environment | Recommended Backend | Notes |
+|-------------|---------------------|-------|
+| Unit Tests | InMemoryCache | Use FakeClock for deterministic time |
+| Integration Tests | InMemoryCache or RedisCache | Redis via Docker for realistic testing |
+| Development | InMemoryCache or PdoCache (SQLite) | SQLite if you want persistence during dev |
+| Single Server (high traffic) | ApcuCache | Fastest option; counters lost on restart |
+| Single Server (existing DB) | PdoCache | No extra services; persistent |
+| Single Server (no infra) | PdoCache (SQLite) | Zero-config, file-based persistence |
+| Multiple Servers | RedisCache or PdoCache | Redis preferred; PdoCache works with shared DB |
+| Kubernetes / Docker | RedisCache | Shared state across pods |
+| Serverless (Lambda) | RedisCache (external) | No local state between invocations |
+| Shared Hosting | ApcuCache or PdoCache | Depends on what's available |
 
 ---
 
@@ -410,4 +535,22 @@ $iterator = new APCuIterator('/^phirewall:/');
 foreach ($iterator as $item) {
     echo $item['key'] . ': ' . $item['value'] . "\n";
 }
+```
+
+### PdoCache
+
+```sql
+-- Count all entries
+SELECT COUNT(*) FROM phirewall_cache;
+
+-- List all active (non-expired) keys
+SELECT cache_key, expires_at
+FROM phirewall_cache
+WHERE expires_at IS NULL OR expires_at > UNIX_TIMESTAMP();
+
+-- Prune expired entries manually
+DELETE FROM phirewall_cache
+WHERE expires_at IS NOT NULL AND expires_at <= UNIX_TIMESTAMP();
+
+-- For SQLite, use strftime('%s', 'now') instead of UNIX_TIMESTAMP()
 ```
