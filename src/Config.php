@@ -61,6 +61,8 @@ final class Config
     /** @var (\Closure(string): string)|null */
     private ?\Closure $discriminatorNormalizer = null;
 
+    private bool $failOpen = true;
+
     public function __construct(
         public readonly CacheInterface $cache,
         public readonly ?EventDispatcherInterface $eventDispatcher = null,
@@ -167,6 +169,29 @@ final class Config
     public function isEnabled(): bool
     {
         return $this->enabled;
+    }
+
+    // ── Fail-open / fail-closed ────────────────────────────────────────
+
+    /**
+     * Configure whether the middleware should fail open (default) or fail closed.
+     *
+     * When fail-open (true): if the firewall throws an exception (e.g., cache
+     * backend unavailable), the request is allowed through and the error is
+     * dispatched as a PSR-14 event for logging.
+     *
+     * When fail-closed (false): exceptions propagate, resulting in a 500 error.
+     * Use this only when blocking is more important than availability.
+     */
+    public function setFailOpen(bool $failOpen): self
+    {
+        $this->failOpen = $failOpen;
+        return $this;
+    }
+
+    public function isFailOpen(): bool
+    {
+        return $this->failOpen;
     }
 
     // ── Toggles ──────────────────────────────────────────────────────────
