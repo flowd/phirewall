@@ -75,20 +75,21 @@ final readonly class Middleware implements MiddlewareInterface
     ): ResponseInterface {
         if ($firewallResult->outcome === Http\Outcome::THROTTLED) {
             $retryAfter = $firewallResult->retryAfter ?? 1;
-            $factory = $this->config->getThrottledResponseFactory();
-            if ($factory instanceof Config\Response\ThrottledResponseFactoryInterface) {
-                $response = $factory->create($firewallResult->rule ?? 'unknown', $retryAfter, $serverRequest);
+            $throttledFactory = $this->config->throttledResponseFactory;
+            if ($throttledFactory instanceof \Flowd\Phirewall\Config\Response\ThrottledResponseFactoryInterface) {
+                $response = $throttledFactory->create($firewallResult->rule ?? 'unknown', $retryAfter, $serverRequest);
             } else {
                 $response = $this->responseFactory->createResponse(429)->withHeader('Content-Type', 'text/plain');
             }
 
+            // Ensure Retry-After is present
             if ($response->getHeaderLine('Retry-After') === '') {
-                $response = $response->withHeader('Retry-After', (string) max(1, $retryAfter));
+                $response = $response->withHeader('Retry-After', (string)max(1, $retryAfter));
             }
         } else {
-            $factory = $this->config->getBlocklistedResponseFactory();
-            if ($factory instanceof Config\Response\BlocklistedResponseFactoryInterface) {
-                $response = $factory->create($firewallResult->rule ?? 'unknown', $firewallResult->blockType ?? 'blocklist', $serverRequest);
+            $blocklistedFactory = $this->config->blocklistedResponseFactory;
+            if ($blocklistedFactory instanceof \Flowd\Phirewall\Config\Response\BlocklistedResponseFactoryInterface) {
+                $response = $blocklistedFactory->create($firewallResult->rule ?? 'unknown', $firewallResult->blockType ?? 'blocklist', $serverRequest);
             } else {
                 $response = $this->responseFactory->createResponse(403)->withHeader('Content-Type', 'text/plain');
             }

@@ -6,6 +6,8 @@ namespace Flowd\Phirewall;
 
 use Flowd\Phirewall\Config\DeprecatedConfigMethods;
 use Flowd\Phirewall\Config\Response\BlocklistedResponseFactoryInterface;
+use Flowd\Phirewall\Config\Response\Psr17BlocklistedResponseFactory;
+use Flowd\Phirewall\Config\Response\Psr17ThrottledResponseFactory;
 use Flowd\Phirewall\Config\Response\ThrottledResponseFactoryInterface;
 use Flowd\Phirewall\Config\Section\Allow2BanSection;
 use Flowd\Phirewall\Config\Section\BlocklistSection;
@@ -15,6 +17,8 @@ use Flowd\Phirewall\Config\Section\ThrottleSection;
 use Flowd\Phirewall\Config\Section\TrackSection;
 use Flowd\Phirewall\Store\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Psr\Http\Message\ResponseFactoryInterface;
+use Psr\Http\Message\StreamFactoryInterface;
 use Psr\SimpleCache\CacheInterface;
 
 final class Config
@@ -192,6 +196,26 @@ final class Config
     public function isFailOpen(): bool
     {
         return $this->failOpen;
+    }
+
+    // ── PSR-17 integration ────────────────────────────────────────────────
+
+    /**
+     * Configure both blocklisted and throttled response factories using PSR-17 factories.
+     *
+     * This is a convenience method that creates Psr17BlocklistedResponseFactory and
+     * Psr17ThrottledResponseFactory from the given PSR-17 response/stream factories.
+     * Providing a StreamFactoryInterface enables response body content; without it,
+     * responses will have the correct status code and headers but an empty body.
+     */
+    public function usePsr17Responses(
+        ResponseFactoryInterface $responseFactory,
+        ?StreamFactoryInterface $streamFactory = null,
+    ): self {
+        $this->blocklistedResponseFactory = new Psr17BlocklistedResponseFactory($responseFactory, $streamFactory);
+        $this->throttledResponseFactory = new Psr17ThrottledResponseFactory($responseFactory, $streamFactory);
+
+        return $this;
     }
 
     // ── Toggles ──────────────────────────────────────────────────────────
