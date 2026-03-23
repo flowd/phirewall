@@ -66,13 +66,3 @@ jobs:
           PHIREWALL_RUN_BENCHMARKS: '1'
           XDEBUG_MODE: off
         run: vendor/bin/phpunit --group=performance --no-coverage
-
-      - name: Run all example scripts
-        run: |
-          for file in examples/*.php; do
-            echo "################################################"
-            echo "### Running $file"
-            echo "################################################"
-            php "$file"
-            echo ""
-          done

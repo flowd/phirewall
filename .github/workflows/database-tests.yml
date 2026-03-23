@@ -1,0 +1,20 @@
+name: Database Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  database-tests:
+    name: PdoCache (SQLite + MySQL + PostgreSQL)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run database test suite
+        run: ./bin/test-databases.sh

@@ -1,0 +1,64 @@
+name: Examples
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  examples:
+    name: Run examples (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_sqlite
+          coverage: none
+
+      - name: Get composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-dir)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-php${{ matrix.php }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-php${{ matrix.php }}-composer-
+
+      - run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Run all examples with strict error handling
+        run: |
+          failed=0
+          for file in examples/*.php; do
+            echo "================================================"
+            echo "Running: $file"
+            echo "================================================"
+            if php -d "error_reporting=-1" -d "display_errors=stderr" -d "log_errors=0" \
+                -r "set_error_handler(function(int \$severity, string \$message, string \$file, int \$line): never {
+                    throw new ErrorException(\$message, 0, \$severity, \$file, \$line);
+                }); require '${file}';" 2>&1; then
+              echo "PASS"
+            else
+              echo "FAIL: $file"
+              failed=$((failed + 1))
+            fi
+            echo ""
+          done
+          echo "================================================"
+          if [ "$failed" -gt 0 ]; then
+            echo "FAILED: $failed example(s) failed"
+            exit 1
+          fi
+          echo "All examples passed"

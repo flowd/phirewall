@@ -602,6 +602,102 @@ $config->enableOwaspDiagnosticsHeader(); // Only in development!
 
 ---
 
+## Firewall Management Methods
+
+The `Firewall` class provides methods for managing throttle counters, bans, and cache at runtime.
+
+### resetThrottle()
+
+Reset a specific fixed-window throttle counter so the key can make requests again.
+
+```php
+public function resetThrottle(string $ruleName, string $key): void
+```
+
+**Parameters:**
+- `$ruleName` - The throttle rule name (e.g., `'ip'`)
+- `$key` - The discriminator value (e.g., IP address)
+
+**Example:**
+```php
+$firewall = new Firewall($config);
+
+// Unblock a throttled IP
+$firewall->resetThrottle('ip', '1.2.3.4');
+
+// For multiThrottle rules, reset each sub-rule individually
+$firewall->resetThrottle('api:1s', '1.2.3.4');
+$firewall->resetThrottle('api:60s', '1.2.3.4');
+```
+
+> **Note:** This resets fixed-window throttle counters only. Sliding window entries expire naturally and cannot be reset individually.
+>
+> For throttles with a dynamic period, the cache key includes a `:p{period}` suffix (e.g., `myrule:p60`). You must pass the fully resolved rule name to reset a specific period's counter. There is no generic way to reset all dynamic-period variants at once.
+
+---
+
+### resetFail2Ban()
+
+Reset a Fail2Ban ban and its associated hit counter for a specific key.
+
+```php
+public function resetFail2Ban(string $ruleName, string $key): void
+```
+
+**Parameters:**
+- `$ruleName` - The Fail2Ban rule name (e.g., `'login'`)
+- `$key` - The discriminator value (e.g., IP address)
+
+**Example:**
+```php
+$firewall = new Firewall($config);
+
+// Unban and reset the fail counter for an IP
+$firewall->resetFail2Ban('login', '5.6.7.8');
+```
+
+---
+
+### isBanned()
+
+Check whether a key is currently banned by a given rule.
+
+```php
+public function isBanned(string $ruleName, string $key, BanType $banType = BanType::Fail2Ban): bool
+```
+
+**Parameters:**
+- `$ruleName` - The rule name
+- `$key` - The discriminator value (e.g., IP address)
+- `$banType` - The ban type (`BanType::Fail2Ban` or `BanType::Allow2Ban`)
+
+**Example:**
+```php
+$firewall = new Firewall($config);
+
+if ($firewall->isBanned('login', '5.6.7.8')) {
+    // IP is currently banned by the 'login' fail2ban rule
+}
+
+if ($firewall->isBanned('high-volume', '5.6.7.8', BanType::Allow2Ban)) {
+    // IP is currently banned by the 'high-volume' allow2ban rule
+}
+```
+
+---
+
+### resetAll()
+
+Clear all Phirewall state from the cache (counters, bans, tracking data).
+
+```php
+$firewall->resetAll();
+```
+
+> **Warning:** This calls `cache->clear()` which clears ALL keys in the cache instance. For production use with shared caches (Redis/APCu), use a dedicated cache instance for Phirewall.
+
+---
+
 ### setKeyPrefix()
 
 Set a global prefix for all cache keys.

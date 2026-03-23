@@ -26,6 +26,65 @@ final readonly class Firewall
     {
     }
 
+    /**
+     * Reset a specific throttle counter so the key can make requests again.
+     *
+     * Deletes the fixed-window throttle cache key for the given rule and discriminator.
+     * The key is normalized through the discriminator normalizer (if configured) to
+     * ensure the same cache key is deleted regardless of input casing.
+     *
+     * For multiThrottle rules, reset each sub-rule individually (e.g., 'api:1s', 'api:60s').
+     * For throttles with a dynamic period, pass the resolved rule name including the
+     * ':p{period}' suffix (e.g., 'myrule:p60').
+     */
+    public function resetThrottle(string $ruleName, string $key): void
+    {
+        $normalizedKey = $this->normalizeDiscriminator($key);
+        $cacheKey = $this->config->cacheKeyGenerator()->throttleKey($ruleName, $normalizedKey);
+        $this->config->cache->delete($cacheKey);
+    }
+
+    /**
+     * Reset a fail2ban ban and hit counter for a specific key.
+     *
+     * Delegates ban removal to BanManager and also clears the fail counter.
+     * The key is normalized through the discriminator normalizer (if configured) to
+     * ensure the same cache keys are cleared regardless of input casing.
+     */
+    public function resetFail2Ban(string $ruleName, string $key): void
+    {
+        $normalizedKey = $this->normalizeDiscriminator($key);
+        $this->config->banManager()->unban($ruleName, $normalizedKey, BanType::Fail2Ban);
+
+        $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($ruleName, $normalizedKey);
+        $this->config->cache->delete($failKey);
+    }
+
+    /**
+     * Check whether a key is currently banned by a given rule.
+     *
+     * Convenience method that delegates to BanManager.
+     * The key is normalized through the discriminator normalizer (if configured) to
+     * ensure ban lookups match regardless of input casing.
+     */
+    public function isBanned(string $ruleName, string $key, BanType $banType = BanType::Fail2Ban): bool
+    {
+        $normalizedKey = $this->normalizeDiscriminator($key);
+        return $this->config->banManager()->isBanned($ruleName, $normalizedKey, $banType);
+    }
+
+    /**
+     * Clear all cache entries (counters, bans, tracking data).
+     *
+     * Calls cache->clear() which removes ALL keys in the cache instance.
+     * For production use with shared caches (Redis/APCu), use a dedicated
+     * cache instance for Phirewall.
+     */
+    public function resetAll(): void
+    {
+        $this->config->cache->clear();
+    }
+
     public function decide(ServerRequestInterface $serverRequest): FirewallResult
     {
         if (!$this->config->isEnabled()) {
@@ -318,23 +377,26 @@ final readonly class Firewall
 
     private function resolveStrategy(ThrottleRule $throttleRule): ThrottleStrategyInterface
     {
-        static $strategyCache = [];
+        /** @var \WeakMap<self, array{fixed: FixedWindowStrategy, sliding: SlidingWindowStrategy}>|null $strategyCache */
+        static $strategyCache = null;
+        $strategyCache ??= new \WeakMap();
 
-        $objectId = spl_object_id($this);
-
-        if (!isset($strategyCache[$objectId])) {
+        if (!isset($strategyCache[$this])) {
             $cache = $this->config->cache;
             $cacheKeyGenerator = $this->config->cacheKeyGenerator();
 
-            $strategyCache[$objectId] = [
+            $strategyCache[$this] = [
                 'fixed' => new FixedWindowStrategy($cache, $cacheKeyGenerator),
                 'sliding' => new SlidingWindowStrategy($cache, $cacheKeyGenerator, $this->config->now(...)),
             ];
         }
 
+        /** @var array{fixed: FixedWindowStrategy, sliding: SlidingWindowStrategy} $strategies */
+        $strategies = $strategyCache[$this];
+
         return $throttleRule->isSliding()
-            ? $strategyCache[$objectId]['sliding']
-            : $strategyCache[$objectId]['fixed'];
+            ? $strategies['sliding']
+            : $strategies['fixed'];
     }
 
     private function increment(string $key, int $period): int
@@ -392,6 +454,18 @@ final readonly class Firewall
         $remaining = $expiresAt - $now;
 
         return max($remaining, 0);
+    }
+
+    /**
+     * Normalize a discriminator key using the configured normalizer.
+     *
+     * Returns the key unchanged when no normalizer is set.
+     */
+    private function normalizeDiscriminator(string $key): string
+    {
+        $normalizer = $this->config->getDiscriminatorNormalizer();
+
+        return $normalizer instanceof \Closure ? $normalizer($key) : $key;
     }
 
     private function dispatch(object $event): void

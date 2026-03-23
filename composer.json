@@ -63,7 +63,8 @@
         "@cs:check",
         "@phpunit",
         "@phpstan"
-    ]
+    ],
+    "test:database": "bin/test-databases.sh"
   },
   "config": {
     "allow-plugins": {
