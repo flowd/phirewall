@@ -10,6 +10,7 @@ use Rector\Naming\Rector\Assign\RenameVariableToMatchMethodCallReturnTypeRector;
 use Rector\Naming\Rector\Class_\RenamePropertyToMatchTypeRector;
 use Rector\Naming\Rector\ClassMethod\RenameVariableToMatchNewTypeRector;
 use Rector\Php55\Rector\String_\StringClassNameToClassConstantRector;
+use Rector\PHPUnit\PHPUnit60\Rector\ClassMethod\AddDoesNotPerformAssertionToNonAssertingTestRector;
 
 return RectorConfig::configure()
     ->withPaths([
@@ -44,6 +45,7 @@ return RectorConfig::configure()
         RenameVariableToMatchNewTypeRector::class,
         RecastingRemovalRector::class,
         EncapsedStringsToSprintfRector::class,
+        AddDoesNotPerformAssertionToNonAssertingTestRector::class,
         ThrowWithPreviousExceptionRector::class => [
             __DIR__ . '/src/Store/PdoCache.php',
         ]

@@ -29,7 +29,7 @@ final class InfrastructureBanListenerTest extends TestCase
         $fail2BanBanned = new Fail2BanBanned('login', '203.0.113.50', 5, 300, 3600, 5, new ServerRequest('GET', '/'));
         $infrastructureBanListener->onFail2BanBanned($fail2BanBanned);
 
-        self::assertSame([
+        $this->assertSame([
             ['op' => 'block', 'ip' => '203.0.113.50'],
         ], $recordingBlocker->calls);
     }
@@ -48,7 +48,7 @@ final class InfrastructureBanListenerTest extends TestCase
         $fail2BanBanned = new Fail2BanBanned('login', '203.0.113.50', 5, 300, 3600, 5, new ServerRequest('GET', '/'));
         $infrastructureBanListener->onFail2BanBanned($fail2BanBanned);
 
-        self::assertSame([], $recordingBlocker->calls, 'No calls should be made when Fail2Ban blocking is disabled');
+        $this->assertSame([], $recordingBlocker->calls, 'No calls should be made when Fail2Ban blocking is disabled');
     }
 
     public function testFail2BanBannedSkipsWhenKeyToIpReturnsNull(): void
@@ -66,7 +66,7 @@ final class InfrastructureBanListenerTest extends TestCase
         $fail2BanBanned = new Fail2BanBanned('login', 'user:99', 5, 300, 3600, 5, new ServerRequest('GET', '/'));
         $infrastructureBanListener->onFail2BanBanned($fail2BanBanned);
 
-        self::assertSame([], $recordingBlocker->calls, 'No calls should be made when keyToIp returns null');
+        $this->assertSame([], $recordingBlocker->calls, 'No calls should be made when keyToIp returns null');
     }
 
     public function testFail2BanBannedSkipsWhenKeyToIpReturnsEmptyString(): void
@@ -84,7 +84,7 @@ final class InfrastructureBanListenerTest extends TestCase
         $fail2BanBanned = new Fail2BanBanned('login', 'user:42', 5, 300, 3600, 5, new ServerRequest('GET', '/'));
         $infrastructureBanListener->onFail2BanBanned($fail2BanBanned);
 
-        self::assertSame([], $recordingBlocker->calls, 'No calls should be made when keyToIp returns empty string');
+        $this->assertSame([], $recordingBlocker->calls, 'No calls should be made when keyToIp returns empty string');
     }
 
     public function testFail2BanBannedSwallowsBlockerExceptions(): void
@@ -135,7 +135,7 @@ final class InfrastructureBanListenerTest extends TestCase
         $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest);
         $infrastructureBanListener->onBlocklistMatched($blocklistMatched);
 
-        self::assertSame([
+        $this->assertSame([
             ['op' => 'block', 'ip' => '198.51.100.77'],
         ], $recordingBlocker->calls);
     }
@@ -155,7 +155,7 @@ final class InfrastructureBanListenerTest extends TestCase
         $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest);
         $infrastructureBanListener->onBlocklistMatched($blocklistMatched);
 
-        self::assertSame([], $recordingBlocker->calls, 'No calls should be made when blocklist blocking is disabled');
+        $this->assertSame([], $recordingBlocker->calls, 'No calls should be made when blocklist blocking is disabled');
     }
 
     public function testBlocklistMatchedSkipsWhenRequestHasNoIp(): void
@@ -174,7 +174,7 @@ final class InfrastructureBanListenerTest extends TestCase
         $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest);
         $infrastructureBanListener->onBlocklistMatched($blocklistMatched);
 
-        self::assertSame([], $recordingBlocker->calls, 'No calls should be made when request has no IP');
+        $this->assertSame([], $recordingBlocker->calls, 'No calls should be made when request has no IP');
     }
 
     public function testBlocklistMatchedSwallowsBlockerExceptions(): void
@@ -220,14 +220,14 @@ final class InfrastructureBanListenerTest extends TestCase
             $syncNonBlockingRunner,
             blockOnFail2Ban: false,
             blockOnBlocklist: true,
-            requestToIp: static fn(\Psr\Http\Message\ServerRequestInterface $request): ?string => $request->getHeaderLine('X-Real-IP') ?: null,
+            requestToIp: static fn(\Psr\Http\Message\ServerRequestInterface $serverRequest): ?string => in_array($serverRequest->getHeaderLine('X-Real-IP'), ['', '0'], true) ? null : $serverRequest->getHeaderLine('X-Real-IP'),
         );
 
         $serverRequest = (new ServerRequest('GET', '/'))->withHeader('X-Real-IP', '10.0.0.42');
         $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest);
         $infrastructureBanListener->onBlocklistMatched($blocklistMatched);
 
-        self::assertSame([
+        $this->assertSame([
             ['op' => 'block', 'ip' => '10.0.0.42'],
         ], $recordingBlocker->calls);
     }

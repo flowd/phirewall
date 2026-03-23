@@ -18,7 +18,7 @@ final class SyncNonBlockingRunnerTest extends TestCase
             $executed = true;
         });
 
-        self::assertTrue($executed, 'Callable should have been executed synchronously');
+        $this->assertTrue($executed, 'Callable should have been executed synchronously');
     }
 
     public function testRunSwallowsExceptions(): void
@@ -26,7 +26,7 @@ final class SyncNonBlockingRunnerTest extends TestCase
         $runner = new SyncNonBlockingRunner();
 
         // Should not throw -- exception is swallowed
-        $runner->run(static function (): void {
+        $runner->run(static function (): never {
             throw new \RuntimeException('Simulated failure');
         });
 
@@ -38,7 +38,7 @@ final class SyncNonBlockingRunnerTest extends TestCase
         $runner = new SyncNonBlockingRunner();
 
         // Should not throw -- errors are also Throwable and should be swallowed
-        $runner->run(static function (): void {
+        $runner->run(static function (): never {
             throw new \Error('Simulated fatal error');
         });
 

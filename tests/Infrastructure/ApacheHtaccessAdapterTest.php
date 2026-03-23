@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Tests\Infrastructure;
 
 use Flowd\Phirewall\Infrastructure\ApacheHtaccessAdapter;
 use InvalidArgumentException;
+use org\bovigo\vfs\vfsStream;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -18,31 +19,8 @@ final class ApacheHtaccessAdapterTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->tmpDir = sys_get_temp_dir() . '/phirewall_htaccess_test_' . bin2hex(random_bytes(4));
-        mkdir($this->tmpDir, 0755, true);
+        $this->tmpDir = vfsStream::setup('root')->url();
         $this->htaccess = $this->tmpDir . '/.htaccess';
-    }
-
-    protected function tearDown(): void
-    {
-        // Clean up all files including dotfiles (glob '*' skips dotfiles)
-        $patterns = [
-            $this->tmpDir . '/*',
-            $this->tmpDir . '/.*',
-        ];
-
-        foreach ($patterns as $pattern) {
-            $files = glob($pattern) ?: [];
-            foreach ($files as $file) {
-                if (is_file($file)) {
-                    @unlink($file);
-                }
-            }
-        }
-
-        if (is_dir($this->tmpDir)) {
-            @rmdir($this->tmpDir);
-        }
     }
 
     // ─── Single IP block ─────────────────────────────────────────────
@@ -53,21 +31,22 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('203.0.113.10');
 
         $content = $this->readHtaccess();
-        self::assertStringContainsString('# BEGIN Phirewall', $content);
-        self::assertStringContainsString('Require not ip 203.0.113.10', $content);
-        self::assertStringContainsString('# END Phirewall', $content);
+        $this->assertStringContainsString('# BEGIN Phirewall', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.10', $content);
+        $this->assertStringContainsString('# END Phirewall', $content);
     }
 
     public function testBlockSingleIpIsIdempotent(): void
     {
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockIp('203.0.113.10');
+
         $first = $this->readHtaccess();
 
         $adapter->blockIp('203.0.113.10');
         $second = $this->readHtaccess();
 
-        self::assertSame($first, $second, 'Blocking the same IP twice must not change the file');
+        $this->assertSame($first, $second, 'Blocking the same IP twice must not change the file');
     }
 
     // ─── IPv6 ────────────────────────────────────────────────────────
@@ -78,7 +57,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('2001:db8::1');
 
         $content = $this->readHtaccess();
-        self::assertStringContainsString('Require not ip 2001:db8::1', $content);
+        $this->assertStringContainsString('Require not ip 2001:db8::1', $content);
     }
 
     public function testIpv6NormalizationPreventsExpandedDuplicates(): void
@@ -89,11 +68,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
 
         $content = $this->readHtaccess();
         // Should appear only once in compressed form
-        self::assertSame(
-            1,
-            substr_count($content, 'Require not ip 2001:db8::1'),
-            'Expanded and compressed IPv6 forms should be deduplicated'
-        );
+        $this->assertSame(1, substr_count($content, 'Require not ip 2001:db8::1'), 'Expanded and compressed IPv6 forms should be deduplicated');
     }
 
     // ─── Removing a ban ──────────────────────────────────────────────
@@ -102,23 +77,24 @@ final class ApacheHtaccessAdapterTest extends TestCase
     {
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockIp('198.51.100.5');
-        self::assertTrue($adapter->isBlocked('198.51.100.5'));
+        $this->assertTrue($adapter->isBlocked('198.51.100.5'));
 
         $adapter->unblockIp('198.51.100.5');
-        self::assertFalse($adapter->isBlocked('198.51.100.5'));
-        self::assertStringNotContainsString('Require not ip 198.51.100.5', $this->readHtaccess());
+        $this->assertFalse($adapter->isBlocked('198.51.100.5'));
+        $this->assertStringNotContainsString('Require not ip 198.51.100.5', $this->readHtaccess());
     }
 
     public function testUnblockNonExistentIpIsNoOp(): void
     {
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockIp('203.0.113.1');
+
         $before = $this->readHtaccess();
 
         $adapter->unblockIp('203.0.113.99');
         $after = $this->readHtaccess();
 
-        self::assertSame($before, $after, 'Unblocking a non-existent IP should not modify the file');
+        $this->assertSame($before, $after, 'Unblocking a non-existent IP should not modify the file');
     }
 
     // ─── Multiple bans ───────────────────────────────────────────────
@@ -131,9 +107,9 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('2001:db8::ff');
 
         $content = $this->readHtaccess();
-        self::assertStringContainsString('Require not ip 203.0.113.1', $content);
-        self::assertStringContainsString('Require not ip 203.0.113.2', $content);
-        self::assertStringContainsString('Require not ip 2001:db8::ff', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.1', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.2', $content);
+        $this->assertStringContainsString('Require not ip 2001:db8::ff', $content);
     }
 
     public function testMultipleBansPreserveInsertionOrder(): void
@@ -148,11 +124,11 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $pos2 = strpos($content, 'Require not ip 203.0.113.1');
         $pos3 = strpos($content, 'Require not ip 203.0.113.2');
 
-        self::assertNotFalse($pos1);
-        self::assertNotFalse($pos2);
-        self::assertNotFalse($pos3);
-        self::assertLessThan($pos2, $pos1, 'First blocked IP should appear before second');
-        self::assertLessThan($pos3, $pos2, 'Second blocked IP should appear before third');
+        $this->assertNotFalse($pos1);
+        $this->assertNotFalse($pos2);
+        $this->assertNotFalse($pos3);
+        $this->assertLessThan($pos2, $pos1, 'First blocked IP should appear before second');
+        $this->assertLessThan($pos3, $pos2, 'Second blocked IP should appear before third');
     }
 
     // ─── blockMany / unblockMany ─────────────────────────────────────
@@ -162,9 +138,9 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockMany(['203.0.113.10', '203.0.113.11', '2001:db8::2']);
 
-        self::assertTrue($adapter->isBlocked('203.0.113.10'));
-        self::assertTrue($adapter->isBlocked('203.0.113.11'));
-        self::assertTrue($adapter->isBlocked('2001:db8::2'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.10'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.11'));
+        $this->assertTrue($adapter->isBlocked('2001:db8::2'));
     }
 
     public function testBlockManyWithDuplicatesDeduplicates(): void
@@ -173,7 +149,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockMany(['203.0.113.10', '203.0.113.10', '203.0.113.10']);
 
         $content = $this->readHtaccess();
-        self::assertSame(1, substr_count($content, 'Require not ip 203.0.113.10'));
+        $this->assertSame(1, substr_count($content, 'Require not ip 203.0.113.10'));
     }
 
     public function testBlockManyWithEmptyArrayIsNoOp(): void
@@ -181,7 +157,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockMany([]);
 
-        self::assertFileDoesNotExist($this->htaccess);
+        $this->assertFileDoesNotExist($this->htaccess);
     }
 
     public function testBlockManyWithInvalidIpIsAllOrNothing(): void
@@ -197,8 +173,8 @@ final class ApacheHtaccessAdapterTest extends TestCase
         }
 
         $content = $this->readHtaccess();
-        self::assertStringNotContainsString('# BEGIN Phirewall', $content);
-        self::assertStringNotContainsString('Require not ip', $content);
+        $this->assertStringNotContainsString('# BEGIN Phirewall', $content);
+        $this->assertStringNotContainsString('Require not ip', $content);
     }
 
     public function testUnblockManyRemovesMultipleIps(): void
@@ -208,21 +184,22 @@ final class ApacheHtaccessAdapterTest extends TestCase
 
         $adapter->unblockMany(['203.0.113.1', '203.0.113.3']);
 
-        self::assertFalse($adapter->isBlocked('203.0.113.1'));
-        self::assertTrue($adapter->isBlocked('203.0.113.2'));
-        self::assertFalse($adapter->isBlocked('203.0.113.3'));
+        $this->assertFalse($adapter->isBlocked('203.0.113.1'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.2'));
+        $this->assertFalse($adapter->isBlocked('203.0.113.3'));
     }
 
     public function testUnblockManyWithEmptyArrayIsNoOp(): void
     {
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockIp('203.0.113.1');
+
         $before = $this->readHtaccess();
 
         $adapter->unblockMany([]);
         $after = $this->readHtaccess();
 
-        self::assertSame($before, $after);
+        $this->assertSame($before, $after);
     }
 
     public function testUnblockManyWithInvalidIpThrows(): void
@@ -238,22 +215,22 @@ final class ApacheHtaccessAdapterTest extends TestCase
 
     public function testCreatesHtaccessFileWhenItDoesNotExist(): void
     {
-        self::assertFileDoesNotExist($this->htaccess);
+        $this->assertFileDoesNotExist($this->htaccess);
 
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockIp('203.0.113.50');
 
-        self::assertFileExists($this->htaccess);
+        $this->assertFileExists($this->htaccess);
         $content = $this->readHtaccess();
-        self::assertStringContainsString('# BEGIN Phirewall', $content);
-        self::assertStringContainsString('Require not ip 203.0.113.50', $content);
-        self::assertStringContainsString('# END Phirewall', $content);
+        $this->assertStringContainsString('# BEGIN Phirewall', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.50', $content);
+        $this->assertStringContainsString('# END Phirewall', $content);
     }
 
     public function testIsBlockedReturnsFalseWhenFileDoesNotExist(): void
     {
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
-        self::assertFalse($adapter->isBlocked('203.0.113.1'));
+        $this->assertFalse($adapter->isBlocked('203.0.113.1'));
     }
 
     // ─── Preserving existing .htaccess content ───────────────────────
@@ -267,17 +244,17 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('203.0.113.42');
 
         $content = $this->readHtaccess();
-        self::assertStringContainsString('Options -Indexes', $content);
-        self::assertStringContainsString('RewriteEngine On', $content);
-        self::assertStringContainsString('RewriteRule', $content);
-        self::assertStringContainsString('Require not ip 203.0.113.42', $content);
+        $this->assertStringContainsString('Options -Indexes', $content);
+        $this->assertStringContainsString('RewriteEngine On', $content);
+        $this->assertStringContainsString('RewriteRule', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.42', $content);
 
         // Preamble should appear before the managed section
         $preamblePos = strpos($content, 'Options -Indexes');
         $beginPos = strpos($content, '# BEGIN Phirewall');
-        self::assertNotFalse($preamblePos);
-        self::assertNotFalse($beginPos);
-        self::assertLessThan($beginPos, $preamblePos);
+        $this->assertNotFalse($preamblePos);
+        $this->assertNotFalse($beginPos);
+        $this->assertLessThan($beginPos, $preamblePos);
     }
 
     public function testPreservesExistingContentAfterMarkers(): void
@@ -289,17 +266,17 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('203.0.113.2');
 
         $content = $this->readHtaccess();
-        self::assertStringContainsString('# Before', $content);
-        self::assertStringContainsString('ErrorDocument 404 /404.html', $content);
-        self::assertStringContainsString('Require not ip 203.0.113.1', $content);
-        self::assertStringContainsString('Require not ip 203.0.113.2', $content);
+        $this->assertStringContainsString('# Before', $content);
+        $this->assertStringContainsString('ErrorDocument 404 /404.html', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.1', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.2', $content);
 
         // After content should appear after the managed section
         $endPos = strpos($content, '# END Phirewall');
         $afterPos = strpos($content, 'ErrorDocument 404');
-        self::assertNotFalse($endPos);
-        self::assertNotFalse($afterPos);
-        self::assertLessThan($afterPos, $endPos);
+        $this->assertNotFalse($endPos);
+        $this->assertNotFalse($afterPos);
+        $this->assertLessThan($afterPos, $endPos);
     }
 
     public function testPreservesContentBeforeAndAfterManagedSection(): void
@@ -315,9 +292,9 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->unblockIp('10.0.0.1');
 
         $content = $this->readHtaccess();
-        self::assertStringContainsString('Options +FollowSymLinks', $content);
-        self::assertStringContainsString('ErrorDocument 500 /500.html', $content);
-        self::assertStringNotContainsString('Require not ip 10.0.0.1', $content);
+        $this->assertStringContainsString('Options +FollowSymLinks', $content);
+        $this->assertStringContainsString('ErrorDocument 500 /500.html', $content);
+        $this->assertStringNotContainsString('Require not ip 10.0.0.1', $content);
     }
 
     // ─── Template / marker replacement ───────────────────────────────
@@ -332,13 +309,13 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('198.51.100.1');
 
         $content = $this->readHtaccess();
-        self::assertStringContainsString('Require not ip 198.51.100.1', $content);
-        self::assertStringNotContainsString('Require not ip 203.0.113.1', $content);
-        self::assertStringContainsString('# BEGIN Phirewall', $content);
-        self::assertStringContainsString('# END Phirewall', $content);
+        $this->assertStringContainsString('Require not ip 198.51.100.1', $content);
+        $this->assertStringNotContainsString('Require not ip 203.0.113.1', $content);
+        $this->assertStringContainsString('# BEGIN Phirewall', $content);
+        $this->assertStringContainsString('# END Phirewall', $content);
         // Only one pair of markers
-        self::assertSame(1, substr_count($content, '# BEGIN Phirewall'));
-        self::assertSame(1, substr_count($content, '# END Phirewall'));
+        $this->assertSame(1, substr_count($content, '# BEGIN Phirewall'));
+        $this->assertSame(1, substr_count($content, '# END Phirewall'));
     }
 
     public function testBlockDoesNotDuplicateMarkers(): void
@@ -349,8 +326,8 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('203.0.113.3');
 
         $content = $this->readHtaccess();
-        self::assertSame(1, substr_count($content, '# BEGIN Phirewall'));
-        self::assertSame(1, substr_count($content, '# END Phirewall'));
+        $this->assertSame(1, substr_count($content, '# BEGIN Phirewall'));
+        $this->assertSame(1, substr_count($content, '# END Phirewall'));
     }
 
     public function testManagedSectionStructure(): void
@@ -362,20 +339,20 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $content = $this->readHtaccess();
         $beginPos = strpos($content, '# BEGIN Phirewall');
         $endPos = strpos($content, '# END Phirewall');
-        self::assertNotFalse($beginPos);
-        self::assertNotFalse($endPos);
+        $this->assertNotFalse($beginPos);
+        $this->assertNotFalse($endPos);
 
         // Extract managed section
         $managed = substr($content, $beginPos, ($endPos + strlen('# END Phirewall')) - $beginPos);
         $lines = explode("\n", $managed);
 
         // First line is begin marker
-        self::assertSame('# BEGIN Phirewall', $lines[0]);
+        $this->assertSame('# BEGIN Phirewall', $lines[0]);
         // Directives in the middle
-        self::assertSame('Require not ip 203.0.113.1', $lines[1]);
-        self::assertSame('Require not ip 203.0.113.2', $lines[2]);
+        $this->assertSame('Require not ip 203.0.113.1', $lines[1]);
+        $this->assertSame('Require not ip 203.0.113.2', $lines[2]);
         // Last line is end marker
-        self::assertSame('# END Phirewall', $lines[3]);
+        $this->assertSame('# END Phirewall', $lines[3]);
     }
 
     // ─── Edge cases: empty IP, invalid IP format ─────────────────────
@@ -463,11 +440,11 @@ final class ApacheHtaccessAdapterTest extends TestCase
     {
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
 
-        self::assertFalse($adapter->isBlocked('203.0.113.11'));
+        $this->assertFalse($adapter->isBlocked('203.0.113.11'));
         $adapter->blockIp('203.0.113.11');
-        self::assertTrue($adapter->isBlocked('203.0.113.11'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.11'));
         $adapter->unblockIp('203.0.113.11');
-        self::assertFalse($adapter->isBlocked('203.0.113.11'));
+        $this->assertFalse($adapter->isBlocked('203.0.113.11'));
     }
 
     public function testIsBlockedDistinguishesDifferentIps(): void
@@ -475,18 +452,18 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockIp('203.0.113.1');
 
-        self::assertTrue($adapter->isBlocked('203.0.113.1'));
-        self::assertFalse($adapter->isBlocked('203.0.113.2'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.1'));
+        $this->assertFalse($adapter->isBlocked('203.0.113.2'));
     }
 
     // ─── File I/O edge cases ─────────────────────────────────────────
 
     public function testBlockThrowsWhenDirectoryDoesNotExist(): void
     {
-        $adapter = new ApacheHtaccessAdapter('/tmp/non_existent_dir_' . bin2hex(random_bytes(8)) . '/.htaccess');
+        $adapter = new ApacheHtaccessAdapter($this->tmpDir . '/non_existent_dir/.htaccess');
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Directory does not exist');
+        $this->expectExceptionMessageMatches('/Directory does not exist:/');
         $adapter->blockIp('203.0.113.1');
     }
 
@@ -498,9 +475,9 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('203.0.113.1');
 
         $content = $this->readHtaccess();
-        self::assertStringContainsString('# BEGIN Phirewall', $content);
-        self::assertStringContainsString('Require not ip 203.0.113.1', $content);
-        self::assertStringContainsString('# END Phirewall', $content);
+        $this->assertStringContainsString('# BEGIN Phirewall', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.1', $content);
+        $this->assertStringContainsString('# END Phirewall', $content);
     }
 
     public function testHtaccessWithOnlyWhitespaceCreatesProperSection(): void
@@ -511,8 +488,8 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('203.0.113.1');
 
         $content = $this->readHtaccess();
-        self::assertStringContainsString('# BEGIN Phirewall', $content);
-        self::assertStringContainsString('Require not ip 203.0.113.1', $content);
+        $this->assertStringContainsString('# BEGIN Phirewall', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.1', $content);
     }
 
     public function testCorruptedMarkersBeginWithoutEndTreatsAsNoSection(): void
@@ -524,9 +501,9 @@ final class ApacheHtaccessAdapterTest extends TestCase
 
         $content = $this->readHtaccess();
         // The old corrupt content becomes "before" content, and a new managed section is created
-        self::assertStringContainsString('Require not ip 203.0.113.1', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.1', $content);
         // Should have exactly one proper pair of markers
-        self::assertSame(1, substr_count($content, '# END Phirewall'));
+        $this->assertSame(1, substr_count($content, '# END Phirewall'));
     }
 
     public function testReversedMarkersTreatsAsNoSection(): void
@@ -538,7 +515,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('203.0.113.1');
 
         $content = $this->readHtaccess();
-        self::assertStringContainsString('Require not ip 203.0.113.1', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.1', $content);
     }
 
     // ─── Atomic file write ───────────────────────────────────────────
@@ -548,11 +525,12 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockIp('203.0.113.1');
 
-        // glob('*') does not match dotfiles; check for .htaccess.tmp.* leftovers explicitly
-        $tmpFiles = glob($this->tmpDir . '/.htaccess.tmp.*') ?: [];
+        // scandir works with vfsStream (glob does not support stream wrappers)
+        $entries = scandir($this->tmpDir) ?: [];
+        $tmpFiles = array_filter($entries, static fn(string $entry): bool => str_starts_with($entry, '.htaccess.tmp.'));
 
-        self::assertSame([], $tmpFiles, 'No temporary files should remain after atomic write');
-        self::assertFileExists($this->htaccess);
+        $this->assertSame([], array_values($tmpFiles), 'No temporary files should remain after atomic write');
+        $this->assertFileExists($this->htaccess);
     }
 
     public function testBlockPreservesExistingFilePermissions(): void
@@ -564,7 +542,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('203.0.113.1');
 
         $perms = fileperms($this->htaccess) & 0777;
-        self::assertSame(0644, $perms, 'File permissions should be preserved after atomic write');
+        $this->assertSame(0644, $perms, 'File permissions should be preserved after atomic write');
     }
 
     // ─── Valid IP formats that should be accepted ────────────────────
@@ -575,7 +553,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockIp($ip);
 
-        self::assertTrue($adapter->isBlocked($ip));
+        $this->assertTrue($adapter->isBlocked($ip));
     }
 
     /**
@@ -601,10 +579,10 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockIp('  203.0.113.1  ');
 
-        self::assertTrue($adapter->isBlocked('203.0.113.1'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.1'));
         $content = $this->readHtaccess();
-        self::assertStringContainsString('Require not ip 203.0.113.1', $content);
-        self::assertStringNotContainsString('Require not ip   203.0.113.1', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.1', $content);
+        $this->assertStringNotContainsString('Require not ip   203.0.113.1', $content);
     }
 
     // ─── Full lifecycle ──────────────────────────────────────────────
@@ -621,30 +599,30 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('203.0.113.2');
         $adapter->blockIp('2001:db8::1');
 
-        self::assertTrue($adapter->isBlocked('203.0.113.1'));
-        self::assertTrue($adapter->isBlocked('203.0.113.2'));
-        self::assertTrue($adapter->isBlocked('2001:db8::1'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.1'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.2'));
+        $this->assertTrue($adapter->isBlocked('2001:db8::1'));
 
         // Unblock one
         $adapter->unblockIp('203.0.113.2');
-        self::assertTrue($adapter->isBlocked('203.0.113.1'));
-        self::assertFalse($adapter->isBlocked('203.0.113.2'));
-        self::assertTrue($adapter->isBlocked('2001:db8::1'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.1'));
+        $this->assertFalse($adapter->isBlocked('203.0.113.2'));
+        $this->assertTrue($adapter->isBlocked('2001:db8::1'));
 
         // Block another
         $adapter->blockIp('198.51.100.1');
-        self::assertTrue($adapter->isBlocked('198.51.100.1'));
+        $this->assertTrue($adapter->isBlocked('198.51.100.1'));
 
         // Unblock all
         $adapter->unblockMany(['203.0.113.1', '2001:db8::1', '198.51.100.1']);
-        self::assertFalse($adapter->isBlocked('203.0.113.1'));
-        self::assertFalse($adapter->isBlocked('2001:db8::1'));
-        self::assertFalse($adapter->isBlocked('198.51.100.1'));
+        $this->assertFalse($adapter->isBlocked('203.0.113.1'));
+        $this->assertFalse($adapter->isBlocked('2001:db8::1'));
+        $this->assertFalse($adapter->isBlocked('198.51.100.1'));
 
         // Preamble should still be there
         $content = $this->readHtaccess();
-        self::assertStringContainsString('Options -Indexes', $content);
-        self::assertStringContainsString('RewriteEngine On', $content);
+        $this->assertStringContainsString('Options -Indexes', $content);
+        $this->assertStringContainsString('RewriteEngine On', $content);
     }
 
     // ─── Separate adapter instances sharing the same file ────────────
@@ -655,10 +633,10 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter2 = new ApacheHtaccessAdapter($this->htaccess);
 
         $adapter1->blockIp('203.0.113.1');
-        self::assertTrue($adapter2->isBlocked('203.0.113.1'));
+        $this->assertTrue($adapter2->isBlocked('203.0.113.1'));
 
         $adapter2->unblockIp('203.0.113.1');
-        self::assertFalse($adapter1->isBlocked('203.0.113.1'));
+        $this->assertFalse($adapter1->isBlocked('203.0.113.1'));
     }
 
     // ─── Integration with InfrastructureBanListener ──────────────────
@@ -686,9 +664,9 @@ final class ApacheHtaccessAdapterTest extends TestCase
 
         $listener->onFail2BanBanned($event);
 
-        self::assertTrue($adapter->isBlocked('203.0.113.50'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.50'));
         $content = $this->readHtaccess();
-        self::assertStringContainsString('Require not ip 203.0.113.50', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.50', $content);
     }
 
     public function testIntegrationWithInfrastructureBanListenerViaBlocklist(): void
@@ -707,7 +685,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
 
         $listener->onBlocklistMatched($event);
 
-        self::assertTrue($adapter->isBlocked('198.51.100.77'));
+        $this->assertTrue($adapter->isBlocked('198.51.100.77'));
     }
 
     public function testIntegrationListenerDoesNotBlockWhenFail2BanDisabled(): void
@@ -733,7 +711,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
 
         $listener->onFail2BanBanned($event);
 
-        self::assertFalse($adapter->isBlocked('203.0.113.50'));
+        $this->assertFalse($adapter->isBlocked('203.0.113.50'));
     }
 
     public function testIntegrationListenerWithCustomKeyToIpMapper(): void
@@ -760,7 +738,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
         );
 
         $listener->onFail2BanBanned($event);
-        self::assertTrue($adapter->isBlocked('203.0.113.99'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.99'));
 
         // Event with a key that returns null (should be skipped)
         $event2 = new \Flowd\Phirewall\Events\Fail2BanBanned(
@@ -775,9 +753,9 @@ final class ApacheHtaccessAdapterTest extends TestCase
 
         $listener->onFail2BanBanned($event2);
         // Only the first IP should be blocked
-        self::assertTrue($adapter->isBlocked('203.0.113.99'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.99'));
         $content = $this->readHtaccess();
-        self::assertSame(1, substr_count($content, 'Require not ip'));
+        $this->assertSame(1, substr_count($content, 'Require not ip'));
     }
 
     // ─── Unblock all IPs ────────────────────────────────────────
@@ -791,9 +769,9 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->unblockMany(['203.0.113.1', '203.0.113.2']);
 
         $content = $this->readHtaccess();
-        self::assertStringContainsString('# BEGIN Phirewall', $content);
-        self::assertStringContainsString('# END Phirewall', $content);
-        self::assertStringNotContainsString('Require not ip', $content);
+        $this->assertStringContainsString('# BEGIN Phirewall', $content);
+        $this->assertStringContainsString('# END Phirewall', $content);
+        $this->assertStringNotContainsString('Require not ip', $content);
     }
 
     // ─── New file permissions ───────────────────────────────────
@@ -803,7 +781,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockIp('203.0.113.1');
 
-        self::assertFileIsReadable($this->htaccess);
+        $this->assertFileIsReadable($this->htaccess);
     }
 
     // ─── Large number of IPs ────────────────────────────────────
@@ -811,7 +789,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
     public function testBlockManyWithLargeNumberOfIps(): void
     {
         $ips = [];
-        for ($index = 1; $index <= 100; $index++) {
+        for ($index = 1; $index <= 100; ++$index) {
             $ips[] = '10.0.0.' . $index;
         }
 
@@ -819,10 +797,10 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockMany($ips);
 
         $content = $this->readHtaccess();
-        self::assertSame(100, substr_count($content, 'Require not ip'));
-        self::assertTrue($adapter->isBlocked('10.0.0.1'));
-        self::assertTrue($adapter->isBlocked('10.0.0.100'));
-        self::assertFalse($adapter->isBlocked('10.0.0.101'));
+        $this->assertSame(100, substr_count($content, 'Require not ip'));
+        $this->assertTrue($adapter->isBlocked('10.0.0.1'));
+        $this->assertTrue($adapter->isBlocked('10.0.0.100'));
+        $this->assertFalse($adapter->isBlocked('10.0.0.101'));
     }
 
     // ─── Mixed block and unblock many ───────────────────────────
@@ -835,17 +813,17 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->unblockMany(['203.0.113.2', '203.0.113.4']);
 
         $content = $this->readHtaccess();
-        self::assertStringContainsString('Require not ip 203.0.113.1', $content);
-        self::assertStringNotContainsString('Require not ip 203.0.113.2', $content);
-        self::assertStringContainsString('Require not ip 203.0.113.3', $content);
-        self::assertStringNotContainsString('Require not ip 203.0.113.4', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.1', $content);
+        $this->assertStringNotContainsString('Require not ip 203.0.113.2', $content);
+        $this->assertStringContainsString('Require not ip 203.0.113.3', $content);
+        $this->assertStringNotContainsString('Require not ip 203.0.113.4', $content);
 
         // Verify remaining order is preserved
         $pos1 = strpos($content, 'Require not ip 203.0.113.1');
         $pos3 = strpos($content, 'Require not ip 203.0.113.3');
-        self::assertNotFalse($pos1);
-        self::assertNotFalse($pos3);
-        self::assertLessThan($pos3, $pos1);
+        $this->assertNotFalse($pos1);
+        $this->assertNotFalse($pos3);
+        $this->assertLessThan($pos3, $pos1);
     }
 
     // ─── isBlocked on file that was externally modified ─────────
@@ -854,15 +832,12 @@ final class ApacheHtaccessAdapterTest extends TestCase
     {
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockIp('203.0.113.1');
-        self::assertTrue($adapter->isBlocked('203.0.113.1'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.1'));
 
         // Externally remove the managed section
         file_put_contents($this->htaccess, "# Empty file\n");
 
-        self::assertFalse(
-            $adapter->isBlocked('203.0.113.1'),
-            'isBlocked should re-read the file and detect external changes'
-        );
+        $this->assertFalse($adapter->isBlocked('203.0.113.1'), 'isBlocked should re-read the file and detect external changes');
     }
 
     // ─── unblockMany validates all IPs before modifying file ────
@@ -871,6 +846,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
     {
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockMany(['203.0.113.1', '203.0.113.2']);
+
         $contentBefore = $this->readHtaccess();
 
         try {
@@ -882,11 +858,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
 
         // File should not have been modified because validation failed before write
         $contentAfter = $this->readHtaccess();
-        self::assertSame(
-            $contentBefore,
-            $contentAfter,
-            'File should not change when unblockMany validation fails'
-        );
+        $this->assertSame($contentBefore, $contentAfter, 'File should not change when unblockMany validation fails');
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────
