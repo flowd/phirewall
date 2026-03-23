@@ -541,6 +541,38 @@ $config->isEnabled();        // Check state (default: true)
 
 ---
 
+### setFailOpen()
+
+Configure whether the middleware should fail open (default) or fail closed when the firewall encounters an error (e.g., cache backend unavailable).
+
+```php
+$config->setFailOpen(true);   // Default: allow requests through on error
+$config->setFailOpen(false);  // Strict: exceptions propagate (500 error)
+$config->isFailOpen();        // Check state
+```
+
+**Fail-open (default):** If `Firewall::decide()` throws an exception, the Middleware catches it, dispatches a `FirewallError` PSR-14 event for logging, and passes the request through to the next handler. This prevents a cache or database outage from taking down the application.
+
+**Fail-closed:** Exceptions propagate from the Middleware, typically resulting in a 500 error. Use this when blocking is more important than availability (e.g., payment gateways, compliance-critical endpoints).
+
+How you register listeners depends on your event dispatcher (PSR-14 defines dispatching, not registration). In your listener:
+
+```php
+use Flowd\Phirewall\Events\FirewallError;
+
+function onFirewallError(FirewallError $event): void
+{
+    $logger->error('Firewall error', [
+        'exception' => $event->exception->getMessage(),
+        'uri' => (string) $event->serverRequest->getUri(),
+    ]);
+}
+```
+
+> **Note:** Fail-open only affects errors from the firewall decision engine (cache failures, storage errors). It does not affect normal blocking behavior — throttled and banned requests are still blocked when the firewall is functioning.
+
+---
+
 ### setDiscriminatorNormalizer()
 
 Set a normalizer applied to all discriminator keys (throttle, fail2ban, track) before cache lookups.

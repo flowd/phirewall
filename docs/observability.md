@@ -109,6 +109,22 @@ $event->ruleName;       // ?string - Rule that decided (null if passed)
 
 ---
 
+### FirewallError
+
+Dispatched when the firewall encounters an error during request evaluation (fail-open mode only). The request is allowed through; listeners should log the error for monitoring.
+
+```php
+use Flowd\Phirewall\Events\FirewallError;
+
+// Properties
+$event->exception;     // \Throwable - The exception that occurred
+$event->serverRequest; // ServerRequestInterface - The request being evaluated
+```
+
+> This event is only dispatched in fail-open mode (the default). In fail-closed mode, exceptions propagate directly. See [Configuration: setFailOpen()](configuration.md#setfailopen).
+
+---
+
 ## Integration Examples
 
 ### Minimal Dispatcher

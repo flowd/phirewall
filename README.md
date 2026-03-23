@@ -119,7 +119,8 @@ The [examples/](examples/) folder contains runnable examples:
 
 ### Observability
 
-- **PSR-14 Events** - `SafelistMatched`, `BlocklistMatched`, `ThrottleExceeded`, `Fail2BanBanned`, `TrackHit`
+- **PSR-14 Events** - `SafelistMatched`, `BlocklistMatched`, `ThrottleExceeded`, `Fail2BanBanned`, `TrackHit`, `FirewallError`
+- **Fail-Open by Default** - Cache outages don't take down the application; errors dispatched via PSR-14
 - **Diagnostics Counters** - Per-rule statistics for monitoring
 - **Standard Headers** - `X-RateLimit-*`, `Retry-After`, `X-Phirewall-*`
 
