@@ -101,6 +101,7 @@ The [examples/](examples/) folder contains runnable examples:
 | 23 | [dynamic-limits](examples/23-dynamic-limits.php) | Role-based dynamic throttle limits |
 | 24 | [pdo-storage](examples/24-pdo-storage.php) | PdoCache with SQLite, MySQL, PostgreSQL |
 | 25 | [track-threshold](examples/25-track-threshold.php) | Track with optional threshold and thresholdReached flag |
+| 26 | [psr17-factories](examples/26-psr17-factories.php) | PSR-17 response factory integration |
 
 ## Features
 
@@ -210,6 +211,31 @@ $config->throttledResponse(function (string $rule, int $retryAfter, $req) {
         json_encode(['error' => 'Rate limited', 'retry_after' => $retryAfter])
     );
 });
+```
+
+### PSR-17 Response Factories
+
+Use standard PSR-17 factories for framework-native responses:
+
+```php
+use Nyholm\Psr7\Factory\Psr17Factory;
+
+$psr17 = new Psr17Factory();
+$config->usePsr17Responses($psr17, $psr17);
+```
+
+Or customise body text per response type:
+
+```php
+use Flowd\Phirewall\Config\Response\Psr17BlocklistedResponseFactory;
+use Flowd\Phirewall\Config\Response\Psr17ThrottledResponseFactory;
+
+$config->blocklistedResponseFactory = new Psr17BlocklistedResponseFactory(
+    $psr17, $psr17, 'Access Denied',
+);
+$config->throttledResponseFactory = new Psr17ThrottledResponseFactory(
+    $psr17, $psr17, 'Rate limit exceeded.',
+);
 ```
 
 ## OWASP Core Rule Set

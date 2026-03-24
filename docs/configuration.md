@@ -521,6 +521,57 @@ $config->throttledResponse(function (string $rule, int $retryAfter, $req): Respo
 
 ---
 
+### usePsr17Responses()
+
+Configure both blocklisted and throttled response factories using PSR-17 factories.
+
+This is a convenience method that wires up standard `ResponseFactoryInterface` and optional `StreamFactoryInterface` so Phirewall builds 403 and 429 responses using your framework's native HTTP message implementation.
+
+```php
+public function usePsr17Responses(
+    ResponseFactoryInterface $responseFactory,
+    ?StreamFactoryInterface $streamFactory = null,
+): self
+```
+
+**Parameters:**
+- `$responseFactory` - Any PSR-17 `ResponseFactoryInterface` implementation
+- `$streamFactory` - Optional PSR-17 `StreamFactoryInterface` for writing response bodies. Without it, responses will have the correct status code and headers but an empty body.
+
+**Example:**
+```php
+use Nyholm\Psr7\Factory\Psr17Factory;
+
+$psr17 = new Psr17Factory(); // implements both ResponseFactoryInterface and StreamFactoryInterface
+
+$config->usePsr17Responses($psr17, $psr17);
+```
+
+---
+
+### Individual PSR-17 Factories
+
+For full control, assign `Psr17BlocklistedResponseFactory` and `Psr17ThrottledResponseFactory` directly. This lets you customise the body text per response type.
+
+```php
+use Flowd\Phirewall\Config\Response\Psr17BlocklistedResponseFactory;
+use Flowd\Phirewall\Config\Response\Psr17ThrottledResponseFactory;
+
+$config->blocklistedResponseFactory = new Psr17BlocklistedResponseFactory(
+    $responseFactory,
+    $streamFactory,
+    'Access Denied -- your request has been blocked.',
+);
+
+$config->throttledResponseFactory = new Psr17ThrottledResponseFactory(
+    $responseFactory,
+    $streamFactory,
+    'Rate limit exceeded. Please slow down.',
+);
+```
+
+---
+
 ## Global Options
 
 ### disable() / enable() / setEnabled()
