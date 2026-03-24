@@ -104,6 +104,7 @@ The [examples/](examples/) folder contains runnable examples:
 | 24 | [pdo-storage](examples/24-pdo-storage.php) | PdoCache with SQLite, MySQL, PostgreSQL |
 | 25 | [track-threshold](examples/25-track-threshold.php) | Track with optional threshold and thresholdReached flag |
 | 26 | [psr17-factories](examples/26-psr17-factories.php) | PSR-17 response factory integration |
+| 27 | [request-context](examples/27-request-context.php) | RequestContext API for post-handler fail2ban signaling |
 
 ## Features
 
@@ -313,11 +314,22 @@ $config->throttles->add('login', limit: 10, period: 60, key: function($req) {
         : null;
 });
 
-// Ban after failures
+// Ban after failures — signaled via RequestContext from your handler
 $config->fail2ban->add('login-ban', threshold: 5, period: 300, ban: 3600,
-    filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
+    filter: fn($request): bool => false,
     key: KeyExtractors::ip()
 );
+```
+
+In your login handler, signal failures via the request context:
+
+```php
+use Flowd\Phirewall\Context\RequestContext;
+
+$context = $request->getAttribute(RequestContext::ATTRIBUTE_NAME);
+if (!$authenticated && $context instanceof RequestContext) {
+    $context->recordFailure('login-ban', $request->getServerParams()['REMOTE_ADDR'] ?? '');
+}
 ```
 
 ### Bot Detection

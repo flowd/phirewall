@@ -29,6 +29,7 @@ php examples/01-basic-setup.php
 | [06-bot-detection.php](06-bot-detection.php) | Scanner and malicious bot blocking |
 | [07-ip-blocklist.php](07-ip-blocklist.php) | File-backed IP/CIDR/path blocklists |
 | [08-comprehensive-protection.php](08-comprehensive-protection.php) | Production-ready multi-layer protection |
+| [27-request-context.php](27-request-context.php) | RequestContext API for post-handler fail2ban signaling |
 
 ### Observability
 
