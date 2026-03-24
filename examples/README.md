@@ -52,6 +52,21 @@ php examples/01-basic-setup.php
 | [14-owasp-crs-files.php](14-owasp-crs-files.php) | Loading OWASP CRS rules from files in [14-owasp_crs_basic/](14-owasp_crs_basic/) |
 | [15-in-memory-pattern-backend.php](15-in-memory-pattern-backend.php) | Configuration-based blocklists without file I/O                                 |
 
+### Advanced Features
+
+| Example | Description |
+|---------|-------------|
+| [16-allow2ban.php](16-allow2ban.php) | Hard volume cap with auto-ban |
+| [17-known-scanners.php](17-known-scanners.php) | Block known attack tools and vulnerability scanners |
+| [18-trusted-bots.php](18-trusted-bots.php) | Trusted bot verification via reverse DNS |
+| [19-header-analysis.php](19-header-analysis.php) | Suspicious headers detection |
+| [20-rule-benchmarks.php](20-rule-benchmarks.php) | Firewall rule performance benchmarks |
+| [21-sliding-window.php](21-sliding-window.php) | Sliding window rate limiting |
+| [22-multi-throttle.php](22-multi-throttle.php) | Multi-window burst + sustained rate limiting |
+| [23-dynamic-limits.php](23-dynamic-limits.php) | Role-based dynamic throttle limits |
+| [24-pdo-storage.php](24-pdo-storage.php) | PdoCache with SQLite, MySQL, PostgreSQL |
+| [25-track-threshold.php](25-track-threshold.php) | Track with optional threshold and thresholdReached flag |
+
 ## Optional Dependencies
 
 Some examples require optional dependencies:
@@ -102,7 +117,7 @@ Test 1: Health check endpoint (safelisted)
 
 Test 2: WordPress admin probe (blocklisted)
   GET /wp-admin/admin.php                  => 403
-    X-Phirewall: blocked
+    X-Phirewall: blocklist
     X-Phirewall-Matched: wp-probe
 
 ...

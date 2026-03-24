@@ -83,7 +83,7 @@ echo "All rules remain enabled for this demo\n\n";
 // =============================================================================
 
 $config = new Config(new InMemoryCache());
-$config->owaspBlocklist('owasp', $coreRuleSet);
+$config->blocklists->owasp('owasp', $coreRuleSet);
 
 // Enable diagnostics header to see which rule matched
 $config->enableOwaspDiagnosticsHeader();

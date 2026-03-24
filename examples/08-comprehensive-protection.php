@@ -87,13 +87,13 @@ echo "  Rate limit headers: enabled\n\n";
 
 echo "Layer 1: Safelists\n";
 
-$config->safelist('health', fn($req): bool => $req->getUri()->getPath() === '/health');
+$config->safelists->add('health', fn($req): bool => $req->getUri()->getPath() === '/health');
 echo "  - /health endpoint\n";
 
-$config->safelist('metrics', fn($req): bool => $req->getUri()->getPath() === '/metrics');
+$config->safelists->add('metrics', fn($req): bool => $req->getUri()->getPath() === '/metrics');
 echo "  - /metrics endpoint\n";
 
-$config->safelist('internal-ips', function ($req) use ($proxyResolver): bool {
+$config->safelists->add('internal-ips', function ($req) use ($proxyResolver): bool {
     $ip = $proxyResolver->resolve($req);
     if ($ip === null) {
         return false;
@@ -112,7 +112,7 @@ echo "Layer 2: Blocklists\n";
 
 // Scanner User-Agents
 $scanners = ['sqlmap', 'nikto', 'nmap', 'burp', 'dirbuster', 'wfuzz', 'nuclei'];
-$config->blocklist('scanner-ua', function ($req) use ($scanners): bool {
+$config->blocklists->add('scanner-ua', function ($req) use ($scanners): bool {
     $ua = strtolower((string) $req->getHeaderLine('User-Agent'));
     foreach ($scanners as $scanner) {
         if (str_contains($ua, $scanner)) {
@@ -126,7 +126,7 @@ echo "  - Scanner User-Agents (" . count($scanners) . " patterns)\n";
 
 // Scanner paths
 $blockedPaths = ['/wp-admin', '/phpmyadmin', '/.env', '/.git', '/phpinfo.php'];
-$config->blocklist('scanner-paths', function ($req) use ($blockedPaths): bool {
+$config->blocklists->add('scanner-paths', function ($req) use ($blockedPaths): bool {
     $path = strtolower((string) $req->getUri()->getPath());
     foreach ($blockedPaths as $blockedPath) {
         if (str_starts_with($path, $blockedPath)) {
@@ -139,7 +139,7 @@ $config->blocklist('scanner-paths', function ($req) use ($blockedPaths): bool {
 echo "  - Scanner paths (" . count($blockedPaths) . " patterns)\n";
 
 // Path traversal
-$config->blocklist('path-traversal', function ($req): bool {
+$config->blocklists->add('path-traversal', function ($req): bool {
     $input = urldecode($req->getUri()->getPath() . '?' . $req->getUri()->getQuery());
     return preg_match('~\.\.[\\\\/]~', $input) === 1;
 });
@@ -169,7 +169,7 @@ SecRule ARGS "@rx (?i)(base64_decode|gzinflate)\s*\(" "id:933110,phase:2,deny,ms
 CRS;
 
 $coreRuleSet = SecRuleLoader::fromString($owaspRules);
-$config->owaspBlocklist('owasp', $coreRuleSet);
+$config->blocklists->owasp('owasp', $coreRuleSet);
 echo "  - SQL Injection rules (4)\n";
 echo "  - XSS rules (3)\n";
 echo "  - PHP Injection rules (2)\n\n";
@@ -181,7 +181,7 @@ echo "  - PHP Injection rules (2)\n\n";
 echo "Layer 4: Fail2Ban\n";
 
 // Login brute force
-$config->fail2ban('login-brute',
+$config->fail2ban->add('login-brute',
     threshold: 5,
     period: 300,
     ban: 3600,
@@ -191,7 +191,7 @@ $config->fail2ban('login-brute',
 echo "  - Login: 5 failures in 5min = 1 hour ban\n";
 
 // API abuse
-$config->fail2ban('api-abuse',
+$config->fail2ban->add('api-abuse',
     threshold: 10,
     period: 60,
     ban: 1800,
@@ -207,11 +207,11 @@ echo "  - API: 10 errors in 1min = 30 min ban\n\n";
 echo "Layer 5: Throttling\n";
 
 // Global limit
-$config->throttle('global', limit: 200, period: 60, key: KeyExtractors::clientIp($proxyResolver));
+$config->throttles->add('global', limit: 200, period: 60, key: KeyExtractors::clientIp($proxyResolver));
 echo "  - Global: 200/min per IP\n";
 
 // Write operations
-$config->throttle('write-ops', limit: 50, period: 60, key: function ($req) use ($proxyResolver): ?string {
+$config->throttles->add('write-ops', limit: 50, period: 60, key: function ($req) use ($proxyResolver): ?string {
     if (in_array($req->getMethod(), ['POST', 'PUT', 'PATCH', 'DELETE'])) {
         return $proxyResolver->resolve($req);
     }
@@ -221,7 +221,7 @@ $config->throttle('write-ops', limit: 50, period: 60, key: function ($req) use (
 echo "  - Write ops: 50/min per IP\n";
 
 // Login endpoint
-$config->throttle('login', limit: 10, period: 60, key: function ($req) use ($proxyResolver): ?string {
+$config->throttles->add('login', limit: 10, period: 60, key: function ($req) use ($proxyResolver): ?string {
     if ($req->getUri()->getPath() === '/login') {
         return $proxyResolver->resolve($req);
     }
@@ -231,28 +231,32 @@ $config->throttle('login', limit: 10, period: 60, key: function ($req) use ($pro
 echo "  - Login: 10/min per IP\n";
 
 // Authenticated users (higher limit)
-$config->throttle('user', limit: 1000, period: 60, key: KeyExtractors::header('X-User-Id'));
+$config->throttles->add('user', limit: 1000, period: 60, key: KeyExtractors::header('X-User-Id'));
 echo "  - Authenticated: 1000/min per user\n";
 
 // Burst detection
-$config->throttle('burst', limit: 30, period: 5, key: KeyExtractors::clientIp($proxyResolver));
+$config->throttles->add('burst', limit: 30, period: 5, key: KeyExtractors::clientIp($proxyResolver));
 echo "  - Burst: 30/5s per IP\n\n";
 
 // =============================================================================
 // CUSTOM RESPONSES
 // =============================================================================
 
-$config->blocklistedResponse(fn(string $rule, string $type, $req): ResponseInterface => new Response(403, ['Content-Type' => 'application/json'], json_encode([
-    'error' => 'Forbidden',
-    'message' => 'Your request has been blocked by our security system.',
-    'code' => 'SECURITY_BLOCK',
-], JSON_THROW_ON_ERROR)));
+$config->blocklistedResponseFactory = new \Flowd\Phirewall\Config\Response\ClosureBlocklistedResponseFactory(
+    fn(string $rule, string $type, $req): ResponseInterface => new Response(403, ['Content-Type' => 'application/json'], json_encode([
+        'error' => 'Forbidden',
+        'message' => 'Your request has been blocked by our security system.',
+        'code' => 'SECURITY_BLOCK',
+    ], JSON_THROW_ON_ERROR))
+);
 
-$config->throttledResponse(fn(string $rule, int $retryAfter, $req): ResponseInterface => new Response(429, ['Content-Type' => 'application/json'], json_encode([
-    'error' => 'Too Many Requests',
-    'message' => 'Rate limit exceeded. Please try again later.',
-    'retry_after' => $retryAfter,
-], JSON_THROW_ON_ERROR)));
+$config->throttledResponseFactory = new \Flowd\Phirewall\Config\Response\ClosureThrottledResponseFactory(
+    fn(string $rule, int $retryAfter, $req): ResponseInterface => new Response(429, ['Content-Type' => 'application/json'], json_encode([
+        'error' => 'Too Many Requests',
+        'message' => 'Rate limit exceeded. Please try again later.',
+        'retry_after' => $retryAfter,
+    ], JSON_THROW_ON_ERROR))
+);
 
 // =============================================================================
 // SIMULATION

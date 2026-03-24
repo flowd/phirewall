@@ -41,7 +41,7 @@ $config->enableRateLimitHeaders(); // Send X-RateLimit-* headers
 // -----------------------------------------------------------------------------
 // Tier 1: Global IP-based limit (baseline protection)
 // -----------------------------------------------------------------------------
-$config->throttle(
+$config->throttles->add(
     name: 'global-ip',
     limit: 100,     // 100 requests
     period: 60,     // per minute
@@ -52,7 +52,7 @@ echo "1. Global limit: 100 req/min per IP\n";
 // -----------------------------------------------------------------------------
 // Tier 2: Burst detection (prevent rapid-fire requests)
 // -----------------------------------------------------------------------------
-$config->throttle(
+$config->throttles->add(
     name: 'burst',
     limit: 20,      // 20 requests
     period: 5,      // in 5 seconds
@@ -63,7 +63,7 @@ echo "2. Burst limit: 20 req/5s per IP\n";
 // -----------------------------------------------------------------------------
 // Tier 3: Write operation limits (POST/PUT/DELETE)
 // -----------------------------------------------------------------------------
-$config->throttle(
+$config->throttles->add(
     name: 'write-ops',
     limit: 30,
     period: 60,
@@ -82,7 +82,7 @@ echo "3. Write ops limit: 30 req/min per IP\n";
 // -----------------------------------------------------------------------------
 
 // Search endpoint (expensive operation)
-$config->throttle(
+$config->throttles->add(
     name: 'search',
     limit: 10,
     period: 60,
@@ -97,7 +97,7 @@ $config->throttle(
 echo "4. Search endpoint: 10 req/min per IP\n";
 
 // Export endpoint (very expensive)
-$config->throttle(
+$config->throttles->add(
     name: 'export',
     limit: 2,
     period: 300, // 5 minutes
@@ -114,7 +114,7 @@ echo "5. Export endpoint: 2 req/5min per IP\n";
 // -----------------------------------------------------------------------------
 // Tier 5: Authenticated user limits (higher quota)
 // -----------------------------------------------------------------------------
-$config->throttle(
+$config->throttles->add(
     name: 'authenticated',
     limit: 1000,
     period: 60,
@@ -125,7 +125,7 @@ echo "6. Authenticated users: 1000 req/min per user\n";
 // -----------------------------------------------------------------------------
 // Tier 6: API key limits
 // -----------------------------------------------------------------------------
-$config->throttle(
+$config->throttles->add(
     name: 'api-key',
     limit: 500,
     period: 60,
@@ -136,15 +136,17 @@ echo "7. API key: 500 req/min per key\n";
 // -----------------------------------------------------------------------------
 // Custom response for rate limiting
 // -----------------------------------------------------------------------------
-$config->throttledResponse(fn(string $rule, int $retryAfter, $request): ResponseInterface => new Response(429, [
-    'Content-Type' => 'application/json',
-    'Retry-After' => (string) $retryAfter,
-], json_encode([
-    'error' => 'rate_limit_exceeded',
-    'message' => sprintf("You've exceeded the rate limit. Please try again in %d seconds.", $retryAfter),
-    'rule' => $rule,
-    'retry_after' => $retryAfter,
-], JSON_THROW_ON_ERROR)));
+$config->throttledResponseFactory = new \Flowd\Phirewall\Config\Response\ClosureThrottledResponseFactory(
+    fn(string $rule, int $retryAfter, $request): ResponseInterface => new Response(429, [
+        'Content-Type' => 'application/json',
+        'Retry-After' => (string) $retryAfter,
+    ], json_encode([
+        'error' => 'rate_limit_exceeded',
+        'message' => sprintf("You've exceeded the rate limit. Please try again in %d seconds.", $retryAfter),
+        'rule' => $rule,
+        'retry_after' => $retryAfter,
+    ], JSON_THROW_ON_ERROR))
+);
 
 echo "\n";
 

@@ -133,7 +133,7 @@ echo "Rules skipped: {$result['skipped']}\n\n";
 // =============================================================================
 
 $config = new Config(new InMemoryCache());
-$config->owaspBlocklist('xss-prevention', $coreRuleSet);
+$config->blocklists->owasp('xss-prevention', $coreRuleSet);
 $config->enableOwaspDiagnosticsHeader();
 
 $firewall = new Firewall($config);

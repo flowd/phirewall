@@ -52,13 +52,13 @@ $cache = new InMemoryCache();
 $config = new Config($cache);
 
 // Allow health checks to bypass all rules
-$config->safelist('health', fn($req) => $req->getUri()->getPath() === '/health');
+$config->safelists->add('health', fn($req) => $req->getUri()->getPath() === '/health');
 
 // Block known malicious paths
-$config->blocklist('admin-probe', fn($req) => str_starts_with($req->getUri()->getPath(), '/wp-admin'));
+$config->blocklists->add('admin-probe', fn($req) => str_starts_with($req->getUri()->getPath(), '/wp-admin'));
 
 // Rate limit by IP: 100 requests per minute
-$config->throttle('ip-limit', limit: 100, period: 60, key: KeyExtractors::ip());
+$config->throttles->add('ip-limit', limit: 100, period: 60, key: KeyExtractors::ip());
 
 // 3. Create the middleware
 $middleware = new Middleware($config);
@@ -71,13 +71,15 @@ $middleware = new Middleware($config);
 
 | Feature | Description |
 |---------|-------------|
-| **Safelists** | Bypass all checks for trusted requests (health checks, internal IPs) |
+| **Safelists** | Bypass all checks for trusted requests (health checks, internal IPs, trusted bots) |
 | **Blocklists** | Immediately deny suspicious requests (403 Forbidden) |
-| **Throttling** | Rate limit requests per key with configurable windows (429 Too Many Requests) |
+| **Throttling** | Fixed and sliding window rate limiting by IP, user, API key, or custom key (429) with dynamic limits and multiThrottle |
 | **Fail2Ban** | Auto-ban after repeated failures (brute force protection) |
+| **Allow2Ban** | Hard volume cap -- ban after too many total requests |
 | **Track** | Passive counting for observability without blocking |
 | **OWASP CRS** | Load and evaluate OWASP Core Rule Set rules |
 | **Pattern Backends** | File/Redis-backed blocklists with IP/CIDR/path/header patterns |
+| **Matchers** | Built-in matchers for known scanners, trusted bots, suspicious headers, IPs |
 
 ## Rule Evaluation Order
 
@@ -88,6 +90,7 @@ Rules are evaluated in this order:
 3. **Blocklist** - If matched, return 403
 4. **Fail2Ban** - Check ban status and increment failure counters
 5. **Throttle** - Check rate limits, return 429 if exceeded
+6. **Allow2Ban** - Check volume cap, ban if threshold exceeded
 
 ## Response Headers
 
@@ -95,7 +98,7 @@ When a request is blocked, the following headers are included:
 
 | Header | Values | Description |
 |--------|--------|-------------|
-| `X-Phirewall` | `blocklist`, `throttle`, `fail2ban` | Block type |
+| `X-Phirewall` | `blocklist`, `throttle`, `fail2ban`, `allow2ban` | Block type |
 | `X-Phirewall-Matched` | Rule name | Which rule triggered |
 | `Retry-After` | Seconds | Time until throttle window resets (429 only) |
 

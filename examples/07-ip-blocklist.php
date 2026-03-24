@@ -52,11 +52,11 @@ $cache = new InMemoryCache();
 $config = new Config($cache);
 
 // Create a file pattern backend
-$backend = $config->filePatternBackend('blocklist', $blocklistFile);
+$backend = $config->blocklists->filePatternBackend('blocklist', $blocklistFile);
 echo "1. File pattern backend created\n";
 
 // Register it as a blocklist
-$config->blocklistFromBackend('dynamic-blocklist', 'blocklist');
+$config->blocklists->fromBackend('dynamic-blocklist', 'blocklist');
 echo "2. Blocklist rule registered\n\n";
 
 // =============================================================================

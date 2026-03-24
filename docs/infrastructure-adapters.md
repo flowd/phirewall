@@ -12,10 +12,10 @@ interface InfrastructureBlockerInterface
     public function blockIp(string $ipAddress): void;
     public function unblockIp(string $ipAddress): void;
     public function isBlocked(string $ipAddress): bool;
-    public function blockMany(array $ipAddresses): void;
-    public function unblockMany(array $ipAddresses): void;
 }
 ```
+
+> **Note:** `blockMany()` and `unblockMany()` are convenience methods provided by `ApacheHtaccessAdapter`, not part of the interface contract.
 
 ---
 
@@ -85,11 +85,13 @@ Require not ip 2001:db8::1
 Use `InfrastructureBanListener` to automatically mirror firewall bans:
 
 ```php
+use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Events\BlocklistMatched;
+use Flowd\Phirewall\Events\Fail2BanBanned;
 use Flowd\Phirewall\Infrastructure\ApacheHtaccessAdapter;
 use Flowd\Phirewall\Infrastructure\InfrastructureBanListener;
 use Flowd\Phirewall\Infrastructure\SyncNonBlockingRunner;
-use Flowd\Phirewall\Events\Fail2BanBanned;
-use Flowd\Phirewall\Events\BlocklistMatched;
+use Flowd\Phirewall\Store\InMemoryCache;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
 $adapter = new ApacheHtaccessAdapter('/var/www/app/.htaccess');
@@ -182,7 +184,7 @@ interface NonBlockingRunnerInterface
 Executes tasks synchronously (simplest option):
 
 ```php
-$runner = new SyncNonBlockingRunner();
+$runner = new \Flowd\Phirewall\Infrastructure\SyncNonBlockingRunner();
 ```
 
 ### Custom Async Runner
@@ -426,7 +428,7 @@ $dispatcher = new class ($infraListener) implements EventDispatcherInterface {
 // Configure firewall
 $config = new Config($cache, $dispatcher);
 
-$config->fail2ban('login-abuse',
+$config->fail2ban->add('login-abuse',
     threshold: 5,
     period: 300,
     ban: 3600,
@@ -434,7 +436,7 @@ $config->fail2ban('login-abuse',
     key: KeyExtractors::ip()
 );
 
-$config->throttle('global', limit: 100, period: 60, key: KeyExtractors::ip());
+$config->throttles->add('global', limit: 100, period: 60, key: KeyExtractors::ip());
 
 // Create middleware
 $middleware = new Middleware($config);

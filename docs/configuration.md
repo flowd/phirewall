@@ -28,6 +28,10 @@ public function __construct(
 
 **Example:**
 ```php
+use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Store\InMemoryCache;
+use Flowd\Phirewall\Store\RedisCache;
+
 $config = new Config(new InMemoryCache());
 
 // With event dispatcher
@@ -40,14 +44,16 @@ $config = new Config(new InMemoryCache($clock), clock: $clock);
 
 ---
 
-## Rule Methods
+## Section API
 
-### safelist()
+Rules are organized into section objects on the `Config` instance. Each section provides `add()` for closure-based rules and `addRule()` for typed rule objects.
 
-Define a safelist rule that bypasses all other checks.
+### $config->safelists
+
+Define safelist rules that bypass all other checks.
 
 ```php
-public function safelist(string $name, Closure $callback): self
+$config->safelists->add(string $name, Closure $callback): SafelistSection
 ```
 
 **Parameters:**
@@ -56,22 +62,69 @@ public function safelist(string $name, Closure $callback): self
 
 **Example:**
 ```php
-$config->safelist('health', fn($req) => $req->getUri()->getPath() === '/health');
+$config->safelists->add('health', fn($req) => $req->getUri()->getPath() === '/health');
 
-$config->safelist('internal-ip', function ($req): bool {
+$config->safelists->add('internal-ip', function ($req): bool {
     $ip = $req->getServerParams()['REMOTE_ADDR'] ?? '';
     return str_starts_with($ip, '10.') || str_starts_with($ip, '192.168.');
 });
 ```
 
----
+#### $config->safelists->trustedBots()
 
-### blocklist()
-
-Define a blocklist rule that denies requests with 403 Forbidden.
+Safelist verified search engine bots (Googlebot, Bingbot, etc.) via reverse DNS verification.
 
 ```php
-public function blocklist(string $name, Closure $callback): self
+$config->safelists->trustedBots(
+    string $name = 'trusted-bots',
+    array $additionalBots = [],
+    ?callable $ipResolver = null,
+    ?CacheInterface $cache = null
+): SafelistSection
+```
+
+**Parameters:**
+- `$name` - Rule identifier (default: `'trusted-bots'`)
+- `$additionalBots` - Extra bots to recognize, each `['ua' => '...', 'hostname' => '...']`
+- `$ipResolver` - Optional IP resolver override (defaults to Config's global resolver)
+- `$cache` - Optional PSR-16 cache for DNS lookup results
+
+**Example:**
+```php
+// Basic usage with defaults
+$config->safelists->trustedBots();
+
+// With custom bots and DNS cache
+$config->safelists->trustedBots('bots', additionalBots: [
+    ['ua' => 'MyBot', 'hostname' => 'crawl.example.com'],
+], cache: $dnsCache);
+```
+
+#### $config->safelists->ip()
+
+Safelist requests from specific IPs or CIDR ranges.
+
+```php
+$config->safelists->ip(string $name, string|array $ipOrCidr, ?callable $ipResolver = null): SafelistSection
+```
+
+**Example:**
+```php
+// Single IP
+$config->safelists->ip('office', '203.0.113.50');
+
+// Multiple IPs/CIDRs
+$config->safelists->ip('internal', ['10.0.0.0/8', '192.168.0.0/16']);
+```
+
+---
+
+### $config->blocklists
+
+Define blocklist rules that deny requests with 403 Forbidden.
+
+```php
+$config->blocklists->add(string $name, Closure $callback): BlocklistSection
 ```
 
 **Parameters:**
@@ -80,23 +133,88 @@ public function blocklist(string $name, Closure $callback): self
 
 **Example:**
 ```php
-$config->blocklist('wp-probe', fn($req) => str_starts_with($req->getUri()->getPath(), '/wp-admin'));
+$config->blocklists->add('wp-probe', fn($req) => str_starts_with($req->getUri()->getPath(), '/wp-admin'));
 
-$config->blocklist('bad-ips', function ($req): bool {
+$config->blocklists->add('bad-ips', function ($req): bool {
     $badIps = ['1.2.3.4', '5.6.7.8'];
     $ip = $req->getServerParams()['REMOTE_ADDR'] ?? '';
     return in_array($ip, $badIps, true);
 });
 ```
 
----
+#### $config->blocklists->knownScanners()
 
-### throttle()
-
-Define a rate limiting rule that returns 429 Too Many Requests when exceeded.
+Block requests from known vulnerability scanners (sqlmap, nikto, nmap, etc.) by User-Agent.
 
 ```php
-public function throttle(string $name, int|Closure $limit, int|Closure $period, Closure $key): static
+$config->blocklists->knownScanners(
+    string $name = 'known-scanners',
+    ?array $patterns = null
+): BlocklistSection
+```
+
+**Parameters:**
+- `$name` - Rule identifier (default: `'known-scanners'`)
+- `$patterns` - UA substrings to block (default: built-in list including sqlmap, nikto, nmap, etc.)
+
+**Example:**
+```php
+// Use built-in scanner list
+$config->blocklists->knownScanners();
+
+// Custom scanner patterns
+$config->blocklists->knownScanners('custom-scanners', ['mybot', 'badcrawler']);
+```
+
+#### $config->blocklists->suspiciousHeaders()
+
+Block requests missing standard HTTP headers that real browsers typically send.
+
+```php
+$config->blocklists->suspiciousHeaders(
+    string $name = 'suspicious-headers',
+    array $requiredHeaders = []
+): BlocklistSection
+```
+
+**Parameters:**
+- `$name` - Rule identifier (default: `'suspicious-headers'`)
+- `$requiredHeaders` - Headers that must be present (default: Accept, Accept-Language, Accept-Encoding)
+
+**Example:**
+```php
+// Use defaults
+$config->blocklists->suspiciousHeaders();
+
+// Custom required headers
+$config->blocklists->suspiciousHeaders('strict-headers', ['Accept', 'Accept-Language']);
+```
+
+#### $config->blocklists->ip()
+
+Block requests from specific IPs or CIDR ranges.
+
+```php
+$config->blocklists->ip(string $name, string|array $ipOrCidr, ?callable $ipResolver = null): BlocklistSection
+```
+
+**Example:**
+```php
+// Block a single IP
+$config->blocklists->ip('bad-actor', '203.0.113.100');
+
+// Block multiple CIDRs
+$config->blocklists->ip('blocked-ranges', ['198.51.100.0/24', '203.0.113.0/24']);
+```
+
+---
+
+### $config->throttles
+
+Define rate limiting rules that return 429 Too Many Requests when exceeded.
+
+```php
+$config->throttles->add(string $name, int|Closure $limit, int|Closure $period, Closure $key): ThrottleSection
 ```
 
 **Parameters:**
@@ -107,19 +225,21 @@ public function throttle(string $name, int|Closure $limit, int|Closure $period, 
 
 **Example:**
 ```php
+use Flowd\Phirewall\KeyExtractors;
+
 // 100 requests per minute per IP
-$config->throttle('ip-limit', limit: 100, period: 60, key: KeyExtractors::ip());
+$config->throttles->add('ip-limit', limit: 100, period: 60, key: KeyExtractors::ip());
 
 // Per-endpoint limit
-$config->throttle('search-limit', limit: 20, period: 60, key: function ($req): ?string {
+$config->throttles->add('search-limit', limit: 20, period: 60, key: function ($req): ?string {
     if ($req->getUri()->getPath() === '/api/search') {
-        return $req->getServerParams()['REMOTE_ADDR'] ?? null;
+                return $req->getServerParams()['REMOTE_ADDR'] ?? null;
     }
     return null; // Skip other paths
 });
 
 // Per-user limit
-$config->throttle('user-limit', limit: 1000, period: 3600, key: KeyExtractors::header('X-User-Id'));
+$config->throttles->add('user-limit', limit: 1000, period: 3600, key: KeyExtractors::header('X-User-Id'));
 ```
 
 #### Sliding Window Throttle
@@ -127,7 +247,7 @@ $config->throttle('user-limit', limit: 1000, period: 3600, key: KeyExtractors::h
 The default throttle uses fixed time windows. At window boundaries, a client can send `limit` requests at the end of one window and another `limit` at the start of the next ("double burst"). The sliding window prevents this by using a weighted average of the current and previous windows.
 
 ```php
-$config->throttles->sliding('api', limit: 100, period: 60, key: KeyExtractors::ip());
+$config->throttles->sliding('api', limit: 100, period: 60, key: \Flowd\Phirewall\KeyExtractors::ip());
 ```
 
 The sliding window estimate: `previousCount * (1 - elapsed/period) + currentCount`. This produces smooth rate limiting without boundary spikes.
@@ -143,7 +263,7 @@ Both `$limit` and `$period` accept closures that receive the current request, al
 ```php
 // Higher limits for authenticated users
 $config->throttles->add('api', fn($req) => $req->getHeaderLine('X-Role') === 'admin' ? 1000 : 100, 60,
-    key: KeyExtractors::ip()
+    key: \Flowd\Phirewall\KeyExtractors::ip()
 );
 ```
 
@@ -155,25 +275,25 @@ Register multiple time windows under one logical name (burst + sustained):
 $config->throttles->multi('api', [
     1  => 5,     // 5 req/s burst
     60 => 200,   // 200 req/min sustained
-], KeyExtractors::ip());
+], \Flowd\Phirewall\KeyExtractors::ip());
 // Creates rules: "api:1s" and "api:60s"
 ```
 
 ---
 
-### fail2ban()
+### $config->fail2ban
 
-Define a Fail2Ban rule that bans keys after repeated filter matches.
+Define Fail2Ban rules that ban keys after repeated filter matches.
 
 ```php
-public function fail2ban(
+$config->fail2ban->add(
     string $name,
     int $threshold,
     int $period,
     int $ban,
     Closure $filter,
     Closure $key
-): self
+): Fail2BanSection
 ```
 
 **Parameters:**
@@ -186,8 +306,10 @@ public function fail2ban(
 
 **Example:**
 ```php
+use Flowd\Phirewall\KeyExtractors;
+
 // Ban after 5 failed logins in 5 minutes, for 1 hour
-$config->fail2ban('login-abuse',
+$config->fail2ban->add('login-abuse',
     threshold: 5,
     period: 300,
     ban: 3600,
@@ -196,20 +318,20 @@ $config->fail2ban('login-abuse',
 );
 
 // Ban after 3 invalid API signatures in 2 minutes, for 15 minutes
-$config->fail2ban('api-abuse',
+$config->fail2ban->add('api-abuse',
     threshold: 3,
     period: 120,
     ban: 900,
     filter: fn($req) => $req->getHeaderLine('X-Signature-Invalid') === '1',
     key: function ($req): ?string {
-        return $req->getHeaderLine('X-API-Key') ?: $req->getServerParams()['REMOTE_ADDR'];
+                return $req->getHeaderLine('X-API-Key') ?: $req->getServerParams()['REMOTE_ADDR'];
     }
 );
 ```
 
 ---
 
-### allow2ban
+### $config->allow2ban
 
 Define an Allow2Ban rule that bans keys after exceeding a total request threshold. Unlike Fail2Ban, Allow2Ban counts **all** requests for a key -- no filter is needed.
 
@@ -220,7 +342,7 @@ $config->allow2ban->add(
     int $period,
     int $banSeconds,
     Closure $key
-): self
+): Allow2BanSection
 ```
 
 **Parameters:**
@@ -237,6 +359,8 @@ $config->allow2ban->add(
 
 **Example:**
 ```php
+use Flowd\Phirewall\KeyExtractors;
+
 // Ban any IP that sends more than 100 requests in 60 seconds, for 1 hour
 $config->allow2ban->add('high-volume-ban',
     threshold: 100,
@@ -265,11 +389,9 @@ $config->allow2ban->add('api-key-ban',
 
 ---
 
-### tracks->add()
+### $config->tracks
 
 Define a tracking rule for passive counting without blocking. Track rules count matching requests and dispatch `TrackHit` events via the PSR-14 event dispatcher, but they never interfere with traffic — every request passes through regardless of the counter value.
-
-> The deprecated `Config::track()` method is also available as an alias with the same parameters.
 
 **Use cases:**
 - **Observability**: Count login attempts, API calls, or error rates per IP/user for dashboards and metrics
@@ -297,6 +419,8 @@ public function add(
 
 **Example:**
 ```php
+use Flowd\Phirewall\KeyExtractors;
+
 // Track login failures for observability (fires on every match)
 $config->tracks->add('login-failures', period: 3600,
     filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
@@ -319,7 +443,7 @@ When a `limit` is set, the `TrackHit` event includes a `thresholdReached` boolea
 $config->tracks->add('suspicious-login-burst',
     period: 300,
     filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
-    key: KeyExtractors::ip(),
+    key: \Flowd\Phirewall\KeyExtractors::ip(),
     limit: 10,
 );
 ```
@@ -330,6 +454,8 @@ $config->tracks->add('suspicious-login-burst',
 
 Listeners can filter on the flag. How you register listeners depends on your event dispatcher implementation (PSR-14 defines dispatching, not registration). For example, with a listener provider:
 ```php
+use Flowd\Phirewall\Events\TrackHit;
+
 // In your listener
 function onTrackHit(TrackHit $event): void {
     if ($event->thresholdReached) {
@@ -346,12 +472,12 @@ function onTrackHit(TrackHit $event): void {
 
 Pattern backends store blocklist entries (IPs, CIDRs, paths, headers) with optional expiration. For detailed documentation, see [Pattern Backends](pattern-backends.md).
 
-### inMemoryPatternBackend()
+### $config->blocklists->inMemoryPatternBackend()
 
 Create an in-memory pattern backend for configuration-based blocklists.
 
 ```php
-public function inMemoryPatternBackend(string $name, array $entries = []): InMemoryPatternBackend
+$config->blocklists->inMemoryPatternBackend(string $name, array $entries = []): InMemoryPatternBackend
 ```
 
 **Example:**
@@ -359,28 +485,31 @@ public function inMemoryPatternBackend(string $name, array $entries = []): InMem
 use Flowd\Phirewall\Pattern\PatternEntry;
 use Flowd\Phirewall\Pattern\PatternKind;
 
-$backend = $config->inMemoryPatternBackend('private-networks', [
+$backend = $config->blocklists->inMemoryPatternBackend('private-networks', [
     new PatternEntry(PatternKind::CIDR, '10.0.0.0/8'),
     new PatternEntry(PatternKind::CIDR, '192.168.0.0/16'),
     new PatternEntry(PatternKind::IP, '127.0.0.1'),
 ]);
 
-$config->blocklistFromBackend('block-private', 'private-networks');
+$config->blocklists->fromBackend('block-private', 'private-networks');
 ```
 
 ---
 
-### filePatternBackend()
+### $config->blocklists->filePatternBackend()
 
 Create a file-backed pattern storage.
 
 ```php
-public function filePatternBackend(string $name, string $filePath): FilePatternBackend
+$config->blocklists->filePatternBackend(string $name, string $filePath): FilePatternBackend
 ```
 
 **Example:**
 ```php
-$backend = $config->filePatternBackend('blocklist', '/var/lib/phirewall/blocklist.txt');
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
+$backend = $config->blocklists->filePatternBackend('blocklist', '/var/lib/phirewall/blocklist.txt');
 
 // Add patterns
 $backend->append(new PatternEntry(
@@ -397,28 +526,28 @@ $backend->append(new PatternEntry(
 
 ---
 
-### blocklistFromBackend()
+### $config->blocklists->fromBackend()
 
 Register a pattern backend as a blocklist.
 
 ```php
-public function blocklistFromBackend(string $name, string $backendName): self
+$config->blocklists->fromBackend(string $name, string $backendName): BlocklistSection
 ```
 
 **Example:**
 ```php
-$config->filePatternBackend('bad-actors', '/var/lib/phirewall/bad-actors.txt');
-$config->blocklistFromBackend('bad-actors-blocklist', 'bad-actors');
+$config->blocklists->filePatternBackend('bad-actors', '/var/lib/phirewall/bad-actors.txt');
+$config->blocklists->fromBackend('bad-actors-blocklist', 'bad-actors');
 ```
 
 ---
 
-### fileIpBlocklist()
+### $config->blocklists->fileIp()
 
 Convenience method for file-backed IP blocklists.
 
 ```php
-public function fileIpBlocklist(
+$config->blocklists->fileIp(
     string $name,
     string $filePath,
     ?callable $ipResolver = null
@@ -427,7 +556,7 @@ public function fileIpBlocklist(
 
 **Example:**
 ```php
-$store = $config->fileIpBlocklist('banned-ips', '/var/lib/phirewall/banned.txt');
+$store = $config->blocklists->fileIp('banned-ips', '/var/lib/phirewall/banned.txt');
 
 // Add IPs programmatically
 $store->append('1.2.3.4');
@@ -437,12 +566,12 @@ $store->append('1.2.3.4');
 
 ## OWASP Integration
 
-### owaspBlocklist()
+### $config->blocklists->owasp()
 
 Register OWASP Core Rule Set rules as a blocklist.
 
 ```php
-public function owaspBlocklist(string $name, CoreRuleSet $coreRuleSet): self
+$config->blocklists->owasp(string $name, \Flowd\Phirewall\Owasp\CoreRuleSet $coreRuleSet): BlocklistSection
 ```
 
 **Example:**
@@ -451,26 +580,26 @@ use Flowd\Phirewall\Owasp\SecRuleLoader;
 
 // Load from directory
 $crs = SecRuleLoader::fromDirectory('/path/to/crs');
-$config->owaspBlocklist('owasp', $crs);
+$config->blocklists->owasp('owasp', $crs);
 
 // Load from string
 $rules = <<<'CRS'
 SecRule REQUEST_URI "@rx /admin" "id:1001,phase:2,deny,msg:'Block admin'"
 CRS;
 $crs = SecRuleLoader::fromString($rules);
-$config->owaspBlocklist('custom', $crs);
+$config->blocklists->owasp('custom', $crs);
 ```
 
 ---
 
 ## Response Customization
 
-### blocklistedResponse()
+### blocklistedResponseFactory
 
-Customize the response for blocked requests.
+Customize the response for blocked requests by assigning a `BlocklistedResponseFactoryInterface` to the public property.
 
 ```php
-public function blocklistedResponse(Closure $factory): self
+$config->blocklistedResponseFactory = new \Flowd\Phirewall\Config\Response\ClosureBlocklistedResponseFactory(Closure $factory);
 ```
 
 **Closure signature:**
@@ -480,28 +609,32 @@ fn(string $rule, string $type, ServerRequestInterface $request): ResponseInterfa
 
 **Parameters:**
 - `$rule` - The rule name that triggered
-- `$type` - The block type: `blocklist` or `fail2ban`
+- `$type` - The block type: `blocklist`, `fail2ban`, or `allow2ban`
 - `$request` - The original request
 
 **Example:**
 ```php
-$config->blocklistedResponse(function (string $rule, string $type, $req): ResponseInterface {
-    return new Response(403, ['Content-Type' => 'application/json'], json_encode([
-        'error' => 'Access Denied',
-        'rule' => $rule,
-        'type' => $type,
-    ]));
-});
+use Flowd\Phirewall\Config\Response\ClosureBlocklistedResponseFactory;
+
+$config->blocklistedResponseFactory = new ClosureBlocklistedResponseFactory(
+    function (string $rule, string $type, $req): ResponseInterface {
+        return new Response(403, ['Content-Type' => 'application/json'], json_encode([
+            'error' => 'Access Denied',
+            'rule' => $rule,
+            'type' => $type,
+        ]));
+    }
+);
 ```
 
 ---
 
-### throttledResponse()
+### throttledResponseFactory
 
-Customize the response for throttled requests.
+Customize the response for throttled requests by assigning a `ThrottledResponseFactoryInterface` to the public property.
 
 ```php
-public function throttledResponse(Closure $factory): self
+$config->throttledResponseFactory = new \Flowd\Phirewall\Config\Response\ClosureThrottledResponseFactory(Closure $factory);
 ```
 
 **Closure signature:**
@@ -511,12 +644,16 @@ fn(string $rule, int $retryAfter, ServerRequestInterface $request): ResponseInte
 
 **Example:**
 ```php
-$config->throttledResponse(function (string $rule, int $retryAfter, $req): ResponseInterface {
-    return new Response(429, ['Content-Type' => 'application/json'], json_encode([
-        'error' => 'Rate limit exceeded',
-        'retry_after' => $retryAfter,
-    ]));
-});
+use Flowd\Phirewall\Config\Response\ClosureThrottledResponseFactory;
+
+$config->throttledResponseFactory = new ClosureThrottledResponseFactory(
+    function (string $rule, int $retryAfter, $req): ResponseInterface {
+        return new Response(429, ['Content-Type' => 'application/json'], json_encode([
+            'error' => 'Rate limit exceeded',
+            'retry_after' => $retryAfter,
+        ]));
+    }
+);
 ```
 
 ---
@@ -596,6 +733,29 @@ This ensures that "USER_A" and "user_a" are counted as the same entity across al
 
 ---
 
+### setIpResolver()
+
+Set a global IP resolver used by all IP-aware matchers created through Config sections (e.g., `blocklists->ip()`, `safelists->trustedBots()`).
+
+```php
+public function setIpResolver(Closure $ipResolver): self
+```
+
+**Example:**
+```php
+use Flowd\Phirewall\Http\TrustedProxyResolver;
+use Flowd\Phirewall\KeyExtractors;
+
+$proxy = new TrustedProxyResolver(['10.0.0.0/8']);
+$config->setIpResolver(KeyExtractors::clientIp($proxy));
+
+// Now all IP-aware matchers use the proxy-resolved IP by default
+$config->blocklists->ip('blocked', '203.0.113.0/24'); // Uses global resolver
+$config->safelists->ip('office', '198.51.100.50');     // Uses global resolver
+```
+
+---
+
 ### enableRateLimitHeaders()
 
 Enable standard X-RateLimit-* headers on responses.
@@ -652,6 +812,8 @@ public function resetThrottle(string $ruleName, string $key): void
 
 **Example:**
 ```php
+use Flowd\Phirewall\Http\Firewall;
+
 $firewall = new Firewall($config);
 
 // Unblock a throttled IP
@@ -682,6 +844,8 @@ public function resetFail2Ban(string $ruleName, string $key): void
 
 **Example:**
 ```php
+use Flowd\Phirewall\Http\Firewall;
+
 $firewall = new Firewall($config);
 
 // Unban and reset the fail counter for an IP
@@ -705,6 +869,9 @@ public function isBanned(string $ruleName, string $key, BanType $banType = BanTy
 
 **Example:**
 ```php
+use Flowd\Phirewall\BanType;
+use Flowd\Phirewall\Http\Firewall;
+
 $firewall = new Firewall($config);
 
 if ($firewall->isBanned('login', '5.6.7.8')) {
@@ -757,7 +924,7 @@ Common key extractors for throttles, fail2ban, and track rules.
 Extract IP from REMOTE_ADDR (no proxy trust).
 
 ```php
-KeyExtractors::ip()
+\Flowd\Phirewall\KeyExtractors::ip()
 ```
 
 ### clientIp()
@@ -765,7 +932,7 @@ KeyExtractors::ip()
 Extract IP using trusted proxy resolver.
 
 ```php
-KeyExtractors::clientIp(TrustedProxyResolver $resolver)
+\Flowd\Phirewall\KeyExtractors::clientIp(\Flowd\Phirewall\Http\TrustedProxyResolver $resolver)
 ```
 
 ### header()
@@ -773,7 +940,7 @@ KeyExtractors::clientIp(TrustedProxyResolver $resolver)
 Extract value from a specific header.
 
 ```php
-KeyExtractors::header(string $name)
+\Flowd\Phirewall\KeyExtractors::header(string $name)
 ```
 
 ### method()
@@ -781,7 +948,7 @@ KeyExtractors::header(string $name)
 Extract HTTP method (uppercase).
 
 ```php
-KeyExtractors::method()
+\Flowd\Phirewall\KeyExtractors::method()
 ```
 
 ### path()
@@ -789,7 +956,7 @@ KeyExtractors::method()
 Extract request path.
 
 ```php
-KeyExtractors::path()
+\Flowd\Phirewall\KeyExtractors::path()
 ```
 
 ### userAgent()
@@ -797,7 +964,7 @@ KeyExtractors::path()
 Extract User-Agent header.
 
 ```php
-KeyExtractors::userAgent()
+\Flowd\Phirewall\KeyExtractors::userAgent()
 ```
 
 ---
@@ -823,6 +990,8 @@ public function __construct(
 
 **Example:**
 ```php
+use Flowd\Phirewall\Http\TrustedProxyResolver;
+
 $resolver = new TrustedProxyResolver([
     '127.0.0.1',
     '10.0.0.0/8',
@@ -868,14 +1037,75 @@ $backend->append(new PatternEntry(
 
 ---
 
-## Diagnostics
+## BanManager
 
-### getDiagnosticsCounters()
+The `BanManager` provides programmatic access to ban state for both Fail2Ban and Allow2Ban rules. Access it via `$config->banManager()`.
 
-Get lightweight per-category counters.
+### isBanned()
+
+Check if a key is currently banned.
 
 ```php
-public function getDiagnosticsCounters(): array
+use Flowd\Phirewall\BanType;
+
+$config->banManager()->isBanned('login-abuse', '1.2.3.4', BanType::Fail2Ban);
+$config->banManager()->isBanned('high-volume', '1.2.3.4', BanType::Allow2Ban);
+```
+
+### unban()
+
+Manually unban a key. Returns `true` if the key was banned.
+
+```php
+use Flowd\Phirewall\BanType;
+
+$config->banManager()->unban('login-abuse', '1.2.3.4', BanType::Fail2Ban);
+```
+
+### listBans()
+
+List all currently banned keys for a rule.
+
+```php
+$bans = $config->banManager()->listBans('login-abuse', BanType::Fail2Ban);
+// [['key' => '1.2.3.4', 'expiresAt' => 1700000000.0], ...]
+```
+
+### clearBans()
+
+Clear all bans for a rule. Returns the number of bans cleared.
+
+```php
+$cleared = $config->banManager()->clearBans('login-abuse', BanType::Fail2Ban);
+```
+
+### listRulesWithBans()
+
+List all rules across both ban types that currently have active bans.
+
+```php
+$rules = $config->banManager()->listRulesWithBans();
+// ['allow2ban' => ['high-volume'], 'fail2ban' => ['login-abuse']]
+```
+
+---
+
+## Diagnostics
+
+### DiagnosticsCounters
+
+A PSR-14 event listener that counts firewall decisions for testing and observability. Pass it as the event dispatcher to collect statistics.
+
+```php
+use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\DiagnosticsCounters;
+
+$diagnostics = new DiagnosticsCounters();
+$config = new Config($cache, $diagnostics);
+
+// ... run firewall ...
+
+$counters = $diagnostics->all();
 ```
 
 **Returns:**
@@ -884,14 +1114,14 @@ public function getDiagnosticsCounters(): array
     'safelisted' => ['total' => 10, 'by_rule' => ['health' => 8, 'metrics' => 2]],
     'blocklisted' => ['total' => 5, 'by_rule' => ['scanners' => 5]],
     'throttle_exceeded' => ['total' => 2, 'by_rule' => ['ip-limit' => 2]],
+    'fail2ban_banned' => ['total' => 1, 'by_rule' => ['login' => 1]],
+    'track_hit' => ['total' => 50, 'by_rule' => ['api-calls' => 50]],
     'passed' => ['total' => 1000, 'by_rule' => []],
 ]
 ```
 
-### resetDiagnosticsCounters()
-
-Reset all diagnostics counters.
-
+**Reset counters:**
 ```php
-public function resetDiagnosticsCounters(): void
+$diagnostics->reset();
 ```
+

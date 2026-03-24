@@ -32,22 +32,24 @@ use Flowd\Phirewall\Store\InMemoryCache;
 $config = new Config(new InMemoryCache());
 
 // Allow health checks to bypass all rules
-$config->safelist('health', fn($req) => $req->getUri()->getPath() === '/health');
+$config->safelists->add('health', fn($req) => $req->getUri()->getPath() === '/health');
 
 // Block common scanner paths
-$config->blocklist('scanners', fn($req) => str_starts_with($req->getUri()->getPath(), '/wp-admin'));
+$config->blocklists->add('scanners', fn($req) => str_starts_with($req->getUri()->getPath(), '/wp-admin'));
 
 // Rate limit: 100 requests per minute per IP
-$config->throttle('api', limit: 100, period: 60, key: KeyExtractors::ip());
+$config->throttles->add('api', limit: 100, period: 60, key: KeyExtractors::ip());
 
 // Ban IP after 5 failed logins in 5 minutes
-$config->fail2ban('login', threshold: 5, period: 300, ban: 3600,
+$config->fail2ban->add('login', threshold: 5, period: 300, ban: 3600,
     filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::ip()
 );
 
 // Add to your middleware stack
 $middleware = new Middleware($config);
+// The PSR-17 ResponseFactory is optional — Phirewall auto-detects installed factories.
+// Pass one explicitly if needed: new Middleware($config, new Psr17Factory())
 ```
 
 Add the middleware to your PSR-15 pipeline. All requests will be evaluated against your rules before reaching your application.
@@ -117,9 +119,18 @@ The [examples/](examples/) folder contains runnable examples:
 | **OWASP CRS** | SQL injection, XSS, and PHP injection detection |
 | **Pattern Backends** | File/Redis-backed blocklists with IP, CIDR, path, and header patterns |
 
+### Matchers
+
+| Matcher | Description |
+|---------|-------------|
+| **Known Scanners** | Block sqlmap, nikto, nmap, and other scanner User-Agents |
+| **Trusted Bots** | Safelist Googlebot, Bingbot, etc. via reverse DNS verification |
+| **Suspicious Headers** | Block requests missing standard browser headers |
+| **IP Matcher** | Safelist or block by IP/CIDR range |
+
 ### Observability
 
-- **PSR-14 Events** - `SafelistMatched`, `BlocklistMatched`, `ThrottleExceeded`, `Fail2BanBanned`, `TrackHit`, `FirewallError`
+- **PSR-14 Events** - `SafelistMatched`, `BlocklistMatched`, `ThrottleExceeded`, `Fail2BanBanned`, `Allow2BanBanned`, `TrackHit`, `FirewallError`
 - **Fail-Open by Default** - Cache outages don't take down the application; errors dispatched via PSR-14
 - **Diagnostics Counters** - Per-rule statistics for monitoring
 - **Standard Headers** - `X-RateLimit-*`, `Retry-After`, `X-Phirewall-*`
@@ -170,7 +181,7 @@ When a request is blocked:
 
 | Header | Description |
 |--------|-------------|
-| `X-Phirewall` | Block type: `blocklist`, `throttle`, `fail2ban` |
+| `X-Phirewall` | Block type: `blocklist`, `throttle`, `fail2ban`, `allow2ban` |
 | `X-Phirewall-Matched` | Rule name that triggered |
 | `Retry-After` | Seconds until rate limit resets (429 only) |
 
@@ -189,7 +200,7 @@ $resolver = new TrustedProxyResolver([
     '172.16.0.0/12',   // Docker
 ]);
 
-$config->throttle('api', limit: 100, period: 60,
+$config->throttles->add('api', limit: 100, period: 60,
     key: KeyExtractors::clientIp($resolver)
 );
 ```
@@ -199,17 +210,24 @@ $config->throttle('api', limit: 100, period: 60,
 Customize blocked responses while keeping standard headers:
 
 ```php
-$config->blocklistedResponse(function (string $rule, string $type, $req) {
-    return new Response(403, ['Content-Type' => 'application/json'],
-        json_encode(['error' => 'Blocked', 'rule' => $rule])
-    );
-});
+use Flowd\Phirewall\Config\Response\ClosureBlocklistedResponseFactory;
+use Flowd\Phirewall\Config\Response\ClosureThrottledResponseFactory;
 
-$config->throttledResponse(function (string $rule, int $retryAfter, $req) {
-    return new Response(429, ['Content-Type' => 'application/json'],
-        json_encode(['error' => 'Rate limited', 'retry_after' => $retryAfter])
-    );
-});
+$config->blocklistedResponseFactory = new ClosureBlocklistedResponseFactory(
+    function (string $rule, string $type, $req) {
+        return new Response(403, ['Content-Type' => 'application/json'],
+            json_encode(['error' => 'Blocked', 'rule' => $rule])
+        );
+    }
+);
+
+$config->throttledResponseFactory = new ClosureThrottledResponseFactory(
+    function (string $rule, int $retryAfter, $req) {
+        return new Response(429, ['Content-Type' => 'application/json'],
+            json_encode(['error' => 'Rate limited', 'retry_after' => $retryAfter])
+        );
+    }
+);
 ```
 
 ## OWASP Core Rule Set
@@ -224,13 +242,13 @@ SecRule ARGS "@rx (?i)\bunion\b.*\bselect\b" "id:942100,phase:2,deny,msg:'SQLi'"
 SecRule ARGS "@rx (?i)<script[^>]*>" "id:941100,phase:2,deny,msg:'XSS'"
 CRS);
 
-$config->owaspBlocklist('owasp', $rules);
+$config->blocklists->owasp('owasp', $rules);
 ```
 
 Or load from files:
 
 ```php
-$rules = SecRuleLoader::fromDirectory('/path/to/crs-rules');
+$rules = \Flowd\Phirewall\Owasp\SecRuleLoader::fromDirectory('/path/to/crs-rules');
 ```
 
 See [04-sql-injection-blocking.php](examples/04-sql-injection-blocking.php) and [05-xss-prevention.php](examples/05-xss-prevention.php) for complete examples.
@@ -240,8 +258,10 @@ See [04-sql-injection-blocking.php](examples/04-sql-injection-blocking.php) and 
 ### API Rate Limiting
 
 ```php
+use Flowd\Phirewall\KeyExtractors;
+
 // Global limit
-$config->throttle('global', limit: 1000, period: 60, key: KeyExtractors::ip());
+$config->throttles->add('global', limit: 1000, period: 60, key: KeyExtractors::ip());
 
 // Burst + sustained rate limiting with multiThrottle
 $config->throttles->multi('api', [
@@ -258,15 +278,17 @@ $config->throttles->add('user', fn($req) => $req->getHeaderLine('X-Plan') === 'p
 ### Login Protection
 
 ```php
+use Flowd\Phirewall\KeyExtractors;
+
 // Throttle login attempts
-$config->throttle('login', limit: 10, period: 60, key: function($req) {
+$config->throttles->add('login', limit: 10, period: 60, key: function($req) {
     return $req->getUri()->getPath() === '/login'
         ? $req->getServerParams()['REMOTE_ADDR']
         : null;
 });
 
 // Ban after failures
-$config->fail2ban('login-ban', threshold: 5, period: 300, ban: 3600,
+$config->fail2ban->add('login-ban', threshold: 5, period: 300, ban: 3600,
     filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::ip()
 );
@@ -277,7 +299,7 @@ $config->fail2ban('login-ban', threshold: 5, period: 300, ban: 3600,
 ```php
 $scanners = ['sqlmap', 'nikto', 'nmap', 'burp', 'dirbuster'];
 
-$config->blocklist('scanners', function($req) use ($scanners) {
+$config->blocklists->add('scanners', function($req) use ($scanners) {
     $ua = strtolower($req->getHeaderLine('User-Agent'));
     foreach ($scanners as $scanner) {
         if (str_contains($ua, $scanner)) return true;

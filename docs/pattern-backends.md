@@ -9,7 +9,7 @@ Pattern backends provide a flexible way to manage dynamic blocklists with suppor
 │                         Config                                   │
 │                                                                  │
 │  ┌──────────────────┐     ┌──────────────────────────────────┐  │
-│  │ Pattern Backend  │────▶│ blocklistFromBackend('name', ..) │  │
+│  │ Pattern Backend  │────▶│ blocklists->fromBackend('name', ..)│  │
 │  │ (stores entries) │     │ (registers as blocklist rule)    │  │
 │  └──────────────────┘     └──────────────────────────────────┘  │
 │           │                            │                         │
@@ -50,7 +50,7 @@ use Flowd\Phirewall\Pattern\PatternKind;
 $config = new Config($cache);
 
 // Simple: One-step creation and registration
-$backend = $config->patternBlocklist('private-networks', [
+$backend = $config->blocklists->patternBlocklist('private-networks', [
     new PatternEntry(PatternKind::CIDR, '10.0.0.0/8'),
     new PatternEntry(PatternKind::CIDR, '192.168.0.0/16'),
     new PatternEntry(PatternKind::IP, '203.0.113.50'),
@@ -62,8 +62,8 @@ $backend->append(new PatternEntry(PatternKind::IP, '203.0.113.51'));
 
 **Alternative: Two-step approach** (useful when sharing a backend between rules):
 ```php
-$backend = $config->inMemoryPatternBackend('blocked-ranges', [...]);
-$config->blocklistFromBackend('rule-name', 'blocked-ranges');
+$backend = $config->blocklists->inMemoryPatternBackend('blocked-ranges', [...]);
+$config->blocklists->fromBackend('rule-name', 'blocked-ranges');
 ```
 
 **Characteristics:**
@@ -80,8 +80,11 @@ Stores patterns in a text file. Ideal for:
 - Sharing blocklists across processes
 
 ```php
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
 // Simple: One-step creation and registration
-$backend = $config->filePatternBlocklist('dynamic-blocks', '/var/lib/phirewall/blocks.txt');
+$backend = $config->blocklists->filePatternBlocklist('dynamic-blocks', '/var/lib/phirewall/blocks.txt');
 
 // Add entries (persisted to file)
 $backend->append(new PatternEntry(
@@ -93,8 +96,8 @@ $backend->append(new PatternEntry(
 
 **Alternative: Two-step approach:**
 ```php
-$backend = $config->filePatternBackend('dynamic-blocks', '/path/to/file.txt');
-$config->blocklistFromBackend('rule-name', 'dynamic-blocks');
+$backend = $config->blocklists->filePatternBackend('dynamic-blocks', '/path/to/file.txt');
+$config->blocklists->fromBackend('rule-name', 'dynamic-blocks');
 ```
 
 **Characteristics:**
@@ -157,6 +160,9 @@ The `PatternKind` class defines all supported pattern types.
 Matches exact IP addresses.
 
 ```php
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
 new PatternEntry(PatternKind::IP, '203.0.113.50')
 ```
 
@@ -167,6 +173,9 @@ Does not match: `203.0.113.51`, `203.0.113.0`
 Matches IP ranges using CIDR notation.
 
 ```php
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
 new PatternEntry(PatternKind::CIDR, '10.0.0.0/8')
 new PatternEntry(PatternKind::CIDR, '192.168.1.0/24')
 new PatternEntry(PatternKind::CIDR, '2001:db8::/32')  // IPv6
@@ -180,6 +189,9 @@ Matches any IP within the range.
 Matches exact request paths.
 
 ```php
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
 new PatternEntry(PatternKind::PATH_EXACT, '/admin')
 new PatternEntry(PatternKind::PATH_EXACT, '/.env')
 ```
@@ -191,6 +203,9 @@ Does not match: `/admin/users`, `/administrator`
 Matches paths starting with a prefix.
 
 ```php
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
 new PatternEntry(PatternKind::PATH_PREFIX, '/wp-')
 new PatternEntry(PatternKind::PATH_PREFIX, '/api/internal/')
 ```
@@ -202,6 +217,9 @@ Does not match: `/wordpress`, `/my-wp-site`
 Matches paths using regular expressions.
 
 ```php
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
 new PatternEntry(PatternKind::PATH_REGEX, '/\.(git|svn|hg)/')
 new PatternEntry(PatternKind::PATH_REGEX, '/^\/user\/\d+$/')
 ```
@@ -216,6 +234,9 @@ Header patterns require the `target` parameter to specify which header to match.
 Matches exact header values.
 
 ```php
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
 new PatternEntry(
     kind: PatternKind::HEADER_EXACT,
     value: '',  // Empty User-Agent
@@ -233,6 +254,9 @@ new PatternEntry(
 Matches header values using regex.
 
 ```php
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
 new PatternEntry(
     kind: PatternKind::HEADER_REGEX,
     value: '/sqlmap|nikto|nmap|masscan/i',
@@ -252,6 +276,9 @@ new PatternEntry(
 Matches against the full request (method + path + query).
 
 ```php
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
 new PatternEntry(
     kind: PatternKind::REQUEST_REGEX,
     value: '/union\s+select/i'
@@ -266,7 +293,7 @@ Useful for complex patterns that span multiple request parts.
 
 ### SnapshotBlocklistMatcher
 
-When you call `blocklistFromBackend()`, Phirewall creates a `SnapshotBlocklistMatcher` that:
+When you call `$config->blocklists->fromBackend()`, Phirewall creates a `SnapshotBlocklistMatcher` that:
 
 1. **Takes a snapshot** of the backend's entries (via `consume()`)
 2. **Caches the snapshot** to avoid repeated reads
@@ -279,7 +306,8 @@ $snapshot = $backend->consume();  // Get current entries
 $matcher = new SnapshotBlocklistMatcher($backend);
 
 // On each request
-if ($matcher->matches($request)) {
+$result = $matcher->match($request); // Returns MatchResult
+if ($result->isMatch()) {
     // Request blocked
 }
 ```
@@ -302,19 +330,25 @@ This design ensures:
 ### Block Private Networks
 
 ```php
-$backend = $config->inMemoryPatternBackend('private', [
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
+$backend = $config->blocklists->inMemoryPatternBackend('private', [
     new PatternEntry(PatternKind::CIDR, '10.0.0.0/8'),
     new PatternEntry(PatternKind::CIDR, '172.16.0.0/12'),
     new PatternEntry(PatternKind::CIDR, '192.168.0.0/16'),
     new PatternEntry(PatternKind::IP, '127.0.0.1'),
 ]);
-$config->blocklistFromBackend('block-private', 'private');
+$config->blocklists->fromBackend('block-private', 'private');
 ```
 
 ### Block Scanner User-Agents
 
 ```php
-$backend = $config->inMemoryPatternBackend('scanners', [
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
+$backend = $config->blocklists->inMemoryPatternBackend('scanners', [
     new PatternEntry(
         kind: PatternKind::HEADER_REGEX,
         value: '/sqlmap|nikto|nmap|masscan|burp|dirbuster/i',
@@ -326,26 +360,32 @@ $backend = $config->inMemoryPatternBackend('scanners', [
         target: 'User-Agent'
     ),
 ]);
-$config->blocklistFromBackend('block-scanners', 'scanners');
+$config->blocklists->fromBackend('block-scanners', 'scanners');
 ```
 
 ### Block Sensitive Paths
 
 ```php
-$backend = $config->inMemoryPatternBackend('paths', [
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
+$backend = $config->blocklists->inMemoryPatternBackend('paths', [
     new PatternEntry(PatternKind::PATH_EXACT, '/.env'),
     new PatternEntry(PatternKind::PATH_EXACT, '/.htpasswd'),
     new PatternEntry(PatternKind::PATH_PREFIX, '/.git/'),
     new PatternEntry(PatternKind::PATH_PREFIX, '/wp-admin'),
     new PatternEntry(PatternKind::PATH_REGEX, '/\.(sql|bak|old)$/i'),
 ]);
-$config->blocklistFromBackend('block-paths', 'paths');
+$config->blocklists->fromBackend('block-paths', 'paths');
 ```
 
 ### Temporary Blocks with Expiration
 
 ```php
-$backend = $config->filePatternBackend('temp-blocks', '/var/lib/phirewall/temp.txt');
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
+$backend = $config->blocklists->filePatternBackend('temp-blocks', '/var/lib/phirewall/temp.txt');
 
 // Block for 1 hour
 $backend->append(new PatternEntry(
@@ -370,6 +410,9 @@ $backend->pruneExpired();
 ### Load from External Source
 
 ```php
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
+
 // Load IPs from a threat intelligence feed
 $threatIps = file('https://example.com/threat-ips.txt', FILE_IGNORE_NEW_LINES);
 $entries = array_map(
@@ -377,8 +420,8 @@ $entries = array_map(
     array_filter($threatIps)
 );
 
-$backend = $config->inMemoryPatternBackend('threat-intel', $entries);
-$config->blocklistFromBackend('threat-blocklist', 'threat-intel');
+$backend = $config->blocklists->inMemoryPatternBackend('threat-intel', $entries);
+$config->blocklists->fromBackend('threat-blocklist', 'threat-intel');
 ```
 
 ---
@@ -390,7 +433,7 @@ $config->blocklistFromBackend('threat-blocklist', 'threat-intel');
 Add or update a pattern entry.
 
 ```php
-$backend->append(new PatternEntry(PatternKind::IP, '1.2.3.4'));
+$backend->append(new \Flowd\Phirewall\Pattern\PatternEntry(\Flowd\Phirewall\Pattern\PatternKind::IP, '1.2.3.4'));
 ```
 
 - Duplicate entries (same kind + value + target) are merged
@@ -428,7 +471,7 @@ Returns backend capabilities (supported kinds, max entries).
 
 ## Comparison: Pattern Backend vs Simple Blocklist
 
-| Feature | `blocklist()` (closure) | Pattern Backend |
+| Feature | `blocklists->add()` (closure) | Pattern Backend |
 |---------|------------------------|-----------------|
 | Storage | None (code only) | File or memory |
 | Dynamic entries | No | Yes |
@@ -437,7 +480,7 @@ Returns backend capabilities (supported kinds, max entries).
 | Pattern types | Any (custom code) | Predefined kinds |
 | Use case | Simple rules | Dynamic blocklists |
 
-**Use `blocklist()` when:**
+**Use `blocklists->add()` when:**
 - Rules are simple and static
 - Custom matching logic is needed
 
