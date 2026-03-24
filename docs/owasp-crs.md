@@ -31,12 +31,14 @@ CRS;
 $coreRuleSet = SecRuleLoader::fromString($rules);
 
 $config = new Config(new InMemoryCache());
-$config->owaspBlocklist('custom-rules', $coreRuleSet);
+$config->blocklists->owasp('custom-rules', $coreRuleSet);
 ```
 
 ### Loading Rules from Files
 
 ```php
+use Flowd\Phirewall\Owasp\SecRuleLoader;
+
 // Single file
 $crs = SecRuleLoader::fromFile('/path/to/rules.conf');
 
@@ -46,7 +48,7 @@ $crs = SecRuleLoader::fromFiles([
     '/path/to/xss.conf',
 ]);
 
-// Directory (all .conf files)
+// Directory (all files — use a filter to restrict to .conf)
 $crs = SecRuleLoader::fromDirectory('/path/to/crs/rules');
 
 // Directory with filter
@@ -174,7 +176,7 @@ alter
 ### Enable/Disable Rules
 
 ```php
-$crs = SecRuleLoader::fromDirectory('/path/to/rules');
+$crs = \Flowd\Phirewall\Owasp\SecRuleLoader::fromDirectory('/path/to/rules');
 
 // Disable specific rules
 $crs->disable(942100);  // SQL injection rule
@@ -215,7 +217,7 @@ if ($rule) {
 Get information about parsed rules:
 
 ```php
-$result = SecRuleLoader::fromStringWithReport($rulesText);
+$result = \Flowd\Phirewall\Owasp\SecRuleLoader::fromStringWithReport($rulesText);
 
 echo "Parsed: " . $result['parsed'] . " rules\n";
 echo "Skipped: " . $result['skipped'] . " lines\n";
@@ -352,7 +354,7 @@ $coreRuleSet = SecRuleLoader::fromString($rules);
 
 // Configure firewall
 $config = new Config(new InMemoryCache());
-$config->owaspBlocklist('owasp', $coreRuleSet);
+$config->blocklists->owasp('owasp', $coreRuleSet);
 $config->enableOwaspDiagnosticsHeader(); // For debugging
 
 $firewall = new Firewall($config);

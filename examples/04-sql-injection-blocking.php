@@ -111,7 +111,7 @@ echo "\n";
 // =============================================================================
 
 $config = new Config(new InMemoryCache());
-$config->owaspBlocklist('sql-injection', $coreRuleSet);
+$config->blocklists->owasp('sql-injection', $coreRuleSet);
 
 // Enable diagnostics header to see which rule matched
 $config->enableOwaspDiagnosticsHeader();

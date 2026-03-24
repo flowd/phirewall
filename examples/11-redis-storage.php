@@ -91,7 +91,7 @@ $config = new Config($cache);
 $config->enableRateLimitHeaders();
 
 // Strict throttle to demonstrate Redis storage
-$config->throttle(
+$config->throttles->add(
     name: 'ip-limit',
     limit: 3,           // Only 3 requests
     period: 30,         // Per 30 seconds
@@ -100,7 +100,7 @@ $config->throttle(
 echo "Throttle rule: 3 requests per 30 seconds per IP\n";
 
 // Fail2Ban for demonstration
-$config->fail2ban(
+$config->fail2ban->add(
     name: 'abuse',
     threshold: 2,       // 2 blocked requests
     period: 60,         // In 1 minute

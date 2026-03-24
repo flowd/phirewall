@@ -64,7 +64,7 @@ $scannerUserAgents = [
     'droopescan',       // CMS scanner
 ];
 
-$config->blocklist('scanner-ua', function (ServerRequestInterface $serverRequest) use ($scannerUserAgents): bool {
+$config->blocklists->add('scanner-ua', function (ServerRequestInterface $serverRequest) use ($scannerUserAgents): bool {
     $ua = strtolower($serverRequest->getHeaderLine('User-Agent'));
 
     if ($ua === '') {
@@ -85,7 +85,7 @@ echo "1. Scanner User-Agent blocklist configured\n";
 // Rule 2: Block empty User-Agents (often bots)
 // -----------------------------------------------------------------------------
 
-$config->blocklist('empty-ua', function (ServerRequestInterface $serverRequest): bool {
+$config->blocklists->add('empty-ua', function (ServerRequestInterface $serverRequest): bool {
     $ua = $serverRequest->getHeaderLine('User-Agent');
     return $ua === '' || trim($ua) === '';
 });
@@ -157,7 +157,7 @@ $scannerPaths = [
     '/webshell',
 ];
 
-$config->blocklist('scanner-paths', function (ServerRequestInterface $serverRequest) use ($scannerPaths): bool {
+$config->blocklists->add('scanner-paths', function (ServerRequestInterface $serverRequest) use ($scannerPaths): bool {
     $path = strtolower($serverRequest->getUri()->getPath());
 
     foreach ($scannerPaths as $scannerPath) {
@@ -175,7 +175,7 @@ echo "3. Scanner path blocklist configured (" . count($scannerPaths) . " paths)\
 // Rule 4: Block suspicious request patterns
 // -----------------------------------------------------------------------------
 
-$config->blocklist('suspicious-patterns', function (ServerRequestInterface $serverRequest): bool {
+$config->blocklists->add('suspicious-patterns', function (ServerRequestInterface $serverRequest): bool {
     $uri = $serverRequest->getUri()->getPath() . '?' . $serverRequest->getUri()->getQuery();
 
     $suspiciousPatterns = [
@@ -213,7 +213,7 @@ echo "4. Suspicious pattern blocklist configured\n";
 // Rule 5: Fail2Ban for persistent scanners
 // -----------------------------------------------------------------------------
 
-$config->fail2ban(
+$config->fail2ban->add(
     name: 'persistent-scanner',
     threshold: 5,       // 5 blocked requests
     period: 60,         // In 1 minute
@@ -230,7 +230,7 @@ echo "5. Fail2Ban for persistent scanners configured\n";
 // Rate limiting for rapid requests (bot behavior)
 // -----------------------------------------------------------------------------
 
-$config->throttle(
+$config->throttles->add(
     name: 'rapid-requests',
     limit: 30,          // 30 requests
     period: 10,         // In 10 seconds
@@ -306,10 +306,17 @@ echo "\n";
 echo "Test 6: Rapid requests (bot behavior)\n";
 $ip = '192.168.1.100';
 for ($i = 1; $i <= 35; ++$i) {
+    $request = new ServerRequest('GET', '/api/data', ['User-Agent' => 'Mozilla/5.0'], null, '1.1', ['REMOTE_ADDR' => $ip]);
+    $response = $middleware->process($request, $handler);
+
+    // Print first 3 and last 7 requests, summarise the middle
     if ($i <= 3 || $i >= 29) {
-        $testRequest(sprintf('Rapid request %s from %s', $i, $ip), '/api/data', ['User-Agent' => 'Mozilla/5.0'], $ip);
+        $status = $response->getStatusCode();
+        $result = $status === 200 ? 'ALLOW' : 'BLOCK';
+        $rule = in_array($response->getHeaderLine('X-Phirewall-Matched'), ['', '0'], true) ? '-' : $response->getHeaderLine('X-Phirewall-Matched');
+        echo sprintf("  [%s] %-50s (rule: %s)\n", $result, sprintf('Rapid request %s from %s', $i, $ip), $rule);
     } elseif ($i === 4) {
-        echo "  ... (requests 4-28 omitted) ...\n";
+        echo "  ... (requests 4-28 output omitted, still processed) ...\n";
     }
 }
 

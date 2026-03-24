@@ -17,8 +17,8 @@ namespace Flowd\Phirewall\Pattern;
  *       new PatternEntry(PatternKind::CIDR, '10.0.0.0/8'),
  *       new PatternEntry(PatternKind::IP, '192.168.1.100'),
  *   ]);
- *   $config->addPatternBackend('internal', $backend);
- *   $config->blocklistFromBackend('block-internal', 'internal');
+ *   $config->blocklists->addPatternBackend('internal', $backend);
+ *   $config->blocklists->fromBackend('block-internal', 'internal');
  */
 final class InMemoryPatternBackend implements PatternBackendInterface
 {

@@ -30,6 +30,7 @@ A simple in-memory cache ideal for testing and development.
 ### Usage
 
 ```php
+use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Store\InMemoryCache;
 
 $cache = new InMemoryCache();
@@ -40,6 +41,7 @@ $config = new Config($cache);
 
 ```php
 use Flowd\Phirewall\Store\ClockInterface;
+use Flowd\Phirewall\Store\InMemoryCache;
 
 // For time-dependent tests
 $clock = new class implements ClockInterface {
@@ -95,6 +97,7 @@ apc.enable_cli=1  # Required for CLI testing
 ### Usage
 
 ```php
+use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Store\ApcuCache;
 
 $cache = new ApcuCache();
@@ -152,6 +155,7 @@ composer require predis/predis
 ### Basic Usage
 
 ```php
+use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Store\RedisCache;
 use Predis\Client as PredisClient;
 
@@ -164,7 +168,7 @@ $config = new Config($cache);
 
 ```php
 // Namespace all keys with a prefix
-$cache = new RedisCache($redis, 'myapp:firewall:');
+$cache = new \Flowd\Phirewall\Store\RedisCache($redis, 'myapp:firewall:');
 
 // Keys will be: myapp:firewall:phirewall:throttle:...
 ```
@@ -256,6 +260,7 @@ SQL-backed cache using PDO for MySQL, PostgreSQL, or SQLite.
 ### Basic Usage
 
 ```php
+use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Store\PdoCache;
 
 // SQLite (file-based, zero-config)
@@ -277,6 +282,8 @@ $config = new Config($cache);
 ### Custom Table Name
 
 ```php
+use Flowd\Phirewall\Store\PdoCache;
+
 // Custom table name (letters, digits, underscores; may include schema: myschema.mytable)
 $cache = new PdoCache($pdo, 'my_app_firewall_cache');
 
@@ -326,7 +333,7 @@ CREATE TABLE IF NOT EXISTS phirewall_cache (
 // Enable SQLite WAL mode
 $pdo = new PDO('sqlite:/var/lib/phirewall/cache.db');
 $pdo->exec('PRAGMA journal_mode=WAL');
-$cache = new PdoCache($pdo);
+$cache = new \Flowd\Phirewall\Store\PdoCache($pdo);
 ```
 
 ### Using with Doctrine DBAL
@@ -335,6 +342,7 @@ If your application already uses Doctrine DBAL, you can pass its native PDO conn
 
 ```php
 use Doctrine\DBAL\DriverManager;
+use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Store\PdoCache;
 
 $dbalConnection = DriverManager::getConnection(['url' => 'mysql://user:pass@localhost/myapp']);
@@ -358,6 +366,7 @@ Phirewall works with any PSR-16 compatible cache.
 ### Symfony Cache
 
 ```php
+use Flowd\Phirewall\Config;
 use Symfony\Component\Cache\Adapter\RedisAdapter;
 use Symfony\Component\Cache\Psr16Cache;
 
@@ -369,8 +378,7 @@ $config = new Config($cache);
 ### Laravel Cache
 
 ```php
-use Illuminate\Cache\Repository;
-use Illuminate\Cache\ArrayStore;
+use Flowd\Phirewall\Config;
 
 // Note: Laravel's cache implements PSR-16 via getStore()
 $laravelCache = app('cache')->store('redis');
@@ -382,8 +390,9 @@ $config = new Config($laravelCache);
 ### Doctrine Cache
 
 ```php
-use Doctrine\Common\Cache\Psr6\DoctrineProvider;
+use Flowd\Phirewall\Config;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
+use Symfony\Component\Cache\Psr16Cache;
 
 $psr6Cache = new ArrayAdapter();
 $cache = new Psr16Cache($psr6Cache);

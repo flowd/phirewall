@@ -42,7 +42,7 @@ echo "--- Example 1: CIDR-Based IP Blocking (Simple One-Step) ---\n\n";
 
 // Simple approach: Create backend and register as blocklist in one step
 // Use patternBlocklist() for the most common case
-$ipBackend = $config->patternBlocklist('private-networks', [
+$ipBackend = $config->blocklists->patternBlocklist('private-networks', [
     new PatternEntry(PatternKind::CIDR, '10.0.0.0/8'),
     new PatternEntry(PatternKind::CIDR, '172.16.0.0/12'),
     new PatternEntry(PatternKind::CIDR, '192.168.0.0/16'),
@@ -63,7 +63,7 @@ echo "--- Example 2: Path-Based Blocking (Two-Step for Reusability) ---\n\n";
 
 // Two-step approach: Useful when sharing a backend between multiple rules
 // or when you need more control over backend configuration
-$pathBackend = $config->inMemoryPatternBackend('blocked-paths', [
+$pathBackend = $config->blocklists->inMemoryPatternBackend('blocked-paths', [
     // Exact path matches
     new PatternEntry(PatternKind::PATH_EXACT, '/admin'),
     new PatternEntry(PatternKind::PATH_EXACT, '/.env'),
@@ -76,7 +76,7 @@ $pathBackend = $config->inMemoryPatternBackend('blocked-paths', [
     new PatternEntry(PatternKind::PATH_REGEX, '/\.(git|svn|hg)/'),
 ]);
 
-$config->blocklistFromBackend('block-sensitive-paths', 'blocked-paths');
+$config->blocklists->fromBackend('block-sensitive-paths', 'blocked-paths');
 
 echo "Blocked paths:\n";
 echo "  - /admin (exact)\n";
@@ -91,7 +91,7 @@ echo "  - /.git/, /.svn/, /.hg/ (regex)\n\n";
 
 echo "--- Example 3: Header-Based Blocking ---\n\n";
 
-$headerBackend = $config->inMemoryPatternBackend('blocked-headers', [
+$headerBackend = $config->blocklists->inMemoryPatternBackend('blocked-headers', [
     // Block specific User-Agents
     new PatternEntry(
         kind: PatternKind::HEADER_REGEX,
@@ -114,7 +114,7 @@ $headerBackend = $config->inMemoryPatternBackend('blocked-headers', [
     ),
 ]);
 
-$config->blocklistFromBackend('block-bad-headers', 'blocked-headers');
+$config->blocklists->fromBackend('block-bad-headers', 'blocked-headers');
 
 echo "Blocked headers:\n";
 echo "  - User-Agent matching: sqlmap, nikto, nmap, masscan\n";
@@ -127,7 +127,7 @@ echo "  - Referer from spam-site.com or malware.net\n\n";
 
 echo "--- Example 4: Dynamic Entries with Expiration ---\n\n";
 
-$dynamicBackend = $config->inMemoryPatternBackend('dynamic-blocks');
+$dynamicBackend = $config->blocklists->inMemoryPatternBackend('dynamic-blocks');
 
 // Add entries that expire
 $dynamicBackend->append(new PatternEntry(
@@ -151,7 +151,7 @@ $dynamicBackend->append(new PatternEntry(
     metadata: ['reason' => 'Known bad actor'],
 ));
 
-$config->blocklistFromBackend('dynamic-blocklist', 'dynamic-blocks');
+$config->blocklists->fromBackend('dynamic-blocklist', 'dynamic-blocks');
 
 echo "Dynamic entries added:\n";
 echo "  - 203.0.113.100 (expires in 1 hour)\n";
@@ -235,7 +235,7 @@ echo "\n=== Common Usage Patterns ===\n\n";
 
 echo "1. Block cloud provider ranges from sensitive endpoints:\n";
 echo <<<'CODE'
-   $backend = $config->inMemoryPatternBackend('cloud-ips', [
+   $backend = $config->blocklists->inMemoryPatternBackend('cloud-ips', [
        new PatternEntry(PatternKind::CIDR, '13.32.0.0/15'),   // AWS CloudFront
        new PatternEntry(PatternKind::CIDR, '34.0.0.0/9'),     // Google Cloud
        new PatternEntry(PatternKind::CIDR, '40.74.0.0/15'),   // Azure
@@ -245,7 +245,7 @@ echo "\n\n";
 
 echo "2. Allow only specific countries (by known IP ranges):\n";
 echo <<<'CODE'
-   $allowedBackend = $config->inMemoryPatternBackend('allowed-ips', [
+   $allowedBackend = $config->blocklists->inMemoryPatternBackend('allowed-ips', [
        new PatternEntry(PatternKind::CIDR, '...'),  // Your country's ranges
    ]);
    // Use as safelist instead of blocklist
@@ -259,7 +259,7 @@ echo <<<'CODE'
        fn($ip) => new PatternEntry(PatternKind::IP, trim($ip)),
        $torExits
    );
-   $backend = $config->inMemoryPatternBackend('tor-exits', $entries);
+   $backend = $config->blocklists->inMemoryPatternBackend('tor-exits', $entries);
 CODE;
 echo "\n\n";
 

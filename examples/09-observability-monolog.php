@@ -102,7 +102,7 @@ $cache = new InMemoryCache();
 $config = new Config($cache, $dispatcher);
 
 // Simple throttle to demonstrate events
-$config->throttle(
+$config->throttles->add(
     name: 'ip-limit',
     limit: 3,
     period: 60,
@@ -111,7 +111,7 @@ $config->throttle(
 echo "Throttle rule configured: 3 requests/min per IP\n";
 
 // Blocklist to demonstrate blocked events
-$config->blocklist('scanner', fn(ServerRequestInterface $serverRequest): bool => str_contains(strtolower($serverRequest->getHeaderLine('User-Agent')), 'scanner'));
+$config->blocklists->add('scanner', fn(ServerRequestInterface $serverRequest): bool => str_contains(strtolower($serverRequest->getHeaderLine('User-Agent')), 'scanner'));
 echo "Blocklist rule configured: block scanner User-Agents\n\n";
 
 // =============================================================================

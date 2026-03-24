@@ -33,9 +33,9 @@ echo "Table auto-created on first use.\n\n";
 
 // --- Configure rate limiting ---
 
-$config->throttle('api', limit: 5, period: 60, key: KeyExtractors::ip());
+$config->throttles->add('api', limit: 5, period: 60, key: KeyExtractors::ip());
 
-$config->fail2ban('login', threshold: 3, period: 300, ban: 600,
+$config->fail2ban->add('login', threshold: 3, period: 300, ban: 600,
     filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::ip()
 );

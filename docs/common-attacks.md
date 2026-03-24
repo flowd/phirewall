@@ -38,7 +38,7 @@ $config = new Config($cache);
 
 // Strategy 1: Ban after 5 failed logins in 5 minutes
 // Your application should set X-Login-Failed header on auth failure
-$config->fail2ban('login-brute-force',
+$config->fail2ban->add('login-brute-force',
     threshold: 5,      // Max failures before ban
     period: 300,       // 5 minute observation window
     ban: 3600,         // 1 hour ban
@@ -47,7 +47,7 @@ $config->fail2ban('login-brute-force',
 );
 
 // Strategy 2: Additionally throttle login attempts
-$config->throttle('login-rate',
+$config->throttles->add('login-rate',
     limit: 10,         // Max 10 login attempts
     period: 60,        // Per minute
     key: function ($req): ?string {
@@ -60,7 +60,7 @@ $config->throttle('login-rate',
 );
 
 // Strategy 3: Track failed logins for observability
-$config->track('login-failures',
+$config->tracks->add('login-failures',
     period: 3600,
     filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::ip()
@@ -69,7 +69,7 @@ $config->track('login-failures',
 
 ### Application Integration
 
-Your application should set the `X-Login-Failed` header when authentication fails:
+Your application signals a failed login by setting a request attribute that Phirewall can check. The simplest approach is to use a request header or attribute set by your authentication middleware:
 
 ```php
 // In your login controller
@@ -78,16 +78,15 @@ public function login(Request $request): Response
     $user = $this->authenticate($request->get('username'), $request->get('password'));
 
     if (!$user) {
-        // Signal failed login to firewall
         return (new Response(401))
-            ->withHeader('X-Login-Failed', '1')
             ->withHeader('Content-Type', 'application/json')
-            ->withBody('{"error": "Invalid credentials"}');
+            ->withHeader('X-Login-Failed', '1');
     }
 
     // Successful login...
 }
 ```
+
 
 ---
 
@@ -104,10 +103,11 @@ Combine IP-based and user-based throttling with Fail2Ban to detect distributed a
 ### Configuration
 
 ```php
+use Flowd\Phirewall\Config;
 use Flowd\Phirewall\KeyExtractors;
 
 // Per-IP rate limiting
-$config->fail2ban('credential-stuffing-ip',
+$config->fail2ban->add('credential-stuffing-ip',
     threshold: 10,
     period: 600,       // 10 minute window
     ban: 7200,         // 2 hour ban
@@ -116,7 +116,7 @@ $config->fail2ban('credential-stuffing-ip',
 );
 
 // Per-username rate limiting (extract from POST body)
-$config->throttle('credential-stuffing-user',
+$config->throttles->add('credential-stuffing-user',
     limit: 5,
     period: 300,
     key: function ($req): ?string {
@@ -131,7 +131,7 @@ $config->throttle('credential-stuffing-user',
 );
 
 // Detect rapid-fire attempts (burst detection)
-$config->throttle('login-burst',
+$config->throttles->add('login-burst',
     limit: 3,          // Only 3 attempts
     period: 10,        // In 10 seconds
     key: function ($req): ?string {
@@ -173,14 +173,14 @@ $proxyResolver = new TrustedProxyResolver([
 ]);
 
 // Tier 1: Global per-IP limit
-$config->throttle('global-ip',
+$config->throttles->add('global-ip',
     limit: 1000,       // 1000 requests
     period: 60,        // Per minute
     key: KeyExtractors::clientIp($proxyResolver)
 );
 
 // Tier 2: Stricter limit for write operations
-$config->throttle('write-operations',
+$config->throttles->add('write-operations',
     limit: 100,
     period: 60,
     key: function ($req) use ($proxyResolver): ?string {
@@ -193,14 +193,14 @@ $config->throttle('write-operations',
 );
 
 // Tier 3: Burst detection (sudden spike)
-$config->throttle('burst-detection',
+$config->throttles->add('burst-detection',
     limit: 50,
     period: 5,         // 50 requests in 5 seconds = likely attack
     key: KeyExtractors::clientIp($proxyResolver)
 );
 
 // Tier 4: Per-endpoint limits for expensive operations
-$config->throttle('search-endpoint',
+$config->throttles->add('search-endpoint',
     limit: 20,
     period: 60,
     key: function ($req) use ($proxyResolver): ?string {
@@ -256,7 +256,7 @@ SecRule ARGS "@rx ('|\")\s*(or|and)\s*('|\"|[0-9])" \
 RULES;
 
 $coreRuleSet = SecRuleLoader::fromString($sqlRules);
-$config->owaspBlocklist('sql-injection', $coreRuleSet);
+$config->blocklists->owasp('sql-injection', $coreRuleSet);
 
 // Optional: Enable diagnostics header for debugging
 // $config->enableOwaspDiagnosticsHeader();
@@ -265,7 +265,7 @@ $config->owaspBlocklist('sql-injection', $coreRuleSet);
 ### Alternative: Pattern-Based Blocklist
 
 ```php
-$config->blocklist('sql-injection', function ($req): bool {
+$config->blocklists->add('sql-injection', function ($req): bool {
     $patterns = [
         '/union\s+select/i',
         '/select\s+.*\s+from/i',
@@ -335,7 +335,7 @@ SecRule ARGS "@rx (?i)(&#x?[0-9a-f]+;?){3,}" \
 RULES;
 
 $coreRuleSet = SecRuleLoader::fromString($xssRules);
-$config->owaspBlocklist('xss-attacks', $coreRuleSet);
+$config->blocklists->owasp('xss-attacks', $coreRuleSet);
 ```
 
 ---
@@ -353,7 +353,7 @@ Block requests containing path traversal patterns.
 ### Configuration
 
 ```php
-$config->blocklist('path-traversal', function ($req): bool {
+$config->blocklists->add('path-traversal', function ($req): bool {
     $path = $req->getUri()->getPath();
     $query = $req->getUri()->getQuery();
     $input = urldecode($path . '?' . $query);
@@ -420,7 +420,7 @@ SecRule ARGS "@rx (?i)(include|require)(_once)?\s*\(" \
 RULES;
 
 $coreRuleSet = SecRuleLoader::fromString($rceRules);
-$config->owaspBlocklist('rce-attacks', $coreRuleSet);
+$config->blocklists->owasp('rce-attacks', $coreRuleSet);
 ```
 
 ---
@@ -438,11 +438,12 @@ Block known scanner signatures and suspicious patterns.
 ### Configuration
 
 ```php
+use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Pattern\PatternEntry;
 use Flowd\Phirewall\Pattern\PatternKind;
 
 // Pattern-based bot blocking
-$patternBackend = $config->filePatternBackend('bots', '/var/lib/phirewall/bots.txt');
+$patternBackend = $config->blocklists->filePatternBackend('bots', '/var/lib/phirewall/bots.txt');
 
 // Block known scanner User-Agents
 $patternBackend->append(new PatternEntry(
@@ -458,10 +459,10 @@ $patternBackend->append(new PatternEntry(
     target: 'User-Agent',
 ));
 
-$config->blocklistFromBackend('scanner-bots', 'bots');
+$config->blocklists->fromBackend('scanner-bots', 'bots');
 
 // Block common scanner paths
-$config->blocklist('scanner-paths', function ($req): bool {
+$config->blocklists->add('scanner-paths', function ($req): bool {
     $scannerPaths = [
         '/wp-admin',
         '/wp-login.php',
@@ -497,7 +498,7 @@ $config->blocklist('scanner-paths', function ($req): bool {
 });
 
 // Ban persistent scanners
-$config->fail2ban('persistent-scanner',
+$config->fail2ban->add('persistent-scanner',
     threshold: 10,     // 10 blocked requests
     period: 60,        // In 1 minute
     ban: 86400,        // 24 hour ban
@@ -530,14 +531,14 @@ use Flowd\Phirewall\Http\TrustedProxyResolver;
 $proxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
 
 // Authenticated user limits (higher)
-$config->throttle('api-user',
+$config->throttles->add('api-user',
     limit: 1000,
     period: 3600,      // Per hour
     key: KeyExtractors::header('X-User-Id')
 );
 
 // Anonymous/API key limits (lower)
-$config->throttle('api-anon',
+$config->throttles->add('api-anon',
     limit: 100,
     period: 3600,
     key: function ($req) use ($proxyResolver): ?string {
@@ -550,7 +551,7 @@ $config->throttle('api-anon',
 );
 
 // Expensive endpoint limits
-$config->throttle('api-export',
+$config->throttles->add('api-export',
     limit: 10,
     period: 3600,
     key: function ($req): ?string {
@@ -562,7 +563,7 @@ $config->throttle('api-export',
 );
 
 // User enumeration protection
-$config->throttle('user-lookup',
+$config->throttles->add('user-lookup',
     limit: 30,
     period: 60,
     key: function ($req) use ($proxyResolver): ?string {
@@ -575,7 +576,7 @@ $config->throttle('user-lookup',
 );
 
 // Password reset abuse
-$config->throttle('password-reset',
+$config->throttles->add('password-reset',
     limit: 3,
     period: 3600,
     key: function ($req): ?string {
@@ -603,8 +604,10 @@ Detect suspicious session activity patterns.
 ### Configuration
 
 ```php
+use Flowd\Phirewall\KeyExtractors;
+
 // Detect concurrent sessions from different IPs
-$config->track('session-ip-change',
+$config->tracks->add('session-ip-change',
     period: 3600,
     filter: function ($req): bool {
         // Check if session IP changed
@@ -614,7 +617,7 @@ $config->track('session-ip-change',
 );
 
 // Rate limit session creation
-$config->throttle('session-creation',
+$config->throttles->add('session-creation',
     limit: 10,
     period: 300,
     key: function ($req): ?string {
@@ -626,7 +629,7 @@ $config->throttle('session-creation',
 );
 
 // Block session fixation attempts
-$config->blocklist('session-fixation', function ($req): bool {
+$config->blocklists->add('session-fixation', function ($req): bool {
     // Block if session ID is in URL
     $query = $req->getUri()->getQuery();
     return preg_match('/(?:PHPSESSID|sessionid|sid|session_id)=/i', $query) === 1;
@@ -667,13 +670,13 @@ $proxyResolver = new TrustedProxyResolver([
 ]);
 
 // === SAFELISTS ===
-$config->safelist('health', fn($req) => $req->getUri()->getPath() === '/health');
-$config->safelist('metrics', fn($req) => $req->getUri()->getPath() === '/metrics');
+$config->safelists->add('health', fn($req) => $req->getUri()->getPath() === '/health');
+$config->safelists->add('metrics', fn($req) => $req->getUri()->getPath() === '/metrics');
 
 // === BLOCKLISTS ===
 
 // Scanner paths
-$config->blocklist('scanners', function ($req): bool {
+$config->blocklists->add('scanners', function ($req): bool {
     $blocked = ['/wp-admin', '/phpmyadmin', '/.env', '/.git', '/phpinfo.php'];
     $path = strtolower($req->getUri()->getPath());
     foreach ($blocked as $p) {
@@ -683,31 +686,31 @@ $config->blocklist('scanners', function ($req): bool {
 });
 
 // Path traversal
-$config->blocklist('path-traversal', function ($req): bool {
+$config->blocklists->add('path-traversal', function ($req): bool {
     $input = urldecode($req->getUri()->getPath() . '?' . $req->getUri()->getQuery());
     return preg_match('~\.\.[\\\\/]~', $input) === 1;
 });
 
 // === OWASP RULES ===
 $owaspRules = SecRuleLoader::fromDirectory(__DIR__ . '/owasp-rules');
-$config->owaspBlocklist('owasp', $owaspRules);
+$config->blocklists->owasp('owasp', $owaspRules);
 
 // === FAIL2BAN ===
-$config->fail2ban('login-brute',
+$config->fail2ban->add('login-brute',
     threshold: 5, period: 300, ban: 3600,
     filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::clientIp($proxyResolver)
 );
 
 // === THROTTLES ===
-$config->throttle('global', limit: 1000, period: 60, key: KeyExtractors::clientIp($proxyResolver));
-$config->throttle('write-ops', limit: 100, period: 60, key: function ($req) use ($proxyResolver): ?string {
+$config->throttles->add('global', limit: 1000, period: 60, key: KeyExtractors::clientIp($proxyResolver));
+$config->throttles->add('write-ops', limit: 100, period: 60, key: function ($req) use ($proxyResolver): ?string {
     if (in_array($req->getMethod(), ['POST', 'PUT', 'PATCH', 'DELETE'])) {
         return $proxyResolver->resolve($req);
     }
     return null;
 });
-$config->throttle('login', limit: 10, period: 60, key: function ($req) use ($proxyResolver): ?string {
+$config->throttles->add('login', limit: 10, period: 60, key: function ($req) use ($proxyResolver): ?string {
     if ($req->getUri()->getPath() === '/login') {
         return $proxyResolver->resolve($req);
     }

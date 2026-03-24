@@ -149,7 +149,7 @@ $cache = new InMemoryCache();
 $config = new Config($cache, $dispatcher);
 
 // Configure rules for demonstration
-$config->throttle(
+$config->throttles->add(
     name: 'api-limit',
     limit: 3,
     period: 60,
@@ -157,10 +157,10 @@ $config->throttle(
 );
 echo "Throttle rule: 3 requests/min per IP\n";
 
-$config->blocklist('malicious', fn(ServerRequestInterface $serverRequest): bool => str_contains($serverRequest->getUri()->getQuery(), 'attack'));
+$config->blocklists->add('malicious', fn(ServerRequestInterface $serverRequest): bool => str_contains($serverRequest->getUri()->getQuery(), 'attack'));
 echo "Blocklist rule: block requests with 'attack' in query\n";
 
-$config->safelist('health', fn(ServerRequestInterface $serverRequest): bool => $serverRequest->getUri()->getPath() === '/health');
+$config->safelists->add('health', fn(ServerRequestInterface $serverRequest): bool => $serverRequest->getUri()->getPath() === '/health');
 echo "Safelist rule: allow /health endpoint\n\n";
 
 // =============================================================================

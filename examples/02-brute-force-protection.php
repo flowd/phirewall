@@ -41,7 +41,7 @@ $config = new Config($cache);
 // This is the most effective protection against brute force attacks.
 // After 5 failed login attempts within 5 minutes, the IP is banned for 1 hour.
 
-$config->fail2ban(
+$config->fail2ban->add(
     name: 'login-failures',
     threshold: 5,           // Number of failures before ban
     period: 300,            // Time window in seconds (5 minutes)
@@ -60,7 +60,7 @@ echo "1. Fail2Ban configured: 5 failures in 5 min = 1 hour ban\n";
 // Even before banning, slow down potential attackers.
 // Max 10 login attempts per minute per IP.
 
-$config->throttle(
+$config->throttles->add(
     name: 'login-throttle',
     limit: 10,
     period: 60,
@@ -80,7 +80,7 @@ echo "2. Login throttle configured: 10 attempts/min per IP\n";
 // -----------------------------------------------------------------------------
 // Also throttle per username to prevent credential stuffing attacks.
 
-$config->throttle(
+$config->throttles->add(
     name: 'account-throttle',
     limit: 5,
     period: 60,

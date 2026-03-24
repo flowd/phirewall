@@ -79,6 +79,23 @@ $event->count;          // int - Failure count that triggered ban
 $event->serverRequest;  // ServerRequestInterface
 ```
 
+### Allow2BanBanned
+
+Dispatched when an allow2ban rule bans a key after the threshold is exceeded.
+
+```php
+use Flowd\Phirewall\Events\Allow2BanBanned;
+
+// Properties
+$event->rule;           // string - Rule name
+$event->key;            // string - Banned key (e.g., IP)
+$event->threshold;      // int - Requests allowed before ban
+$event->period;         // int - Observation window
+$event->banSeconds;     // int - Ban duration
+$event->count;          // int - Request count that triggered ban
+$event->serverRequest;  // ServerRequestInterface
+```
+
 ### TrackHit
 
 Dispatched when a tracking rule matches (passive counting).
@@ -87,11 +104,13 @@ Dispatched when a tracking rule matches (passive counting).
 use Flowd\Phirewall\Events\TrackHit;
 
 // Properties
-$event->rule;           // string - Rule name
-$event->key;            // string - Track key
-$event->period;         // int - Window size
-$event->count;          // int - Current count
-$event->serverRequest;  // ServerRequestInterface
+$event->rule;              // string - Rule name
+$event->key;               // string - Track key
+$event->period;            // int - Window size
+$event->count;             // int - Current count
+$event->serverRequest;     // ServerRequestInterface
+$event->limit;             // ?int - Configured threshold (null if no limit set)
+$event->thresholdReached;  // bool - True when limit is set and count >= limit
 ```
 
 ### PerformanceMeasured
@@ -147,6 +166,7 @@ $dispatcher = new class implements EventDispatcherInterface {
 use Monolog\Logger;
 use Monolog\Handler\StreamHandler;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Flowd\Phirewall\Events\Allow2BanBanned;
 use Flowd\Phirewall\Events\BlocklistMatched;
 use Flowd\Phirewall\Events\ThrottleExceeded;
 use Flowd\Phirewall\Events\Fail2BanBanned;
@@ -165,7 +185,8 @@ $dispatcher = new class ($logger) implements EventDispatcherInterface {
         match (true) {
             $event instanceof BlocklistMatched => $this->logger->warning('Request blocked', $context),
             $event instanceof ThrottleExceeded => $this->logger->warning('Rate limit exceeded', $context),
-            $event instanceof Fail2BanBanned => $this->logger->warning('IP banned', $context),
+            $event instanceof Fail2BanBanned => $this->logger->warning('IP banned by fail2ban', $context),
+            $event instanceof Allow2BanBanned => $this->logger->warning('IP banned by allow2ban', $context),
             default => $this->logger->info('Firewall event', $context),
         };
 
@@ -186,7 +207,6 @@ $dispatcher = new class ($logger) implements EventDispatcherInterface {
             $request = $event->serverRequest;
             $context['method'] = $request->getMethod();
             $context['path'] = $request->getUri()->getPath();
-            $context['ip'] = $request->getServerParams()['REMOTE_ADDR'] ?? 'unknown';
         }
 
         return $context;
@@ -200,6 +220,7 @@ $dispatcher = new class ($logger) implements EventDispatcherInterface {
 use OpenTelemetry\API\Metrics\MeterInterface;
 use OpenTelemetry\API\Trace\TracerInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Flowd\Phirewall\Events\Allow2BanBanned;
 use Flowd\Phirewall\Events\PerformanceMeasured;
 use Flowd\Phirewall\Events\ThrottleExceeded;
 use Flowd\Phirewall\Events\Fail2BanBanned;
@@ -243,7 +264,8 @@ $dispatcher = new class ($tracer, $meter) implements EventDispatcherInterface {
         // Create spans for blocking events
         if ($event instanceof BlocklistMatched ||
             $event instanceof ThrottleExceeded ||
-            $event instanceof Fail2BanBanned) {
+            $event instanceof Fail2BanBanned ||
+            $event instanceof Allow2BanBanned) {
             $span = $this->tracer->spanBuilder('phirewall.blocked')
                 ->setAttribute('rule', $event->rule)
                 ->startSpan();
@@ -286,6 +308,8 @@ $dispatcher = new class ($registry) implements EventDispatcherInterface {
                 $this->blockCounter->inc(['rule' => $event->rule, 'type' => 'blocklist']),
             $event instanceof Fail2BanBanned =>
                 $this->blockCounter->inc(['rule' => $event->rule, 'type' => 'fail2ban']),
+            $event instanceof Allow2BanBanned =>
+                $this->blockCounter->inc(['rule' => $event->rule, 'type' => 'allow2ban']),
             $event instanceof ThrottleExceeded =>
                 $this->throttleCounter->inc(['rule' => $event->rule]),
             $event instanceof PerformanceMeasured =>
@@ -303,6 +327,7 @@ $dispatcher = new class ($registry) implements EventDispatcherInterface {
 ```php
 use GuzzleHttp\Client;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Flowd\Phirewall\Events\Allow2BanBanned;
 use Flowd\Phirewall\Events\Fail2BanBanned;
 
 $dispatcher = new class ($httpClient, $webhookUrl) implements EventDispatcherInterface {
@@ -313,16 +338,19 @@ $dispatcher = new class ($httpClient, $webhookUrl) implements EventDispatcherInt
 
     public function dispatch(object $event): object
     {
-        // Only alert on bans
-        if (!$event instanceof Fail2BanBanned) {
+        // Only alert on bans (fail2ban or allow2ban)
+        if (!$event instanceof Fail2BanBanned && !$event instanceof Allow2BanBanned) {
             return $event;
         }
+
+        $type = $event instanceof Fail2BanBanned ? 'Fail2Ban' : 'Allow2Ban';
 
         // Send async to avoid blocking
         $this->httpClient->postAsync($this->webhookUrl, [
             'json' => [
                 'text' => sprintf(
-                    ":shield: IP Banned: `%s` (Rule: %s, Failures: %d)",
+                    "IP Banned by %s: `%s` (Rule: %s, Count: %d)",
+                    $type,
                     $event->key,
                     $event->rule,
                     $event->count
@@ -341,10 +369,22 @@ $dispatcher = new class ($httpClient, $webhookUrl) implements EventDispatcherInt
 
 Lightweight in-memory counters for smoke tests and metrics endpoints.
 
-### Getting Counters
+### Using DiagnosticsCounters (Recommended)
+
+Register `DiagnosticsCounters` as the event dispatcher to collect per-rule statistics:
 
 ```php
-$counters = $config->getDiagnosticsCounters();
+use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\DiagnosticsCounters;
+use Flowd\Phirewall\Store\InMemoryCache;
+
+$diagnostics = new DiagnosticsCounters();
+$config = new Config(new InMemoryCache(), $diagnostics);
+
+// ... run firewall ...
+
+// Read counters
+$counters = $diagnostics->all();
 
 // Structure:
 // [
@@ -355,6 +395,9 @@ $counters = $config->getDiagnosticsCounters();
 //     'track_hit' => ['total' => 50, 'by_rule' => ['api-calls' => 50]],
 //     'passed' => ['total' => 10000, 'by_rule' => []],
 // ]
+
+// Reset counters
+$diagnostics->reset();
 ```
 
 ### Counter Categories
@@ -364,23 +407,22 @@ $counters = $config->getDiagnosticsCounters();
 | `safelisted` | Requests that matched safelists |
 | `blocklisted` | Requests blocked by blocklists |
 | `throttle_exceeded` | Requests that exceeded rate limits |
-| `fail2ban_blocked` | Requests blocked due to existing ban |
-| `fail2ban_fail_hit` | Filter matches that count toward ban |
-| `fail2ban_banned` | New bans issued |
+| `fail2ban_blocked` | Requests blocked due to existing Fail2Ban ban |
+| `fail2ban_banned` | New Fail2Ban bans issued |
 | `track_hit` | Tracking rule matches |
 | `passed` | Requests that passed all checks |
-
-### Resetting Counters
-
-```php
-$config->resetDiagnosticsCounters();
-```
 
 ### Exposing as Metrics Endpoint
 
 ```php
+use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\DiagnosticsCounters;
+
 // In a /metrics endpoint
-$counters = $config->getDiagnosticsCounters();
+$diagnostics = new DiagnosticsCounters();
+$config = new Config($cache, $diagnostics);
+// ... after running firewall ...
+$counters = $diagnostics->all();
 
 $output = '';
 foreach ($counters as $category => $data) {
@@ -456,7 +498,11 @@ $this->logger->info('Event', ['key_prefix' => $maskedKey]);
 ## Structured Logging Example
 
 ```php
-use Flowd\Phirewall\Events\*;
+use Flowd\Phirewall\Events\Allow2BanBanned;
+use Flowd\Phirewall\Events\Fail2BanBanned;
+use Flowd\Phirewall\Events\PerformanceMeasured;
+use Flowd\Phirewall\Events\ThrottleExceeded;
+use Psr\EventDispatcher\EventDispatcherInterface;
 
 $dispatcher = new class implements EventDispatcherInterface {
     public function dispatch(object $event): object
@@ -471,13 +517,17 @@ $dispatcher = new class implements EventDispatcherInterface {
             $log['rule'] = $event->rule;
         }
 
+        // Add discriminator key (usually the IP or user identifier)
+        if (property_exists($event, 'key')) {
+            $log['key'] = $event->key;
+        }
+
         // Add request context
         if (property_exists($event, 'serverRequest')) {
             $req = $event->serverRequest;
             $log['request'] = [
                 'method' => $req->getMethod(),
                 'path' => $req->getUri()->getPath(),
-                'ip' => $req->getServerParams()['REMOTE_ADDR'] ?? null,
                 'user_agent' => $req->getHeaderLine('User-Agent'),
             ];
         }
@@ -490,6 +540,10 @@ $dispatcher = new class implements EventDispatcherInterface {
                 'retry_after' => $event->retryAfter,
             ],
             $event instanceof Fail2BanBanned => $log += [
+                'threshold' => $event->threshold,
+                'ban_seconds' => $event->banSeconds,
+            ],
+            $event instanceof Allow2BanBanned => $log += [
                 'threshold' => $event->threshold,
                 'ban_seconds' => $event->banSeconds,
             ],
@@ -534,7 +588,7 @@ class FirewallEventsTest extends TestCase
         };
 
         $config = new Config(new InMemoryCache(), $dispatcher);
-        $config->throttle('test', limit: 1, period: 60, key: fn($r) => 'key');
+        $config->throttles->add('test', limit: 1, period: 60, key: fn($r) => 'key');
 
         $firewall = new Firewall($config);
         $request = new ServerRequest('GET', '/');
