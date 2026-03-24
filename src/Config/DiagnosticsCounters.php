@@ -10,6 +10,7 @@ use Flowd\Phirewall\Events\PerformanceMeasured;
 use Flowd\Phirewall\Events\SafelistMatched;
 use Flowd\Phirewall\Events\ThrottleExceeded;
 use Flowd\Phirewall\Events\TrackHit;
+use Flowd\Phirewall\Http\DecisionPath;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
@@ -88,8 +89,8 @@ final class DiagnosticsCounters implements EventDispatcherInterface
     {
         // PerformanceMeasured fires for every decision — use it for paths
         // that don't have dedicated events (passed, fail2ban_blocked)
-        if ($performanceMeasured->decisionPath === 'passed' || $performanceMeasured->decisionPath === 'fail2ban_blocked') {
-            $this->increment($performanceMeasured->decisionPath, $performanceMeasured->ruleName);
+        if ($performanceMeasured->decisionPath === DecisionPath::Passed || $performanceMeasured->decisionPath === DecisionPath::Fail2BanBlocked) {
+            $this->increment($performanceMeasured->decisionPath->value, $performanceMeasured->ruleName);
         }
     }
 }

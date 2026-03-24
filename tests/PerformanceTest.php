@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Events\PerformanceMeasured;
+use Flowd\Phirewall\Http\DecisionPath;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -44,7 +45,7 @@ final class PerformanceTest extends TestCase
         $this->assertSame(Outcome::SAFELISTED, $firewallResult->outcome);
 
         $this->assertInstanceOf(PerformanceMeasured::class, $events->perfEvent);
-        $this->assertSame('safelisted', $events->perfEvent->decisionPath);
+        $this->assertSame(DecisionPath::Safelisted, $events->perfEvent->decisionPath);
         $this->assertSame('all', $events->perfEvent->ruleName);
         $this->assertGreaterThan(0, $events->perfEvent->durationMicros);
     }
@@ -77,7 +78,7 @@ final class PerformanceTest extends TestCase
         $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
 
         $this->assertInstanceOf(PerformanceMeasured::class, $events->perfEvent);
-        $this->assertSame('throttled', $events->perfEvent->decisionPath);
+        $this->assertSame(DecisionPath::Throttled, $events->perfEvent->decisionPath);
         $this->assertSame('ip', $events->perfEvent->ruleName);
         $this->assertGreaterThan(0, $events->perfEvent->durationMicros);
     }

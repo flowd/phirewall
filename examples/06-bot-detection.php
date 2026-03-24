@@ -17,6 +17,7 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -34,7 +35,8 @@ echo "=== Scanner and Bot Detection Example ===\n\n";
 // =============================================================================
 
 $cache = new InMemoryCache();
-$config = new Config($cache);
+$diagnostics = new DiagnosticsCounters();
+$config = new Config($cache, $diagnostics);
 
 // -----------------------------------------------------------------------------
 // Rule 1: Block known vulnerability scanners by User-Agent
@@ -323,7 +325,7 @@ for ($i = 1; $i <= 35; ++$i) {
 echo "\n";
 
 echo "=== Diagnostics ===\n";
-$counters = $config->getDiagnosticsCounters();
+$counters = $diagnostics->all();
 echo "Blocked by blocklist: " . ($counters['blocklisted']['total'] ?? 0) . "\n";
 foreach ($counters['blocklisted']['by_rule'] ?? [] as $rule => $count) {
     echo sprintf('  - %s: %d%s', $rule, $count, PHP_EOL);

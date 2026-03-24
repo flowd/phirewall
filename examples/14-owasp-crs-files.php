@@ -20,6 +20,7 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Owasp\SecRuleLoader;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -82,7 +83,8 @@ echo "All rules remain enabled for this demo\n\n";
 // CONFIGURATION
 // =============================================================================
 
-$config = new Config(new InMemoryCache());
+$diagnostics = new DiagnosticsCounters();
+$config = new Config(new InMemoryCache(), $diagnostics);
 $config->blocklists->owasp('owasp', $coreRuleSet);
 
 // Enable diagnostics header to see which rule matched
@@ -150,7 +152,7 @@ echo sprintf('Failed: %d%s', $failed, PHP_EOL);
 // =============================================================================
 
 echo "\n=== Diagnostics ===\n";
-$counters = $config->getDiagnosticsCounters();
+$counters = $diagnostics->all();
 echo "Blocked: " . ($counters['blocklisted']['total'] ?? 0) . "\n";
 echo "Passed: " . ($counters['passed']['total'] ?? 0) . "\n";
 

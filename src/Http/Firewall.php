@@ -92,7 +92,7 @@ final readonly class Firewall
         }
 
         $start = microtime(true);
-        $decisionPath = 'passed';
+        $decisionPath = DecisionPath::Passed;
         $decisionRule = null;
 
         $pendingRateLimitHeaders = null;
@@ -130,7 +130,7 @@ final readonly class Firewall
             if ($safelistRule->matcher()->match($serverRequest)->isMatch() === true) {
                 $this->dispatch(new SafelistMatched($name, $serverRequest));
 
-                $decisionPath = 'safelisted';
+                $decisionPath = DecisionPath::Safelisted;
                 $decisionRule = $name;
                 $result = FirewallResult::safelisted($name, ['X-Phirewall-Safelist' => $name]);
                 $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
@@ -156,7 +156,7 @@ final readonly class Firewall
                     }
                 }
 
-                $decisionPath = 'blocklisted';
+                $decisionPath = DecisionPath::Blocklisted;
                 $decisionRule = $name;
                 $result = FirewallResult::blocked($name, 'blocklist', $headers);
                 $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
@@ -185,7 +185,7 @@ final readonly class Firewall
             $banKey = $this->config->cacheKeyGenerator()->fail2BanBanKey($name, $normalizedFail2BanKey);
             if ($cache->has($banKey)) {
 
-                $decisionPath = 'fail2ban_blocked';
+                $decisionPath = DecisionPath::Fail2BanBlocked;
                 $decisionRule = $name;
                 $result = FirewallResult::blocked($name, 'fail2ban', [
                     'X-Phirewall' => 'fail2ban',
@@ -211,7 +211,7 @@ final readonly class Firewall
                         count: $count,
                         serverRequest: $serverRequest,
                     ));
-                    $decisionPath = 'fail2ban_banned';
+                    $decisionPath = DecisionPath::Fail2BanBanned;
                     $decisionRule = $name;
                     $result = FirewallResult::blocked($name, 'fail2ban', [
                         'X-Phirewall' => 'fail2ban',
@@ -274,7 +274,7 @@ final readonly class Firewall
                     ];
                 }
 
-                $decisionPath = 'throttled';
+                $decisionPath = DecisionPath::Throttled;
                 $decisionRule = $name;
                 $result = FirewallResult::throttled($name, $retryAfter, $headers);
                 $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
@@ -310,7 +310,7 @@ final readonly class Firewall
                     $banRetryAfter = $allow2BanRule->banSeconds();
                 }
 
-                $allow2BanResult ??= ['path' => 'allow2ban_blocked', 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', [
+                $allow2BanResult ??= ['path' => DecisionPath::Allow2BanBlocked, 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', [
                     'X-Phirewall' => 'allow2ban',
                     'X-Phirewall-Matched' => $name,
                     'Retry-After' => (string) $banRetryAfter,
@@ -339,7 +339,7 @@ final readonly class Firewall
                     $newBanRetryAfter = $allow2BanRule->banSeconds();
                 }
 
-                $allow2BanResult ??= ['path' => 'allow2ban_banned', 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', [
+                $allow2BanResult ??= ['path' => DecisionPath::Allow2BanBanned, 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', [
                     'X-Phirewall' => 'allow2ban',
                     'X-Phirewall-Matched' => $name,
                     'Retry-After' => (string) $newBanRetryAfter,
@@ -360,7 +360,7 @@ final readonly class Firewall
         return $result;
     }
 
-    private function dispatchPerformanceMeasured(float $start, string $decisionPath, ?string $ruleName): void
+    private function dispatchPerformanceMeasured(float $start, DecisionPath $decisionPath, ?string $ruleName): void
     {
         $dispatcher = $this->config->eventDispatcher;
         if (!$dispatcher instanceof \Psr\EventDispatcher\EventDispatcherInterface) {
