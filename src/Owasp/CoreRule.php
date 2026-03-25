@@ -14,6 +14,15 @@ final readonly class CoreRule
 {
     private const PM_MAX_PHRASES = 5000;
 
+    /** Lowercased operator, resolved once in constructor. */
+    private string $normalizedOperator;
+
+    /** Cached regex pattern with delimiters for @rx. Null when operator is not @rx. */
+    private ?string $cachedDelimitedPattern;
+
+    /** @var list<string>|null Cached parsed phrase list for @pm. Null when operator is not @pm. */
+    private ?array $cachedPhraseList;
+
     /**
      * @param list<string> $variables
      * @param array<string, int|string|bool> $actions
@@ -26,6 +35,13 @@ final readonly class CoreRule
         public array $actions, // parsed action map (e.g., ['phase' => '2', 'deny' => true, 'msg' => '...'])
         public ?string $contextFolder = null, // folder path for context (e.g., for @pmFromFile)
     ) {
+        $this->normalizedOperator = strtolower($this->operator);
+        $this->cachedDelimitedPattern = $this->normalizedOperator === '@rx'
+            ? $this->ensureRegexDelimiters($this->operatorArgument)
+            : null;
+        $this->cachedPhraseList = $this->normalizedOperator === '@pm'
+            ? $this->parsePhraseList($this->operatorArgument)
+            : null;
     }
 
     public function matches(ServerRequestInterface $serverRequest): bool
@@ -167,12 +183,10 @@ final readonly class CoreRule
      */
     private function evaluateOperator(array $values): bool
     {
-        $op = strtolower($this->operator);
-        switch ($op) {
+        switch ($this->normalizedOperator) {
             case '@rx':
-                $pattern = $this->operatorArgument;
-                // Ensure delimiters exist; if not provided, wrap with '~'
-                $delimited = $this->ensureRegexDelimiters($pattern);
+                $delimited = $this->cachedDelimitedPattern;
+                assert($delimited !== null);
                 foreach ($values as $value) {
                     if (@preg_match($delimited, $value) === 1) {
                         return true;
@@ -236,7 +250,8 @@ final readonly class CoreRule
 
                 return false;
             case '@pm':
-                $phrases = $this->parsePhraseList($this->operatorArgument);
+                $phrases = $this->cachedPhraseList;
+                assert($phrases !== null);
                 if ($phrases === []) {
                     return false;
                 }
@@ -380,6 +395,10 @@ final readonly class CoreRule
         if ($this->contextFolder !== null) {
             $path = rtrim($this->contextFolder, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR .
                 ltrim($filePath, DIRECTORY_SEPARATOR);
+        }
+
+        if (str_contains($filePath, '..')) {
+            throw new \RuntimeException("Path traversal detected in @pmFromFile: {$filePath}");
         }
 
         static $cache = [];
