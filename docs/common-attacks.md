@@ -84,9 +84,7 @@ public function login(ServerRequestInterface $request): ResponseInterface
 
     if (!$user) {
         $context = $request->getAttribute(RequestContext::ATTRIBUTE_NAME);
-        if ($context instanceof RequestContext) {
-            $context->recordFailure('login-brute-force', $request->getServerParams()['REMOTE_ADDR'] ?? '');
-        }
+        $context?->recordFailure('login-brute-force', $request->getServerParams()['REMOTE_ADDR'] ?? '');
 
         return (new Response(401))
             ->withHeader('Content-Type', 'application/json');

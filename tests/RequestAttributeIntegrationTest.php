@@ -395,20 +395,17 @@ final class RequestAttributeIntegrationTest extends TestCase
         $cache = new InMemoryCache();
         $config = new Config($cache, $dispatcher);
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
-        // Use an email-based key extractor so that decide() ban lookups are
-        // consistent with the email-based keys recorded via RequestContext.
         $config->fail2ban(
             'login-brute-force',
             threshold: 2,
             period: 300,
             ban: 3600,
             filter: fn($request): bool => false,
-            key: fn(ServerRequestInterface $serverRequest): string => $serverRequest->getHeaderLine('X-User-Email'),
+            key: KeyExtractors::ip(),
         );
 
         $middleware = new Middleware($config, new Psr17Factory());
-        $request = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
-            ->withHeader('X-User-Email', 'User@Example.COM');
+        $request = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
 
         // Record failures with mixed case — normalizer should unify them
         $handler1 = $this->failureRecordingHandler('login-brute-force', 'User@Example.COM');
