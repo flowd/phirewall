@@ -968,6 +968,8 @@ $config->setKeyPrefix('myapp');
 
 ## KeyExtractors Helper
 
+A **key extractor** returns a string from the request that Phirewall uses to count and limit — typically an IP address, a header value, or a request path.
+
 Common key extractors for throttles, fail2ban, and track rules.
 
 ### ip()

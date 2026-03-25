@@ -88,7 +88,7 @@ $config->blocklists->add('pma-probe', fn($req) => str_contains($req->getUri()->g
 use Flowd\Phirewall\KeyExtractors;
 
 // 100 requests per minute per IP
-$config->throttles->add('ip-minute', limit: 100, period: 60, key: KeyExtractors::ip());
+$config->throttles->add('ip-minute', limit: 100, period: 60 /* seconds */, key: KeyExtractors::ip());
 
 // Enable standard rate limit headers
 $config->enableRateLimitHeaders();
@@ -102,8 +102,8 @@ use Flowd\Phirewall\KeyExtractors;
 // Ban after 5 failed logins in 5 minutes, for 1 hour
 $config->fail2ban->add('login-abuse',
     threshold: 5,
-    period: 300,
-    ban: 3600,
+    period: 300, // seconds
+    ban: 3600, // seconds
     filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::ip()
 );
@@ -126,6 +126,8 @@ $middleware = new Middleware($config);
 > ```
 
 ## Step 5: Add to Your Application
+
+> **Middleware ordering:** Add Phirewall as one of the FIRST middleware in your stack -- it must run before your application handles the request. This ensures that malicious or rate-limited requests are blocked before any business logic executes.
 
 ### Slim Framework
 
@@ -158,6 +160,10 @@ $this->app->singleton(Middleware::class, function ($app) {
     return new Middleware($config);
 });
 ```
+
+### TYPO3
+
+For TYPO3 v13+, use the dedicated extension: [`flowd/typo3-firewall`](https://github.com/flowd/typo3-firewall). It provides auto-configuration, admin UI, and native middleware integration.
 
 ### Symfony
 
@@ -247,13 +253,13 @@ $config->safelists->add('health', fn($req) => $req->getUri()->getPath() === '/he
 $config->blocklists->add('wp-probe', fn($req) => str_starts_with($req->getUri()->getPath(), '/wp-'));
 
 // Rate limit: 10 requests per minute per IP
-$config->throttles->add('ip-limit', limit: 10, period: 60, key: KeyExtractors::ip());
+$config->throttles->add('ip-limit', limit: 10, period: 60 /* seconds */, key: KeyExtractors::ip());
 
 // Fail2Ban: 3 failures in 2 minutes = 5 minute ban
 $config->fail2ban->add('login',
     threshold: 3,
-    period: 120,
-    ban: 300,
+    period: 120, // seconds
+    ban: 300, // seconds
     filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
     key: KeyExtractors::ip()
 );
