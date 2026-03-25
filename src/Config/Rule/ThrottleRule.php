@@ -21,6 +21,10 @@ final readonly class ThrottleRule implements RuleInterface
         private KeyExtractorInterface $keyExtractor,
         private bool $sliding = false,
     ) {
+        if ($this->name === '') {
+            throw new \InvalidArgumentException('ThrottleRule name must not be empty.');
+        }
+
         if (is_int($this->limit) && $this->limit < 0) {
             throw new \InvalidArgumentException(
                 sprintf('ThrottleRule "%s": static limit must be non-negative, got %d', $this->name, $this->limit)
