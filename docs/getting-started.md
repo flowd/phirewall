@@ -127,7 +127,7 @@ $middleware = new Middleware($config);
 
 ## Step 5: Add to Your Application
 
-> **Middleware ordering:** Add Phirewall as one of the FIRST middleware in your stack -- it must run before your application handles the request. This ensures that malicious or rate-limited requests are blocked before any business logic executes.
+> **Middleware ordering:** Ensure Phirewall runs as early/outermost as possible in your middleware stack so it executes before your application handles the request. Depending on your framework, this may mean registering it first (FIFO-style pipelines) or last/with highest priority (LIFO-style pipelines such as Slim). This ensures that malicious or rate-limited requests are blocked before any business logic executes.
 
 ### Slim Framework
 
