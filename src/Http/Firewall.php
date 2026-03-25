@@ -98,6 +98,9 @@ final readonly class Firewall
         $pendingRateLimitHeaders = null;
 
         $discriminatorNormalizer = $this->config->getDiscriminatorNormalizer();
+        $normalize = $discriminatorNormalizer instanceof \Closure
+            ? $discriminatorNormalizer
+            : static fn(string $key): string => $key;
 
         // 0) Track (passive)
         foreach ($this->config->getTrackRules() as $trackRule) {
@@ -105,9 +108,7 @@ final readonly class Firewall
             if ($trackRule->filter()->match($serverRequest)->isMatch() === true) {
                 $key = $trackRule->keyExtractor()->extract($serverRequest);
                 if ($key !== null) {
-                    $normalizedKey = $discriminatorNormalizer instanceof \Closure
-                        ? $discriminatorNormalizer((string) $key)
-                        : (string) $key;
+                    $normalizedKey = $normalize((string) $key);
                     $counterKey = $this->config->cacheKeyGenerator()->trackKey($name, $normalizedKey);
                     $count = $this->increment($counterKey, $trackRule->period());
                     $limit = $trackRule->limit();
@@ -179,9 +180,7 @@ final readonly class Firewall
                 continue;
             }
 
-            $normalizedFail2BanKey = $discriminatorNormalizer instanceof \Closure
-                ? $discriminatorNormalizer((string) $key)
-                : (string) $key;
+            $normalizedFail2BanKey = $normalize((string) $key);
             $banKey = $this->config->cacheKeyGenerator()->fail2BanBanKey($name, $normalizedFail2BanKey);
             if ($cache->has($banKey)) {
 
@@ -231,9 +230,7 @@ final readonly class Firewall
                 continue;
             }
 
-            $normalizedThrottleKey = $discriminatorNormalizer instanceof \Closure
-                ? $discriminatorNormalizer((string) $key)
-                : (string) $key;
+            $normalizedThrottleKey = $normalize((string) $key);
             $limit = $throttleRule->resolveLimit($serverRequest);
             $period = $throttleRule->resolvePeriod($serverRequest);
             $strategy = $this->resolveStrategy($throttleRule);
@@ -300,9 +297,7 @@ final readonly class Firewall
                 continue;
             }
 
-            $normalizedAllow2BanKey = $discriminatorNormalizer instanceof \Closure
-                ? $discriminatorNormalizer((string) $key)
-                : (string) $key;
+            $normalizedAllow2BanKey = $normalize((string) $key);
             $a2bBanKey = $this->config->cacheKeyGenerator()->allow2BanBanKey($name, $normalizedAllow2BanKey);
             if ($cache->has($a2bBanKey)) {
                 $banRetryAfter = $this->ttlRemaining($a2bBanKey);
