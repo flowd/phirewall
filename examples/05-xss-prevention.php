@@ -23,6 +23,7 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Owasp\SecRuleLoader;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -132,7 +133,8 @@ echo "Rules skipped: {$result['skipped']}\n\n";
 // CONFIGURATION
 // =============================================================================
 
-$config = new Config(new InMemoryCache());
+$diagnostics = new DiagnosticsCounters();
+$config = new Config(new InMemoryCache(), $diagnostics);
 $config->blocklists->owasp('xss-prevention', $coreRuleSet);
 $config->enableOwaspDiagnosticsHeader();
 
@@ -310,7 +312,7 @@ echo sprintf('Passed: %d%s', $passed, PHP_EOL);
 echo sprintf('Failed: %d%s', $failed, PHP_EOL);
 
 echo "\n=== Protection Summary ===\n";
-$counters = $config->getDiagnosticsCounters();
+$counters = $diagnostics->all();
 echo "XSS attacks blocked: " . ($counters['blocklisted']['total'] ?? 0) . "\n";
 echo "Safe requests allowed: " . ($counters['passed']['total'] ?? 0) . "\n";
 

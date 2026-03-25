@@ -21,6 +21,7 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
@@ -29,7 +30,6 @@ use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
-use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
@@ -37,35 +37,12 @@ use Psr\Http\Server\RequestHandlerInterface;
 echo "=== Comprehensive Production-Ready Protection ===\n\n";
 
 // =============================================================================
-// EVENT DISPATCHER (Logging)
-// =============================================================================
-
-$dispatcher = new class implements EventDispatcherInterface {
-    private array $events = [];
-
-    public function dispatch(object $event): object
-    {
-        $this->events[] = $event;
-        return $event;
-    }
-
-    public function getEvents(): array
-    {
-        return $this->events;
-    }
-
-    public function clear(): void
-    {
-        $this->events = [];
-    }
-};
-
-// =============================================================================
 // CONFIGURATION
 // =============================================================================
 
 $cache = new InMemoryCache();
-$config = new Config($cache, $dispatcher);
+$diagnostics = new DiagnosticsCounters();
+$config = new Config($cache, $diagnostics);
 $config->setKeyPrefix('prod');
 $config->enableRateLimitHeaders();
 
@@ -364,7 +341,7 @@ echo sprintf('Attack tests passed: %d%s', $passed, PHP_EOL);
 echo "Attack tests failed: {$failed}\n\n";
 
 echo "=== Diagnostics Summary ===\n";
-$counters = $config->getDiagnosticsCounters();
+$counters = $diagnostics->all();
 
 $categories = [
     'safelisted' => 'Safelisted (bypassed)',

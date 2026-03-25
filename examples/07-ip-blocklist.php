@@ -18,6 +18,7 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Pattern\PatternEntry;
 use Flowd\Phirewall\Pattern\PatternKind;
@@ -49,7 +50,8 @@ if (file_exists($blocklistFile)) {
 // =============================================================================
 
 $cache = new InMemoryCache();
-$config = new Config($cache);
+$diagnostics = new DiagnosticsCounters();
+$config = new Config($cache, $diagnostics);
 
 // Create a file pattern backend
 $backend = $config->blocklists->filePatternBackend('blocklist', $blocklistFile);
@@ -246,7 +248,7 @@ echo "\n";
 // =============================================================================
 
 echo "=== Diagnostics ===\n";
-$counters = $config->getDiagnosticsCounters();
+$counters = $diagnostics->all();
 echo "Blocked: " . ($counters['blocklisted']['total'] ?? 0) . "\n";
 echo "Allowed: " . ($counters['passed']['total'] ?? 0) . "\n";
 

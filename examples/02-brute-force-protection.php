@@ -16,6 +16,7 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -33,7 +34,8 @@ echo "=== Brute Force Protection Example ===\n\n";
 // =============================================================================
 
 $cache = new InMemoryCache();
-$config = new Config($cache);
+$diagnostics = new DiagnosticsCounters();
+$config = new Config($cache, $diagnostics);
 
 // -----------------------------------------------------------------------------
 // Strategy 1: Fail2Ban - Ban IP after X failed login attempts
@@ -205,7 +207,7 @@ for ($i = 1; $i <= 12; ++$i) {
 }
 
 echo "\n=== Diagnostics ===\n";
-$counters = $config->getDiagnosticsCounters();
+$counters = $diagnostics->all();
 echo "Banned by Fail2Ban: " . ($counters['fail2ban_banned']['total'] ?? 0) . "\n";
 echo "Throttled: " . ($counters['throttle_exceeded']['total'] ?? 0) . "\n";
 echo "Passed: " . ($counters['passed']['total'] ?? 0) . "\n";

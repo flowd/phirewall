@@ -18,6 +18,7 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -35,7 +36,8 @@ echo "=== API Rate Limiting Example ===\n\n";
 // =============================================================================
 
 $cache = new InMemoryCache();
-$config = new Config($cache);
+$diagnostics = new DiagnosticsCounters();
+$config = new Config($cache, $diagnostics);
 $config->enableRateLimitHeaders(); // Send X-RateLimit-* headers
 
 // -----------------------------------------------------------------------------
@@ -245,7 +247,7 @@ for ($i = 1; $i <= 5; ++$i) {
 }
 
 echo "\n=== Diagnostics ===\n";
-$counters = $config->getDiagnosticsCounters();
+$counters = $diagnostics->all();
 echo "Throttled requests: " . ($counters['throttle_exceeded']['total'] ?? 0) . "\n";
 echo "Breakdown by rule:\n";
 foreach ($counters['throttle_exceeded']['by_rule'] ?? [] as $rule => $count) {
