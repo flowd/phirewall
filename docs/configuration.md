@@ -968,6 +968,8 @@ $config->setKeyPrefix('myapp');
 
 ## KeyExtractors Helper
 
+A **key extractor** returns a string or `null` from the request that Phirewall uses to count and limit — typically an IP address, a header value, or a request path. When a key extractor returns `null`, that request is skipped and not counted by throttles, fail2ban, or track rules.
+
 Common key extractors for throttles, fail2ban, and track rules.
 
 ### ip()
