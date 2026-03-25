@@ -17,6 +17,21 @@ final readonly class Fail2BanRule implements RuleInterface
         private RequestMatcherInterface $requestMatcher,
         private KeyExtractorInterface $keyExtractor,
     ) {
+        if ($name === '') {
+            throw new \InvalidArgumentException('Fail2BanRule name must not be empty.');
+        }
+
+        if ($threshold < 1) {
+            throw new \InvalidArgumentException(sprintf('Fail2BanRule threshold must be >= 1, got %d.', $threshold));
+        }
+
+        if ($period < 1) {
+            throw new \InvalidArgumentException(sprintf('Fail2BanRule period must be >= 1, got %d.', $period));
+        }
+
+        if ($banSeconds < 1) {
+            throw new \InvalidArgumentException(sprintf('Fail2BanRule banSeconds must be >= 1, got %d.', $banSeconds));
+        }
     }
 
     public function name(): string

@@ -96,4 +96,148 @@ final class RuleValueObjectsTest extends TestCase
         $this->assertTrue($trackRule->filter()->match(new ServerRequest('GET', '/'))->isMatch());
         $this->assertSame('agent', $trackRule->keyExtractor()->extract(new ServerRequest('GET', '/')));
     }
+
+    // ── TrackRule validation tests ──────────────────────────────────────
+
+    public function testTrackRuleEmptyNameThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('TrackRule name must not be empty.');
+
+        new TrackRule(
+            '',
+            60,
+            new ClosureRequestMatcher(static fn($r): bool => true),
+            new ClosureKeyExtractor(static fn($r): string => 'k'),
+        );
+    }
+
+    public function testTrackRuleZeroPeriodThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('TrackRule period must be >= 1');
+
+        new TrackRule(
+            'bad-period',
+            0,
+            new ClosureRequestMatcher(static fn($r): bool => true),
+            new ClosureKeyExtractor(static fn($r): string => 'k'),
+        );
+    }
+
+    public function testTrackRuleNegativePeriodThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('TrackRule period must be >= 1');
+
+        new TrackRule(
+            'bad-period',
+            -10,
+            new ClosureRequestMatcher(static fn($r): bool => true),
+            new ClosureKeyExtractor(static fn($r): string => 'k'),
+        );
+    }
+
+    // ── ThrottleRule validation tests ───────────────────────────────────
+
+    public function testThrottleRuleEmptyNameThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('ThrottleRule name must not be empty.');
+
+        new ThrottleRule(
+            '',
+            10,
+            60,
+            new ClosureKeyExtractor(static fn($r): string => 'k'),
+        );
+    }
+
+    // ── BlocklistRule validation tests ──────────────────────────────────
+
+    public function testBlocklistRuleEmptyNameThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('BlocklistRule name must not be empty.');
+
+        new BlocklistRule(
+            '',
+            new ClosureRequestMatcher(static fn($r): bool => true),
+        );
+    }
+
+    // ── SafelistRule validation tests ───────────────────────────────────
+
+    public function testSafelistRuleEmptyNameThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('SafelistRule name must not be empty.');
+
+        new SafelistRule(
+            '',
+            new ClosureRequestMatcher(static fn($r): bool => true),
+        );
+    }
+
+    // ── Fail2BanRule validation tests ───────────────────────────────────
+
+    public function testFail2BanRuleEmptyNameThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Fail2BanRule name must not be empty.');
+
+        new Fail2BanRule(
+            '',
+            3,
+            120,
+            600,
+            new ClosureRequestMatcher(static fn($r): bool => true),
+            new ClosureKeyExtractor(static fn($r): string => 'k'),
+        );
+    }
+
+    public function testFail2BanRuleThresholdBelowOneThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Fail2BanRule threshold must be >= 1');
+
+        new Fail2BanRule(
+            'f2b-bad',
+            0,
+            120,
+            600,
+            new ClosureRequestMatcher(static fn($r): bool => true),
+            new ClosureKeyExtractor(static fn($r): string => 'k'),
+        );
+    }
+
+    public function testFail2BanRulePeriodBelowOneThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Fail2BanRule period must be >= 1');
+
+        new Fail2BanRule(
+            'f2b-bad',
+            3,
+            0,
+            600,
+            new ClosureRequestMatcher(static fn($r): bool => true),
+            new ClosureKeyExtractor(static fn($r): string => 'k'),
+        );
+    }
+
+    public function testFail2BanRuleBanSecondsBelowOneThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Fail2BanRule banSeconds must be >= 1');
+
+        new Fail2BanRule(
+            'f2b-bad',
+            3,
+            120,
+            0,
+            new ClosureRequestMatcher(static fn($r): bool => true),
+            new ClosureKeyExtractor(static fn($r): string => 'k'),
+        );
+    }
 }

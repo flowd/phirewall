@@ -16,7 +16,7 @@ final readonly class TrackRule implements RuleInterface
      * @param KeyExtractorInterface $keyExtractor Extracts the grouping key from the request
      * @param int|null $limit Optional threshold; when set, TrackHit events include thresholdReached=true once count >= limit
      *
-     * @throws \InvalidArgumentException If limit is non-null and less than 1
+     * @throws \InvalidArgumentException If name is empty, period is less than 1, or limit is non-null and less than 1
      */
     public function __construct(
         private string $name,
@@ -25,6 +25,16 @@ final readonly class TrackRule implements RuleInterface
         private KeyExtractorInterface $keyExtractor,
         private ?int $limit = null,
     ) {
+        if ($this->name === '') {
+            throw new \InvalidArgumentException('TrackRule name must not be empty.');
+        }
+
+        if ($this->period < 1) {
+            throw new \InvalidArgumentException(
+                sprintf('TrackRule period must be >= 1, got %d.', $this->period)
+            );
+        }
+
         if ($this->limit !== null && $this->limit < 1) {
             throw new \InvalidArgumentException(
                 sprintf('Track rule "%s" limit must be at least 1, got %d.', $this->name, $this->limit)
