@@ -85,6 +85,46 @@ final readonly class Firewall
         $this->config->cache->clear();
     }
 
+    /**
+     * Process a single recorded fail2ban failure signal from the RequestContext.
+     *
+     * Looks up the fail2ban rule by name, normalizes the discriminator key,
+     * checks if already banned, increments the fail counter, and bans + dispatches
+     * a Fail2BanBanned event if the threshold is reached.
+     */
+    public function processRecordedFailure(string $ruleName, string $key, ServerRequestInterface $serverRequest): void
+    {
+        $rules = $this->config->fail2ban->rules();
+        $fail2BanRule = $rules[$ruleName] ?? null;
+        if ($fail2BanRule === null) {
+            return;
+        }
+
+        $normalizedKey = $this->normalizeDiscriminator($key);
+
+        $banKey = $this->config->cacheKeyGenerator()->fail2BanBanKey($ruleName, $normalizedKey);
+        if ($this->config->cache->has($banKey)) {
+            return;
+        }
+
+        $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($ruleName, $normalizedKey);
+        $count = $this->increment($failKey, $fail2BanRule->period());
+
+        if ($count >= $fail2BanRule->threshold()) {
+            $this->config->banManager()->ban($ruleName, $normalizedKey, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
+
+            $this->dispatch(new Fail2BanBanned(
+                rule: $ruleName,
+                key: $normalizedKey,
+                threshold: $fail2BanRule->threshold(),
+                period: $fail2BanRule->period(),
+                banSeconds: $fail2BanRule->banSeconds(),
+                count: $count,
+                serverRequest: $serverRequest,
+            ));
+        }
+    }
+
     public function decide(ServerRequestInterface $serverRequest): FirewallResult
     {
         if (!$this->config->isEnabled()) {

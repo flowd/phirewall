@@ -32,17 +32,17 @@ Use **Fail2Ban** to automatically ban IPs after repeated failed attempts, combin
 ```php
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\KeyExtractors;
-use Flowd\Phirewall\Store\RedisCache;
+use Flowd\Phirewall\Store\InMemoryCache;
 
-$config = new Config($cache);
+$config = new Config(new InMemoryCache());
 
 // Strategy 1: Ban after 5 failed logins in 5 minutes
-// Your application should set X-Login-Failed header on auth failure
+// Failures are signaled from application code via RequestContext, not request inspection
 $config->fail2ban->add('login-brute-force',
     threshold: 5,      // Max failures before ban
     period: 300,       // 5 minute observation window
     ban: 3600,         // 1 hour ban
-    filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
+    filter: fn($request): bool => false,
     key: KeyExtractors::ip()
 );
 
@@ -69,24 +69,27 @@ $config->tracks->add('login-failures',
 
 ### Application Integration
 
-Your application signals a failed login by setting a request attribute that Phirewall can check. The simplest approach is to use a request header or attribute set by your authentication middleware:
+Use the RequestContext to signal authentication failures from your handler:
 
 ```php
+use Flowd\Phirewall\Context\RequestContext;
+
 // In your login controller
-public function login(Request $request): Response
+public function login(ServerRequestInterface $request): ResponseInterface
 {
     $user = $this->authenticate($request->get('username'), $request->get('password'));
 
     if (!$user) {
+        $context = $request->getAttribute(RequestContext::ATTRIBUTE_NAME);
+        $context?->recordFailure('login-brute-force', $request->getServerParams()['REMOTE_ADDR'] ?? '');
+
         return (new Response(401))
-            ->withHeader('Content-Type', 'application/json')
-            ->withHeader('X-Login-Failed', '1');
+            ->withHeader('Content-Type', 'application/json');
     }
 
     // Successful login...
 }
 ```
-
 
 ---
 

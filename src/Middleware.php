@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall;
 
+use Flowd\Phirewall\Context\RequestContext;
 use Flowd\Phirewall\Events\FirewallError;
 use Flowd\Phirewall\Http\ResponseFactoryResolver;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -39,13 +40,52 @@ final readonly class Middleware implements MiddlewareInterface
             return $this->buildBlockedResponse($firewallResult, $serverRequest);
         }
 
+        // Attach request context so application code can record fail2ban signals
+        $context = new RequestContext($firewallResult);
+        $serverRequest = $serverRequest->withAttribute(RequestContext::ATTRIBUTE_NAME, $context);
+
         // Pass-through: call next handler and apply headers (safelisted or ratelimit)
         $response = $requestHandler->handle($serverRequest);
+
+        // Process any fail2ban signals recorded by the handler
+        if ($context->hasRecordedSignals()) {
+            try {
+                $this->processContextSignals($context, $serverRequest);
+            } catch (\Throwable $throwable) {
+                if (!$this->config->isFailOpen()) {
+                    throw $throwable;
+                }
+
+                try {
+                    $dispatcher = $this->config->eventDispatcher;
+                    if ($dispatcher instanceof EventDispatcherInterface) {
+                        $dispatcher->dispatch(new FirewallError($throwable, $serverRequest));
+                    }
+                } catch (\Throwable) {
+                    // Swallow dispatcher/listener errors to preserve fail-open behavior.
+                }
+            }
+        }
+
         foreach ($firewallResult->headers as $name => $value) {
             $response = $response->withHeader($name, $value);
         }
 
         return $response;
+    }
+
+    /**
+     * Process all recorded failure signals from the request context.
+     */
+    private function processContextSignals(RequestContext $requestContext, ServerRequestInterface $serverRequest): void
+    {
+        foreach ($requestContext->getRecordedFailures() as $recordedFailure) {
+            $this->firewall->processRecordedFailure(
+                $recordedFailure->ruleName,
+                $recordedFailure->key,
+                $serverRequest,
+            );
+        }
     }
 
     private function handleError(
