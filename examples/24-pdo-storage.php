@@ -82,11 +82,14 @@ $pdo->exec('PRAGMA journal_mode=WAL');
 $cache = new PdoCache($pdo);
 
 // MySQL (shared across multiple app servers):
-$pdo = new PDO('mysql:host=db.example.com;dbname=myapp', 'user', 'password');
+// Set DB_USER and DB_PASSWORD environment variables before connecting.
+$dbUser = getenv('DB_USER') ?: throw new RuntimeException('Please set the DB_USER environment variable to run this example');
+$dbPassword = getenv('DB_PASSWORD') ?: throw new RuntimeException('Please set the DB_PASSWORD environment variable to run this example');
+$pdo = new PDO('mysql:host=db.example.com;dbname=myapp', $dbUser, $dbPassword);
 $cache = new PdoCache($pdo);
 
 // PostgreSQL (shared across multiple app servers):
-$pdo = new PDO('pgsql:host=db.example.com;dbname=myapp', 'user', 'password');
+$pdo = new PDO('pgsql:host=db.example.com;dbname=myapp', $dbUser, $dbPassword);
 $cache = new PdoCache($pdo);
 
 // Custom table name:
