@@ -22,6 +22,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\DiagnosticsCounters;
+use Flowd\Phirewall\Config\DiagnosticsDispatcher;
 use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
@@ -42,7 +43,7 @@ echo "=== Comprehensive Production-Ready Protection ===\n\n";
 
 $cache = new InMemoryCache();
 $diagnostics = new DiagnosticsCounters();
-$config = new Config($cache, $diagnostics);
+$config = new Config($cache, new DiagnosticsDispatcher($diagnostics));
 $config->setKeyPrefix('prod');
 $config->enableRateLimitHeaders();
 
