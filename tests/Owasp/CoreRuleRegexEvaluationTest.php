@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Tests\Owasp;
 
+use Flowd\Phirewall\Owasp\Operator\RegexEvaluator;
 use Flowd\Phirewall\Owasp\SecRuleParser;
 use PHPUnit\Framework\TestCase;
 
@@ -16,11 +17,8 @@ SecRule REQUEST_COOKIES|REQUEST_COOKIES_NAMES|REQUEST_FILENAME|ARGS_NAMES|ARGS|X
 RULE;
         $rule = (new SecRuleParser())->parseLine($text);
         $this->assertNotNull($rule);
-        $reflectionMethod = (new \ReflectionClass($rule))->getMethod('ensureRegexDelimiters');
-        $reflectionMethod->setAccessible(true);
 
-        $delimited = $reflectionMethod->invoke($rule, $rule->operatorArgument);
-        $this->assertIsString($delimited);
+        $delimited = RegexEvaluator::ensureRegexDelimiters($rule->operatorArgument);
         $this->assertSame(1, @preg_match($delimited, '$x(bar);'));
     }
 }
