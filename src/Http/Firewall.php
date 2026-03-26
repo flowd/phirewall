@@ -142,6 +142,8 @@ final readonly class Firewall
             ? $discriminatorNormalizer
             : static fn(string $key): string => $key;
 
+        $includeResponseHeaders = $this->config->responseHeadersEnabled();
+
         // 0) Track (passive)
         foreach ($this->config->getTrackRules() as $trackRule) {
             $name = $trackRule->name();
@@ -173,7 +175,7 @@ final readonly class Firewall
 
                 $decisionPath = DecisionPath::Safelisted;
                 $decisionRule = $name;
-                $result = FirewallResult::safelisted($name, ['X-Phirewall-Safelist' => $name]);
+                $result = FirewallResult::safelisted($name, $includeResponseHeaders ? ['X-Phirewall-Safelist' => $name] : []);
                 $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
                 return $result;
             }
@@ -186,10 +188,7 @@ final readonly class Firewall
             if ($match->isMatch() === true) {
                 $this->dispatch(new BlocklistMatched($name, $serverRequest));
 
-                $headers = [
-                    'X-Phirewall' => 'blocklist',
-                    'X-Phirewall-Matched' => $name,
-                ];
+                $headers = $this->responseHeaders($includeResponseHeaders, 'blocklist', $name);
                 if ($this->config->owaspDiagnosticsHeaderEnabled() && $match->source() === 'owasp') {
                     $meta = $match->metadata();
                     if (isset($meta['owasp_rule_id'])) {
@@ -226,10 +225,7 @@ final readonly class Firewall
 
                 $decisionPath = DecisionPath::Fail2BanBlocked;
                 $decisionRule = $name;
-                $result = FirewallResult::blocked($name, 'fail2ban', [
-                    'X-Phirewall' => 'fail2ban',
-                    'X-Phirewall-Matched' => $name,
-                ]);
+                $result = FirewallResult::blocked($name, 'fail2ban', $this->responseHeaders($includeResponseHeaders, 'fail2ban', $name));
                 $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
                 return $result;
             }
@@ -252,10 +248,7 @@ final readonly class Firewall
                     ));
                     $decisionPath = DecisionPath::Fail2BanBanned;
                     $decisionRule = $name;
-                    $result = FirewallResult::blocked($name, 'fail2ban', [
-                        'X-Phirewall' => 'fail2ban',
-                        'X-Phirewall-Matched' => $name,
-                    ]);
+                    $result = FirewallResult::blocked($name, 'fail2ban', $this->responseHeaders($includeResponseHeaders, 'fail2ban', $name));
                     $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
                     return $result;
                 }
@@ -298,11 +291,8 @@ final readonly class Firewall
                     serverRequest: $serverRequest,
                 ));
 
-                $headers = [
-                    'X-Phirewall' => 'throttle',
-                    'X-Phirewall-Matched' => $name,
-                    'Retry-After' => (string)max(1, $retryAfter),
-                ];
+                $headers = ['Retry-After' => (string)max(1, $retryAfter)]
+                    + $this->responseHeaders($includeResponseHeaders, 'throttle', $name);
                 if ($this->config->rateLimitHeadersEnabled()) {
                     $headers += [
                         'X-RateLimit-Limit' => (string)$limit,
@@ -345,11 +335,9 @@ final readonly class Firewall
                     $banRetryAfter = $allow2BanRule->banSeconds();
                 }
 
-                $allow2BanResult ??= ['path' => DecisionPath::Allow2BanBlocked, 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', [
-                    'X-Phirewall' => 'allow2ban',
-                    'X-Phirewall-Matched' => $name,
-                    'Retry-After' => (string) $banRetryAfter,
-                ])];
+                $blockedHeaders = ['Retry-After' => (string) $banRetryAfter]
+                    + $this->responseHeaders($includeResponseHeaders, 'allow2ban', $name);
+                $allow2BanResult ??= ['path' => DecisionPath::Allow2BanBlocked, 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', $blockedHeaders)];
                 continue;
             }
 
@@ -374,11 +362,9 @@ final readonly class Firewall
                     $newBanRetryAfter = $allow2BanRule->banSeconds();
                 }
 
-                $allow2BanResult ??= ['path' => DecisionPath::Allow2BanBanned, 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', [
-                    'X-Phirewall' => 'allow2ban',
-                    'X-Phirewall-Matched' => $name,
-                    'Retry-After' => (string) $newBanRetryAfter,
-                ])];
+                $bannedHeaders = ['Retry-After' => (string) $newBanRetryAfter]
+                    + $this->responseHeaders($includeResponseHeaders, 'allow2ban', $name);
+                $allow2BanResult ??= ['path' => DecisionPath::Allow2BanBanned, 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', $bannedHeaders)];
             }
         }
 
@@ -501,6 +487,12 @@ final readonly class Firewall
         $normalizer = $this->config->getDiscriminatorNormalizer();
 
         return $normalizer instanceof \Closure ? $normalizer($key) : $key;
+    }
+
+    /** @return array<string, string> */
+    private function responseHeaders(bool $enabled, string $type, string $rule): array
+    {
+        return $enabled ? ['X-Phirewall' => $type, 'X-Phirewall-Matched' => $rule] : [];
     }
 
     private function dispatch(object $event): void

@@ -135,6 +135,7 @@ echo "Rules skipped: {$result['skipped']}\n\n";
 
 $diagnostics = new DiagnosticsCounters();
 $config = new Config(new InMemoryCache(), $diagnostics);
+$config->enableResponseHeaders();
 $config->blocklists->owasp('xss-prevention', $coreRuleSet);
 $config->enableOwaspDiagnosticsHeader();
 

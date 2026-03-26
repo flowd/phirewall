@@ -28,6 +28,7 @@ final class CustomResponsesTest extends TestCase
     {
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
 
         // Block everything via blocklist
         $config->blocklist('all', fn($request): bool => true);
@@ -49,6 +50,7 @@ final class CustomResponsesTest extends TestCase
         // Now test fail2ban uses the same factory and attaches correct type
         $inMemoryCache->clear();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
         $config->fail2ban(
             'login',
             1,
@@ -76,6 +78,7 @@ final class CustomResponsesTest extends TestCase
     {
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
         $config->throttle('ip', 0, 30, fn($request): string => '1.2.3.4');
 
         // Custom throttled response without Retry-After header

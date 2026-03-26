@@ -152,6 +152,7 @@ final class Psr17ResponseFactoryTest extends TestCase
     public function testMiddlewareUsesBlocklistedPsr17Factory(): void
     {
         $config = new Config(new InMemoryCache());
+        $config->enableResponseHeaders();
         $config->usePsr17Responses($this->psr17(), $this->psr17());
 
         $config->blocklists->add('all', fn(ServerRequestInterface $serverRequest): bool => true);
@@ -169,6 +170,7 @@ final class Psr17ResponseFactoryTest extends TestCase
     public function testMiddlewareUsesThrottledPsr17Factory(): void
     {
         $config = new Config(new InMemoryCache());
+        $config->enableResponseHeaders();
         $config->usePsr17Responses($this->psr17(), $this->psr17());
 
         $config->throttles->add('ip', 0, 30, fn(ServerRequestInterface $serverRequest): string => '1.2.3.4');

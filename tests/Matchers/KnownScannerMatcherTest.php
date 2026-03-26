@@ -128,6 +128,8 @@ final class KnownScannerMatcherTest extends TestCase
     {
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
+
         $config->blocklists->knownScanners('my-scanner-rule');
 
         $firewall = new Firewall($config);

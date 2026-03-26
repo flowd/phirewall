@@ -113,6 +113,7 @@ echo "\n";
 
 $diagnostics = new DiagnosticsCounters();
 $config = new Config(new InMemoryCache(), $diagnostics);
+$config->enableResponseHeaders();
 $config->blocklists->owasp('sql-injection', $coreRuleSet);
 
 // Enable diagnostics header to see which rule matched

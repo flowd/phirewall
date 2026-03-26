@@ -89,6 +89,7 @@ echo "Redis cache configured with prefix: {$keyPrefix}\n\n";
 
 $config = new Config($cache);
 $config->enableRateLimitHeaders();
+$config->enableResponseHeaders();
 
 // Strict throttle to demonstrate Redis storage
 $config->throttles->add(

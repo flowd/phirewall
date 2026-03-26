@@ -36,6 +36,7 @@ echo "=== Brute Force Protection Example ===\n\n";
 $cache = new InMemoryCache();
 $diagnostics = new DiagnosticsCounters();
 $config = new Config($cache, $diagnostics);
+$config->enableResponseHeaders();
 
 // -----------------------------------------------------------------------------
 // Strategy 1: Fail2Ban - Ban IP after X failed login attempts
