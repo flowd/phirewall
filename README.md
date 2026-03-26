@@ -4,7 +4,7 @@
 
 **Protect your PHP application from brute force, DDoS, SQL injection, XSS, and bot attacks with a single middleware.**
 
-Phirewall is a PSR-15 middleware that provides comprehensive application-layer protection. It's lightweight, framework-agnostic, and easy to configure.
+**[Phirewall](https://phirewall.de)** is a PSR-15 middleware that provides comprehensive application-layer protection. It's lightweight, framework-agnostic, and easy to configure.
 
 ---
 
@@ -148,16 +148,14 @@ The [examples/](examples/) folder contains runnable examples:
 
 ## Documentation
 
-For detailed documentation, see the [docs/](docs/) folder:
+Full documentation is available at **[phirewall.de](https://phirewall.de)**:
 
-- [Getting Started](docs/getting-started.md) - Step-by-step setup guide
-- [Common Attacks](docs/common-attacks.md) - Protection recipes for 10+ attack types
-- [Configuration](docs/configuration.md) - Complete API reference
-- [Storage Backends](docs/storage-backends.md) - Redis, APCu, PDO, and custom backends
-- [Pattern Backends](docs/pattern-backends.md) - IP, CIDR, path, and header blocklists
-- [OWASP CRS](docs/owasp-crs.md) - Loading and customizing rules
-- [Observability](docs/observability.md) - Events, logging, and monitoring
-- [Infrastructure Adapters](docs/infrastructure-adapters.md) - Apache .htaccess integration
+- [Getting Started](https://phirewall.de/getting-started) - Installation & quick start guide
+- [Framework Integration](https://phirewall.de/examples) - PSR-15, Laravel, Symfony, Slim, Mezzio
+- [Features](https://phirewall.de/features/safelists-blocklists) - Safelists, blocklists, rate limiting, fail2ban, bot detection, OWASP rules
+- [Advanced](https://phirewall.de/advanced/dynamic-throttle) - Dynamic throttles, observability, infrastructure adapters
+- [Common Attacks](https://phirewall.de/common-attacks) - Protection recipes for 10+ attack types
+- [FAQ](https://phirewall.de/faq) - Frequently asked questions
 
 ## Installation
 
