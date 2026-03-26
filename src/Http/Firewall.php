@@ -15,6 +15,7 @@ use Flowd\Phirewall\Events\SafelistMatched;
 use Flowd\Phirewall\Events\ThrottleExceeded;
 use Flowd\Phirewall\Events\TrackHit;
 use Flowd\Phirewall\Store\CounterStoreInterface;
+use Flowd\Phirewall\Throttle\FixedWindowCounter;
 use Flowd\Phirewall\Throttle\FixedWindowStrategy;
 use Flowd\Phirewall\Throttle\SlidingWindowStrategy;
 use Flowd\Phirewall\Throttle\ThrottleStrategyInterface;
@@ -22,8 +23,19 @@ use Psr\Http\Message\ServerRequestInterface;
 
 final readonly class Firewall
 {
+    /**
+     * Shared counter for fail2ban, allow2ban, and track rules.
+     *
+     * Fixed-window is intentional: these are threshold counters where exact
+     * precision at window boundaries is not critical. Sliding-window overhead
+     * (3 cache ops vs 1) is only justified for throttle rules where clients
+     * see rate-limit headers and expect consistent behavior.
+     */
+    private FixedWindowCounter $counter;
+
     public function __construct(private Config $config)
     {
+        $this->counter = new FixedWindowCounter($config->cache);
     }
 
     /**
@@ -108,7 +120,7 @@ final readonly class Firewall
         }
 
         $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($ruleName, $normalizedKey);
-        $count = $this->increment($failKey, $fail2BanRule->period());
+        $count = $this->counter->increment($failKey, $fail2BanRule->period())->count;
 
         if ($count >= $fail2BanRule->threshold()) {
             $this->config->banManager()->ban($ruleName, $normalizedKey, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
@@ -145,14 +157,14 @@ final readonly class Firewall
         $includeResponseHeaders = $this->config->responseHeadersEnabled();
 
         // 0) Track (passive)
-        foreach ($this->config->getTrackRules() as $trackRule) {
+        foreach ($this->config->tracks->rules() as $trackRule) {
             $name = $trackRule->name();
             if ($trackRule->filter()->match($serverRequest)->isMatch() === true) {
                 $key = $trackRule->keyExtractor()->extract($serverRequest);
                 if ($key !== null) {
                     $normalizedKey = $normalize((string) $key);
                     $counterKey = $this->config->cacheKeyGenerator()->trackKey($name, $normalizedKey);
-                    $count = $this->increment($counterKey, $trackRule->period());
+                    $count = $this->counter->increment($counterKey, $trackRule->period())->count;
                     $limit = $trackRule->limit();
 
                     $this->dispatch(new TrackHit(
@@ -168,7 +180,7 @@ final readonly class Firewall
         }
 
         // 1) Safelist
-        foreach ($this->config->getSafelistRules() as $safelistRule) {
+        foreach ($this->config->safelists->rules() as $safelistRule) {
             $name = $safelistRule->name();
             if ($safelistRule->matcher()->match($serverRequest)->isMatch() === true) {
                 $this->dispatch(new SafelistMatched($name, $serverRequest));
@@ -182,7 +194,7 @@ final readonly class Firewall
         }
 
         // 2) Blocklist
-        foreach ($this->config->getBlocklistRules() as $blocklistRule) {
+        foreach ($this->config->blocklists->rules() as $blocklistRule) {
             $name = $blocklistRule->name();
             $match = $blocklistRule->matcher()->match($serverRequest);
             if ($match->isMatch() === true) {
@@ -212,7 +224,7 @@ final readonly class Firewall
         // rate-limiting (not a security boundary) and matches fail2ban's pattern.
 
         // 3) Fail2Ban
-        foreach ($this->config->getFail2BanRules() as $fail2BanRule) {
+        foreach ($this->config->fail2ban->rules() as $fail2BanRule) {
             $name = $fail2BanRule->name();
             $key = $fail2BanRule->keyExtractor()->extract($serverRequest);
             if ($key === null) {
@@ -232,7 +244,7 @@ final readonly class Firewall
 
             if ($fail2BanRule->filter()->match($serverRequest)->isMatch() === true) {
                 $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($name, $normalizedFail2BanKey);
-                $count = $this->increment($failKey, $fail2BanRule->period());
+                $count = $this->counter->increment($failKey, $fail2BanRule->period())->count;
 
                 if ($count > $fail2BanRule->threshold()) {
                     $this->config->banManager()->ban($name, $normalizedFail2BanKey, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
@@ -256,7 +268,7 @@ final readonly class Firewall
         }
 
         // 4) Throttle
-        foreach ($this->config->getThrottleRules() as $throttleRule) {
+        foreach ($this->config->throttles->rules() as $throttleRule) {
             $name = $throttleRule->name();
             $key = $throttleRule->keyExtractor()->extract($serverRequest);
             if ($key === null) {
@@ -345,7 +357,7 @@ final readonly class Firewall
             }
 
             $a2bHitKey = $this->config->cacheKeyGenerator()->allow2BanHitKey($name, $normalizedAllow2BanKey);
-            $count = $this->increment($a2bHitKey, $allow2BanRule->period());
+            $count = $this->counter->increment($a2bHitKey, $allow2BanRule->period())->count;
 
             if ($count > $allow2BanRule->threshold()) {
                 $this->config->banManager()->ban($name, $normalizedAllow2BanKey, $allow2BanRule->banSeconds(), BanType::Allow2Ban);
@@ -425,43 +437,6 @@ final readonly class Firewall
             : $strategies['fixed'];
     }
 
-    private function increment(string $key, int $period): int
-    {
-        $cache = $this->config->cache;
-        if ($cache instanceof CounterStoreInterface) {
-            return $cache->increment($key, $period);
-        }
-
-        $now = time();
-        $entry = $cache->get($key);
-
-        // Normalize legacy/plain values to structured entry
-        if (
-            is_array($entry)
-            && is_scalar($entry['count'] ?? null)
-            && is_scalar($entry['expires_at'] ?? null)
-        ) {
-            $count = (int)($entry['count'] ?? 0);
-            $expiresAt = (int)($entry['expires_at'] ?? 0);
-        } else {
-            // Legacy integer/scalar or cache miss → start (or restart) a window
-            $count = is_scalar($entry) ? (int)$entry : 0;
-            $expiresAt = $now + $period;
-        }
-
-        // If the window already expired, reset counter and expiry
-        if ($expiresAt <= $now || $count < 0) {
-            $count = 0;
-            $expiresAt = $now + $period;
-        }
-
-        ++$count;
-
-        $ttl = max(1, $expiresAt - $now);
-        $cache->set($key, ['count' => $count, 'expires_at' => $expiresAt], $ttl);
-
-        return $count;
-    }
 
     private function ttlRemaining(string $key): int
     {
