@@ -28,7 +28,7 @@ use Psr\SimpleCache\CacheInterface;
  * @phpstan-type SchemaThrottles list<array{name: string, limit: int, period: int, key: Key}>
  * @phpstan-type SchemaFail2Bans list<array{name: string, threshold: int, period: int, ban: int, filter: Filter, key: Key}>
  * @phpstan-type SchemaTracks list<array{name: string, period: int, filter: Filter, key: Key, limit?: int}>
- * @phpstan-type SchemaOptions array{rateLimitHeaders?: bool, keyPrefix?: string}
+ * @phpstan-type SchemaOptions array{rateLimitHeaders?: bool, responseHeaders?: bool, keyPrefix?: string}
  * @phpstan-type Schema array{
  *   safelists: SchemaSafelists,
  *   blocklists: SchemaBlocklists,
@@ -58,6 +58,12 @@ final class PortableConfig
     public function enableRateLimitHeaders(bool $enabled = true): self
     {
         $this->schema['options']['rateLimitHeaders'] = $enabled;
+        return $this;
+    }
+
+    public function enableResponseHeaders(bool $enabled = true): self
+    {
+        $this->schema['options']['responseHeaders'] = $enabled;
         return $this;
     }
 
@@ -275,6 +281,10 @@ final class PortableConfig
         $options = $this->schema['options'];
         if (isset($options['rateLimitHeaders']) && $options['rateLimitHeaders']) {
             $config->enableRateLimitHeaders(true);
+        }
+
+        if (isset($options['responseHeaders']) && $options['responseHeaders']) {
+            $config->enableResponseHeaders(true);
         }
 
         if (isset($options['keyPrefix']) && is_string($options['keyPrefix'])) {

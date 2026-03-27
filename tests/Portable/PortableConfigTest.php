@@ -16,10 +16,10 @@ final class PortableConfigTest extends TestCase
     public function testBlocklistPathEquals(): void
     {
         $portableConfig = PortableConfig::create()
+            ->enableResponseHeaders()
             ->blocklist('admin', PortableConfig::filterPathEquals('/admin')); // block /admin
 
         $config = $portableConfig->toConfig(new InMemoryCache());
-        $config->enableResponseHeaders();
 
         $firewall = new Firewall($config);
 
@@ -57,6 +57,7 @@ final class PortableConfigTest extends TestCase
     public function testFail2BanWithHeaderFilterAndIpKey(): void
     {
         $portableConfig = PortableConfig::create()
+            ->enableResponseHeaders()
             ->fail2ban(
                 'login',
                 threshold: 2,
@@ -67,7 +68,6 @@ final class PortableConfigTest extends TestCase
             );
 
         $config = $portableConfig->toConfig(new InMemoryCache());
-        $config->enableResponseHeaders();
 
         $firewall = new Firewall($config);
 
@@ -90,6 +90,7 @@ final class PortableConfigTest extends TestCase
         $portableConfig = PortableConfig::create()
             ->setKeyPrefix('myapp')
             ->enableRateLimitHeaders()
+            ->enableResponseHeaders()
             ->safelist('health', PortableConfig::filterPathEquals('/health'))
             ->blocklist('admin', PortableConfig::filterPathEquals('/admin'))
             ->throttle('ip', 2, 10, PortableConfig::keyIp())
@@ -105,7 +106,6 @@ final class PortableConfigTest extends TestCase
         $portableConfig2 = PortableConfig::fromArray($data);
 
         $config = $portableConfig2->toConfig(new InMemoryCache());
-        $config->enableResponseHeaders();
 
         $firewall = new Firewall($config);
 
