@@ -183,7 +183,7 @@ Phirewall can add diagnostic headers to the response when a request is blocked o
 These diagnostic headers are **opt-in** and disabled by default:
 
 ```php
-$config->enableResponseHeaders(); // Enable X-Phirewall and X-Phirewall-Matched headers
+$config->enableResponseHeaders(); // Enable X-Phirewall, X-Phirewall-Matched, and X-Phirewall-Safelist headers
 ```
 
 | Header | Description | Opt-in required |

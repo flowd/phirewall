@@ -91,6 +91,22 @@ final class ResponseHeaderToggleTest extends TestCase
         $this->assertSame('health', $firewallResult->headers['X-Phirewall-Safelist']);
     }
 
+    public function testAllow2banResponseOmitsPhirewallHeadersByDefaultButIncludesRetryAfter(): void
+    {
+        $config = new Config(new InMemoryCache());
+        // Do NOT enable response headers — Retry-After must still be present
+        $config->allow2ban->add('ip', threshold: 1, period: 30, banSeconds: 60, key: fn($request): string => '1.2.3.4');
+
+        $firewall = new Firewall($config);
+        $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
+
+        $this->assertTrue($firewallResult->isBlocked());
+        $this->assertArrayHasKey('Retry-After', $firewallResult->headers);
+        $this->assertGreaterThanOrEqual(1, (int) $firewallResult->headers['Retry-After']);
+        $this->assertArrayNotHasKey('X-Phirewall', $firewallResult->headers);
+        $this->assertArrayNotHasKey('X-Phirewall-Matched', $firewallResult->headers);
+    }
+
     public function testRateLimitHeadersUnaffectedByResponseHeaderToggle(): void
     {
         $config = new Config(new InMemoryCache());
