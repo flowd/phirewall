@@ -179,8 +179,8 @@ composer require monolog/monolog
 
 ## Response Headers
 
-When a request is blocked, Phirewall can add diagnostic headers to the response.
-These headers are **opt-in** and disabled by default:
+Phirewall can add diagnostic headers to the response when a request is blocked or safelisted.
+These diagnostic headers are **opt-in** and disabled by default:
 
 ```php
 $config->enableResponseHeaders(); // Enable X-Phirewall and X-Phirewall-Matched headers
@@ -191,9 +191,9 @@ $config->enableResponseHeaders(); // Enable X-Phirewall and X-Phirewall-Matched 
 | `X-Phirewall` | Block type: `blocklist`, `throttle`, `fail2ban`, `allow2ban` | Yes |
 | `X-Phirewall-Matched` | Rule name that triggered | Yes |
 | `X-Phirewall-Safelist` | Safelist rule that matched (on allowed requests) | Yes |
-| `Retry-After` | Seconds until rate limit resets (429 only) | No (always present) |
+| `Retry-After` | Seconds until the client may retry (throttles and allow2ban bans) | No (always present) |
 
-> **Note:** `Retry-After` is always included on 429 responses regardless of `enableResponseHeaders()`.
+> **Note:** `Retry-After` is always included on responses where a retry delay applies (429 throttles and allow2ban bans), regardless of `enableResponseHeaders()`.
 
 Enable `$config->enableRateLimitHeaders()` for standard `X-RateLimit-*` headers.
 
