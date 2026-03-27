@@ -335,9 +335,12 @@ final readonly class Firewall
                     $banRetryAfter = $allow2BanRule->banSeconds();
                 }
 
-                $blockedHeaders = ['Retry-After' => (string) $banRetryAfter]
-                    + $this->responseHeaders($includeResponseHeaders, 'allow2ban', $name);
-                $allow2BanResult ??= ['path' => DecisionPath::Allow2BanBlocked, 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', $blockedHeaders)];
+                if ($allow2BanResult === null) {
+                    $blockedHeaders = ['Retry-After' => (string) $banRetryAfter]
+                        + $this->responseHeaders($includeResponseHeaders, 'allow2ban', $name);
+                    $allow2BanResult = ['path' => DecisionPath::Allow2BanBlocked, 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', $blockedHeaders)];
+                }
+
                 continue;
             }
 
@@ -362,9 +365,11 @@ final readonly class Firewall
                     $newBanRetryAfter = $allow2BanRule->banSeconds();
                 }
 
-                $bannedHeaders = ['Retry-After' => (string) $newBanRetryAfter]
-                    + $this->responseHeaders($includeResponseHeaders, 'allow2ban', $name);
-                $allow2BanResult ??= ['path' => DecisionPath::Allow2BanBanned, 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', $bannedHeaders)];
+                if ($allow2BanResult === null) {
+                    $bannedHeaders = ['Retry-After' => (string) $newBanRetryAfter]
+                        + $this->responseHeaders($includeResponseHeaders, 'allow2ban', $name);
+                    $allow2BanResult = ['path' => DecisionPath::Allow2BanBanned, 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', $bannedHeaders)];
+                }
             }
         }
 
