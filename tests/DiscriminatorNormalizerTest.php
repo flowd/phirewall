@@ -101,7 +101,7 @@ final class DiscriminatorNormalizerTest extends TestCase
     public function testNormalizerAppliesToFail2BanKeys(): void
     {
         $config = $this->createConfig();
-
+        $config->enableResponseHeaders();
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
         $config->fail2ban(

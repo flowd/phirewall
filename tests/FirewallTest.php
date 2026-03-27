@@ -17,6 +17,7 @@ final class FirewallTest extends TestCase
     {
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
         $config->safelist('healthcheck', fn($request): bool => $request->getUri()->getPath() === '/health');
         $config->blocklist('block-all', function ($request): bool {
             return true; // should be bypassed by safelist
@@ -34,6 +35,7 @@ final class FirewallTest extends TestCase
     {
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
         $config->blocklist('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
 
         $firewall = new Firewall($config);
@@ -78,6 +80,7 @@ final class FirewallTest extends TestCase
     {
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
         $config->fail2ban(
             'login',
             2,

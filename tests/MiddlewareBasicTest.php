@@ -29,6 +29,7 @@ final class MiddlewareBasicTest extends TestCase
     {
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
         $config->blocklist('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
 
         $middleware = new Middleware($config, new Psr17Factory());
@@ -44,6 +45,7 @@ final class MiddlewareBasicTest extends TestCase
     {
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
         $config->enableRateLimitHeaders(true);
         $config->throttle('ip', 1, 10, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
 
@@ -73,6 +75,7 @@ final class MiddlewareBasicTest extends TestCase
     {
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
         $config->safelist('health', fn($req): bool => $req->getUri()->getPath() === '/health');
 
         $middleware = new Middleware($config, new Psr17Factory());

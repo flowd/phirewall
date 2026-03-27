@@ -24,6 +24,7 @@ echo "=== Multi-Window Throttling Example ===\n\n";
 $cache = new InMemoryCache();
 $config = new Config($cache);
 $config->enableRateLimitHeaders();
+$config->enableResponseHeaders();
 
 // Register burst + sustained rate limiting with a single call.
 // "api:1s" allows 3 requests per second (burst protection).

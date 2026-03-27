@@ -37,6 +37,7 @@ echo "=== Scanner and Bot Detection Example ===\n\n";
 $cache = new InMemoryCache();
 $diagnostics = new DiagnosticsCounters();
 $config = new Config($cache, $diagnostics);
+$config->enableResponseHeaders();
 
 // -----------------------------------------------------------------------------
 // Rule 1: Block known vulnerability scanners by User-Agent

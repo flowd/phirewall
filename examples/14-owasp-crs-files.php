@@ -85,6 +85,7 @@ echo "All rules remain enabled for this demo\n\n";
 
 $diagnostics = new DiagnosticsCounters();
 $config = new Config(new InMemoryCache(), $diagnostics);
+$config->enableResponseHeaders();
 $config->blocklists->owasp('owasp', $coreRuleSet);
 
 // Enable diagnostics header to see which rule matched

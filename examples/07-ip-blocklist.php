@@ -52,6 +52,7 @@ if (file_exists($blocklistFile)) {
 $cache = new InMemoryCache();
 $diagnostics = new DiagnosticsCounters();
 $config = new Config($cache, $diagnostics);
+$config->enableResponseHeaders();
 
 // Create a file pattern backend
 $backend = $config->blocklists->filePatternBackend('blocklist', $blocklistFile);

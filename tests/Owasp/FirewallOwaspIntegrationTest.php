@@ -20,6 +20,7 @@ final class FirewallOwaspIntegrationTest extends TestCase
         $coreRuleSet = SecRuleLoader::fromString($rulesText);
 
         $config = new Config(new InMemoryCache());
+        $config->enableResponseHeaders();
         $config->owaspBlocklist('owasp', $coreRuleSet);
 
         $firewall = new Firewall($config);

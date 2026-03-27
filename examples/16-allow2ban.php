@@ -23,6 +23,7 @@ use Nyholm\Psr7\ServerRequest;
 
 $cache = new InMemoryCache();
 $config = new Config($cache);
+$config->enableResponseHeaders();
 
 // Ban any IP that sends more than 100 requests in 60 seconds, for 1 hour.
 $config->allow2ban->add(
