@@ -240,7 +240,7 @@ final class ArrayCache implements CacheInterface
     /** @var array<string, mixed> */
     private array $data = [];
 
-    private int|null $lastTtl = null;
+    private ?int $lastTtl = null;
 
     public function get(string $key, mixed $default = null): mixed
     {
@@ -304,7 +304,7 @@ final class ArrayCache implements CacheInterface
         return array_key_exists($key, $this->data);
     }
 
-    public function getLastTtl(): int|null
+    public function getLastTtl(): ?int
     {
         return $this->lastTtl;
     }
