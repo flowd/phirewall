@@ -59,7 +59,8 @@ final class ResetHelpersTest extends TestCase
         $request = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
         $failedRequest = $request->withHeader('X-Login-Failed', '1');
 
-        // Trigger the ban
+        // Trigger the ban (threshold=2 means 2 allowed, 3rd exceeds)
+        $firewall->decide($failedRequest);
         $firewall->decide($failedRequest);
         $firewall->decide($failedRequest);
 
@@ -140,9 +141,10 @@ final class ResetHelpersTest extends TestCase
         $result = $firewall->decide($throttleRequest);
         $this->assertSame(Outcome::THROTTLED, $result->outcome);
 
-        // Trigger fail2ban ban
+        // Trigger fail2ban ban (threshold=2 means 2 allowed, 3rd exceeds)
         $banRequest = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']))
             ->withHeader('X-Login-Failed', '1');
+        $firewall->decide($banRequest);
         $firewall->decide($banRequest);
         $firewall->decide($banRequest);
         $this->assertTrue($firewall->isBanned('login', '5.6.7.8'));
@@ -281,7 +283,8 @@ final class ResetHelpersTest extends TestCase
             ->withHeader('X-Login-Failed', '1')
             ->withHeader('X-User-Id', 'USER_A');
 
-        // Trigger the ban (normalized key: "user_a")
+        // Trigger the ban (threshold=2 allows 2, 3rd exceeds; normalized key: "user_a")
+        $firewall->decide($failedRequest);
         $firewall->decide($failedRequest);
         $firewall->decide($failedRequest);
 
@@ -317,7 +320,8 @@ final class ResetHelpersTest extends TestCase
             ->withHeader('X-Login-Failed', '1')
             ->withHeader('X-User-Id', 'user_a');
 
-        // Trigger the ban with lowercase variant
+        // Trigger the ban with lowercase variant (threshold=2 allows 2, 3rd exceeds)
+        $firewall->decide($failedRequest);
         $firewall->decide($failedRequest);
         $firewall->decide($failedRequest);
 

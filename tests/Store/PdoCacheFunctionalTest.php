@@ -294,7 +294,9 @@ final class PdoCacheFunctionalTest extends TestCase
 
         // First failure passes
         $this->assertTrue($firewall->decide($failedRequest)->isPass());
-        // Second failure triggers ban
+        // Second failure — reaches threshold, still allowed
+        $this->assertTrue($firewall->decide($failedRequest)->isPass());
+        // Third failure — exceeds threshold, triggers ban
         $this->assertFalse($firewall->decide($failedRequest)->isPass());
         // Clean request from same IP is now banned
         $cleanRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']);
