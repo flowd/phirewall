@@ -15,9 +15,10 @@ use Psr\SimpleCache\CacheInterface;
  * native atomic increment is used as a fast path.
  *
  * NOTE: The get→increment→set fallback is not atomic (TOCTOU). Under high
- * concurrency a small number of requests may slip through at the exact moment
- * the threshold is crossed. This is acceptable for rate limiting (not a
- * security boundary).
+ * concurrency the counter may be briefly undercounted or over-admit a small
+ * number of requests/events around the threshold. This is acceptable only for
+ * best-effort counters used for throttling, monitoring, and ban/allow
+ * heuristics, not for strict correctness or hard security-boundary decisions.
  */
 final readonly class FixedWindowCounter
 {
@@ -33,6 +34,12 @@ final readonly class FixedWindowCounter
      */
     public function increment(string $key, int $period): FixedWindowResult
     {
+        if ($period < 1) {
+            throw new \InvalidArgumentException(
+                sprintf('Period must be >= 1 second, got %d.', $period)
+            );
+        }
+
         if ($this->cache instanceof CounterStoreInterface) {
             $count = $this->cache->increment($key, $period);
             $retryAfter = $this->cache->ttlRemaining($key);
@@ -52,7 +59,11 @@ final readonly class FixedWindowCounter
             $count = (int) ($entry['count'] ?? 0);
             $expiresAt = (int) ($entry['expires_at'] ?? 0);
         } else {
-            // Legacy integer/scalar or cache miss → start (or restart) a window
+            // Legacy integer/scalar or cache miss → start (or restart) a window.
+            // Uses per-key rolling windows (expiry = now + period). This differs
+            // from CounterStoreInterface backends that may align to period boundaries,
+            // but is acceptable for best-effort counters where exact alignment is not
+            // required.
             $count = is_scalar($entry) ? (int) $entry : 0;
             $expiresAt = $now + $period;
         }

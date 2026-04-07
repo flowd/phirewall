@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Tests\Throttle;
 
 use DateInterval;
+use Flowd\Phirewall\Store\CounterStoreInterface;
 use Flowd\Phirewall\Throttle\FixedWindowCounter;
 use Flowd\Phirewall\Throttle\FixedWindowResult;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Psr\SimpleCache\CacheInterface;
 
-#[\PHPUnit\Framework\Attributes\CoversClass(\Flowd\Phirewall\Throttle\FixedWindowCounter::class)]
-#[\PHPUnit\Framework\Attributes\CoversClass(\Flowd\Phirewall\Throttle\FixedWindowResult::class)]
+#[CoversClass(\Flowd\Phirewall\Throttle\FixedWindowCounter::class)]
 final class FixedWindowCounterTest extends TestCase
 {
     /**
@@ -173,6 +174,59 @@ final class FixedWindowCounterTest extends TestCase
         $this->assertNotNull($lastTtl);
         $this->assertGreaterThanOrEqual(1, $lastTtl);
     }
+
+    public function testCounterStoreFastPathDelegatesToIncrement(): void
+    {
+        $cache = new CounterStoreArrayCache();
+        $counter = new FixedWindowCounter($cache);
+
+        $result = $counter->increment('fast-key', 60);
+
+        $this->assertInstanceOf(FixedWindowResult::class, $result);
+        $this->assertSame(1, $result->count);
+        $this->assertSame(60, $result->retryAfter);
+    }
+
+    public function testCounterStoreFastPathAccumulates(): void
+    {
+        $cache = new CounterStoreArrayCache();
+        $counter = new FixedWindowCounter($cache);
+
+        $counter->increment('acc-key', 30);
+        $counter->increment('acc-key', 30);
+
+        $result = $counter->increment('acc-key', 30);
+
+        $this->assertSame(3, $result->count);
+        $this->assertSame(30, $result->retryAfter);
+    }
+
+    public function testInvalidPeriodThrowsException(): void
+    {
+        [, $counter] = $this->createCounter();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Period must be >= 1 second, got 0.');
+        $counter->increment('key', 0);
+    }
+
+    public function testNegativePeriodThrowsException(): void
+    {
+        [, $counter] = $this->createCounter();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Period must be >= 1 second, got -5.');
+        $counter->increment('key', -5);
+    }
+
+    public function testCounterStoreInvalidPeriodThrowsException(): void
+    {
+        $cache = new CounterStoreArrayCache();
+        $counter = new FixedWindowCounter($cache);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $counter->increment('key', 0);
+    }
 }
 
 /**
@@ -253,5 +307,93 @@ final class ArrayCache implements CacheInterface
     public function getLastTtl(): int|null
     {
         return $this->lastTtl;
+    }
+}
+
+/**
+ * Minimal PSR-16 + CounterStoreInterface cache for testing the fast-path.
+ */
+final class CounterStoreArrayCache implements CacheInterface, CounterStoreInterface
+{
+    /** @var array<string, mixed> */
+    private array $data = [];
+
+    /** @var array<string, int> */
+    private array $counters = [];
+
+    /** @var array<string, int> */
+    private array $periods = [];
+
+    public function increment(string $key, int $period): int
+    {
+        $this->counters[$key] = ($this->counters[$key] ?? 0) + 1;
+        $this->periods[$key] = $period;
+
+        return $this->counters[$key];
+    }
+
+    public function ttlRemaining(string $key): int
+    {
+        return $this->periods[$key] ?? 0;
+    }
+
+    public function get(string $key, mixed $default = null): mixed
+    {
+        return $this->data[$key] ?? $default;
+    }
+
+    public function set(string $key, mixed $value, null|int|DateInterval $ttl = null): bool
+    {
+        $this->data[$key] = $value;
+
+        return true;
+    }
+
+    public function delete(string $key): bool
+    {
+        unset($this->data[$key]);
+
+        return true;
+    }
+
+    public function clear(): bool
+    {
+        $this->data = [];
+
+        return true;
+    }
+
+    public function getMultiple(iterable $keys, mixed $default = null): iterable
+    {
+        $result = [];
+        foreach ($keys as $key) {
+            $result[$key] = $this->get($key, $default);
+        }
+
+        return $result;
+    }
+
+    /** @param iterable<string, mixed> $values */
+    public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
+    {
+        foreach ($values as $key => $value) {
+            $this->set((string) $key, $value, $ttl);
+        }
+
+        return true;
+    }
+
+    public function deleteMultiple(iterable $keys): bool
+    {
+        foreach ($keys as $key) {
+            $this->delete((string) $key);
+        }
+
+        return true;
+    }
+
+    public function has(string $key): bool
+    {
+        return array_key_exists($key, $this->data);
     }
 }

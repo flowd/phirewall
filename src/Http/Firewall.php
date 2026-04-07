@@ -28,8 +28,9 @@ final readonly class Firewall
      *
      * Fixed-window is intentional: these are threshold counters where exact
      * precision at window boundaries is not critical. Sliding-window overhead
-     * (3 cache ops vs 1) is only justified for throttle rules where clients
-     * see rate-limit headers and expect consistent behavior.
+     * (3 cache ops vs 1 with CounterStoreInterface, or typically 2 with the
+     * PSR-16 fallback) is only justified for throttle rules where clients see
+     * rate-limit headers and expect consistent behavior.
      */
     private FixedWindowCounter $counter;
 
