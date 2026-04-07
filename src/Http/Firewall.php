@@ -123,6 +123,10 @@ final readonly class Firewall
         $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($ruleName, $normalizedKey);
         $count = $this->counter->increment($failKey, $fail2BanRule->period())->count;
 
+        // Post-handler: the application already processed the request and explicitly
+        // signaled a failure. Use >= so the Nth recorded failure triggers the ban
+        // immediately. Compare with decide() which uses > (pre-handler: N matches
+        // allowed, ban on N+1).
         if ($count >= $fail2BanRule->threshold()) {
             $this->config->banManager()->ban($ruleName, $normalizedKey, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
 
@@ -247,6 +251,9 @@ final readonly class Firewall
                 $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($name, $normalizedFail2BanKey);
                 $count = $this->counter->increment($failKey, $fail2BanRule->period())->count;
 
+                // Pre-handler: N filter matches allowed, ban on N+1. Use > so
+                // threshold=3 allows 3 matches and bans on the 4th. Compare with
+                // processRecordedFailure() which uses >= (post-handler semantics).
                 if ($count > $fail2BanRule->threshold()) {
                     $this->config->banManager()->ban($name, $normalizedFail2BanKey, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
 
