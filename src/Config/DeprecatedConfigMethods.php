@@ -219,35 +219,40 @@ trait DeprecatedConfigMethods
         return $this->tracks->rules();
     }
 
-    // ── Diagnostics (delegated to event dispatcher if it's a DiagnosticsCounters) ──
+    // ── Diagnostics (delegated to event dispatcher if it wraps DiagnosticsCounters) ──
 
-    /** @deprecated Register DiagnosticsCounters as event dispatcher instead. */
+    /** @deprecated Use DiagnosticsDispatcher with DiagnosticsCounters instead. */
     public function incrementDiagnosticsCounter(string $category, ?string $rule = null): void
     {
-        if ($this->eventDispatcher instanceof DiagnosticsCounters) {
-            $this->eventDispatcher->increment($category, $rule);
-        }
+        $counters = $this->resolveDiagnosticsCounters();
+        $counters?->increment($category, $rule);
     }
 
-    /** @deprecated Register DiagnosticsCounters as event dispatcher instead. */
+    /** @deprecated Use DiagnosticsDispatcher with DiagnosticsCounters instead. */
     public function resetDiagnosticsCounters(): void
     {
-        if ($this->eventDispatcher instanceof DiagnosticsCounters) {
-            $this->eventDispatcher->reset();
-        }
+        $counters = $this->resolveDiagnosticsCounters();
+        $counters?->reset();
     }
 
     /**
-     * @deprecated Register DiagnosticsCounters as event dispatcher instead.
+     * @deprecated Use DiagnosticsDispatcher with DiagnosticsCounters instead.
      * @return array<string, array{total:int, by_rule: array<string,int> }>
      */
     public function getDiagnosticsCounters(): array
     {
-        if ($this->eventDispatcher instanceof DiagnosticsCounters) {
-            return $this->eventDispatcher->all();
+        $counters = $this->resolveDiagnosticsCounters();
+
+        return $counters?->all() ?? [];
+    }
+
+    private function resolveDiagnosticsCounters(): ?DiagnosticsCounters
+    {
+        if ($this->eventDispatcher instanceof DiagnosticsDispatcher) {
+            return $this->eventDispatcher->counters();
         }
 
-        return [];
+        return null;
     }
 
     // ── Response factories (delegated) ───────────────────────────────────

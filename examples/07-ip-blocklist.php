@@ -19,6 +19,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\DiagnosticsCounters;
+use Flowd\Phirewall\Config\DiagnosticsDispatcher;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Pattern\PatternEntry;
 use Flowd\Phirewall\Pattern\PatternKind;
@@ -51,7 +52,7 @@ if (file_exists($blocklistFile)) {
 
 $cache = new InMemoryCache();
 $diagnostics = new DiagnosticsCounters();
-$config = new Config($cache, $diagnostics);
+$config = new Config($cache, new DiagnosticsDispatcher($diagnostics));
 $config->enableResponseHeaders();
 
 // Create a file pattern backend

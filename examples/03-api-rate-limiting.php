@@ -19,6 +19,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\DiagnosticsCounters;
+use Flowd\Phirewall\Config\DiagnosticsDispatcher;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -37,7 +38,7 @@ echo "=== API Rate Limiting Example ===\n\n";
 
 $cache = new InMemoryCache();
 $diagnostics = new DiagnosticsCounters();
-$config = new Config($cache, $diagnostics);
+$config = new Config($cache, new DiagnosticsDispatcher($diagnostics));
 $config->enableRateLimitHeaders(); // Send X-RateLimit-* headers
 $config->enableResponseHeaders();  // Send X-Phirewall headers
 

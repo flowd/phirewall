@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\DiagnosticsCounters;
+use Flowd\Phirewall\Config\DiagnosticsDispatcher;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -17,7 +18,7 @@ final class DiagnosticsCountersTest extends TestCase
     public function testSafelistCounterIncrements(): void
     {
         $diagnosticsCounters = new DiagnosticsCounters();
-        $config = new Config(new InMemoryCache(), $diagnosticsCounters);
+        $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
         $config->safelist('health', fn($req): bool => $req->getUri()->getPath() === '/health');
         $config->blocklist('block-all', fn(): bool => true);
 
@@ -35,7 +36,7 @@ final class DiagnosticsCountersTest extends TestCase
     public function testBlocklistCounterIncrements(): void
     {
         $diagnosticsCounters = new DiagnosticsCounters();
-        $config = new Config(new InMemoryCache(), $diagnosticsCounters);
+        $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
         $config->blocklist('admin', fn($req): bool => $req->getUri()->getPath() === '/admin');
 
         $firewall = new Firewall($config);
@@ -50,7 +51,7 @@ final class DiagnosticsCountersTest extends TestCase
     public function testThrottleExceededCounterIncrements(): void
     {
         $diagnosticsCounters = new DiagnosticsCounters();
-        $config = new Config(new InMemoryCache(), $diagnosticsCounters);
+        $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
         $config->throttle('ip', 1, 10, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
 
         $firewall = new Firewall($config);
@@ -68,7 +69,7 @@ final class DiagnosticsCountersTest extends TestCase
     public function testFail2BanCountersIncrement(): void
     {
         $diagnosticsCounters = new DiagnosticsCounters();
-        $config = new Config(new InMemoryCache(), $diagnosticsCounters);
+        $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
         $config->fail2ban(
             'login',
             threshold: 2,
@@ -101,7 +102,7 @@ final class DiagnosticsCountersTest extends TestCase
     public function testTrackHitAndPassCountersIncrement(): void
     {
         $diagnosticsCounters = new DiagnosticsCounters();
-        $config = new Config(new InMemoryCache(), $diagnosticsCounters);
+        $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
         $config->track('all', period: 60, filter: fn(): bool => true, key: fn(): string => 'k');
 
         $firewall = new Firewall($config);
@@ -127,7 +128,7 @@ final class DiagnosticsCountersTest extends TestCase
     public function testResetClearsAll(): void
     {
         $diagnosticsCounters = new DiagnosticsCounters();
-        $config = new Config(new InMemoryCache(), $diagnosticsCounters);
+        $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
         $config->blocklist('test', fn(): bool => true);
 
         $firewall = new Firewall($config);

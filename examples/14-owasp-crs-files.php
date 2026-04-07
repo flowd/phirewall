@@ -21,6 +21,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\DiagnosticsCounters;
+use Flowd\Phirewall\Config\DiagnosticsDispatcher;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Owasp\SecRuleLoader;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -84,7 +85,7 @@ echo "All rules remain enabled for this demo\n\n";
 // =============================================================================
 
 $diagnostics = new DiagnosticsCounters();
-$config = new Config(new InMemoryCache(), $diagnostics);
+$config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnostics));
 $config->enableResponseHeaders();
 $config->blocklists->owasp('owasp', $coreRuleSet);
 

@@ -11,22 +11,22 @@ use Flowd\Phirewall\Events\SafelistMatched;
 use Flowd\Phirewall\Events\ThrottleExceeded;
 use Flowd\Phirewall\Events\TrackHit;
 use Flowd\Phirewall\Http\DecisionPath;
-use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
- * PSR-14 event listener that counts firewall decisions for testing and observability.
+ * Lightweight in-memory counters that observe firewall events for testing and observability.
  *
- * Register as an event dispatcher to collect diagnostics:
+ * Use with DiagnosticsDispatcher to both count and forward events:
  *
- *   $diagnostics = new DiagnosticsCounters();
- *   $config = new Config($cache, $diagnostics);
+ *   $counters = new DiagnosticsCounters();
+ *   $dispatcher = new DiagnosticsDispatcher($counters, $realDispatcher);
+ *   $config = new \Flowd\Phirewall\Config($cache, $dispatcher);
  *   // ... run firewall ...
- *   $diagnostics->all(); // ['safelisted' => ['total' => 1, 'by_rule' => ['health' => 1]], ...]
+ *   $counters->all(); // ['safelisted' => ['total' => 1, 'by_rule' => ['health' => 1]], ...]
  *
- * Categories tracked: safelisted, blocklisted, throttled, fail2ban_banned, track_hit, passed,
+ * Categories tracked: safelisted, blocklisted, throttle_exceeded, fail2ban_banned, track_hit, passed,
  * fail2ban_blocked (via PerformanceMeasured).
  */
-final class DiagnosticsCounters implements EventDispatcherInterface
+final class DiagnosticsCounters
 {
     /**
      * @var array<string, array{total:int, by_rule: array<string,int> }>
@@ -35,7 +35,7 @@ final class DiagnosticsCounters implements EventDispatcherInterface
 
     private int $maxRulesPerCategory = 100;
 
-    public function dispatch(object $event): object
+    public function observe(object $event): void
     {
         match (true) {
             $event instanceof SafelistMatched => $this->increment('safelisted', $event->rule),
@@ -46,8 +46,6 @@ final class DiagnosticsCounters implements EventDispatcherInterface
             $event instanceof PerformanceMeasured => $this->handlePerformanceMeasured($event),
             default => null,
         };
-
-        return $event;
     }
 
     public function increment(string $category, ?string $rule = null): void
