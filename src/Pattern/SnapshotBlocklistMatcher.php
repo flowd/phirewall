@@ -41,7 +41,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
         $ipBinary = ($ip !== null) ? @inet_pton($ip) : false;
 
         foreach ($patternSnapshot->entries as $entry) {
-            $compiled = $this->compiled[$entry->kind][$this->entryKey($entry)] ?? null;
+            $compiled = $this->compiled[$entry->kind->value][$this->entryKey($entry)] ?? null;
             if ($compiled === null) {
                 continue;
             }
@@ -49,7 +49,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
             switch ($entry->kind) {
                 case PatternKind::IP:
                     if ($ip !== null && $ip === $entry->value) {
-                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind, 'value' => $entry->value]);
+                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
                     break;
@@ -57,26 +57,26 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
                     /** @var array{network: string, bits: int}|null $cidrCompiled */
                     $cidrCompiled = is_array($compiled) ? $compiled : null;
                     if ($ipBinary !== false && $cidrCompiled !== null && CidrMatcher::matches($ipBinary, $cidrCompiled)) {
-                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind, 'value' => $entry->value]);
+                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
                     break;
                 case PatternKind::PATH_EXACT:
                     if ($path === $entry->value) {
-                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind, 'value' => $entry->value]);
+                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
                     break;
                 case PatternKind::PATH_PREFIX:
                     if (str_starts_with($path, $entry->value)) {
-                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind, 'value' => $entry->value]);
+                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
                     break;
                 case PatternKind::PATH_REGEX:
                     $pathPattern = is_string($compiled) ? $compiled : null;
                     if (RegexMatcher::matches($pathPattern, $path)) {
-                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind, 'value' => $entry->value]);
+                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
                     break;
@@ -84,7 +84,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
                     $headers ??= $this->normalizeHeaders($serverRequest->getHeaders());
                     $headerName = $entry->target ?? '';
                     if ($headerName !== '' && $this->headerEquals($headers, $headerName, $entry->value)) {
-                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind, 'value' => $entry->value, 'target' => $headerName]);
+                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value, 'target' => $headerName]);
                     }
 
                     break;
@@ -93,7 +93,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
                     $headerName = $entry->target ?? '';
                     $headerPattern = is_string($compiled) ? $compiled : null;
                     if ($headerName !== '' && $this->headerRegex($headers, $headerName, $headerPattern)) {
-                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind, 'value' => $entry->value, 'target' => $headerName]);
+                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value, 'target' => $headerName]);
                     }
 
                     break;
@@ -102,7 +102,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
                     $requestSubject ??= $this->buildRequestSubject($path, $query, $headers);
                     $requestPattern = is_string($compiled) ? $compiled : null;
                     if (RegexMatcher::matches($requestPattern, $requestSubject)) {
-                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind, 'value' => $entry->value]);
+                        return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
                     break;
@@ -137,7 +137,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
             }
 
             $key = $this->entryKey($entry);
-            $compiled[$entry->kind][$key] = $this->compileEntry($entry);
+            $compiled[$entry->kind->value][$key] = $this->compileEntry($entry);
         }
 
         return $compiled;
@@ -152,10 +152,13 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
         };
     }
 
+    /**
+     * Entry key with case-insensitive target for header matching.
+     */
     private function entryKey(PatternEntry $patternEntry): string
     {
         $target = $patternEntry->target !== null ? strtolower($patternEntry->target) : '';
-        return $patternEntry->kind . ':' . $target . ':' . $patternEntry->value;
+        return $patternEntry->kind->value . ':' . $target . ':' . $patternEntry->value;
     }
 
     /**

@@ -4,38 +4,21 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Pattern;
 
-final class PatternKind
+enum PatternKind: string
 {
-    public const IP = 'ip';
+    case IP = 'ip';
 
-    public const CIDR = 'cidr';
+    case CIDR = 'cidr';
 
-    public const PATH_EXACT = 'path_exact';
+    case PATH_EXACT = 'path_exact';
 
-    public const PATH_PREFIX = 'path_prefix';
+    case PATH_PREFIX = 'path_prefix';
 
-    public const PATH_REGEX = 'path_regex';
+    case PATH_REGEX = 'path_regex';
 
-    public const HEADER_EXACT = 'header_exact';
+    case HEADER_EXACT = 'header_exact';
 
-    public const HEADER_REGEX = 'header_regex';
+    case HEADER_REGEX = 'header_regex';
 
-    public const REQUEST_REGEX = 'request_regex';
-
-    /**
-     * @return list<string>
-     */
-    public static function all(): array
-    {
-        return [
-            self::IP,
-            self::CIDR,
-            self::PATH_EXACT,
-            self::PATH_PREFIX,
-            self::PATH_REGEX,
-            self::HEADER_EXACT,
-            self::HEADER_REGEX,
-            self::REQUEST_REGEX,
-        ];
-    }
+    case REQUEST_REGEX = 'request_regex';
 }

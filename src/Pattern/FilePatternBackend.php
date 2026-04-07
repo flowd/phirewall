@@ -52,7 +52,7 @@ final class FilePatternBackend implements PatternBackendInterface
             }
 
             [$entries, $order] = $this->readEntriesRaw($handle, $now);
-            $key = $this->entryKey($patternEntry);
+            $key = $patternEntry->key();
             $existing = $entries[$key] ?? null;
 
             $incoming = new PatternEntry(
@@ -70,8 +70,8 @@ final class FilePatternBackend implements PatternBackendInterface
                 $order[] = $key;
                 $changed = true;
             } else {
-                $merged = $this->mergeEntry($existing, $incoming);
-                if ($merged !== $existing) {
+                $merged = $existing->merge($incoming);
+                if ($merged->expiresAt !== $existing->expiresAt || $merged->addedAt !== $existing->addedAt) {
                     $entries[$key] = $merged;
                     $changed = true;
                 }
@@ -127,7 +127,7 @@ final class FilePatternBackend implements PatternBackendInterface
     public function capabilities(): array
     {
         return [
-            'kinds' => PatternKind::all(),
+            'kinds' => PatternKind::cases(),
             'max_entries' => self::MAX_ENTRIES,
         ];
     }
@@ -196,15 +196,14 @@ final class FilePatternBackend implements PatternBackendInterface
                 continue;
             }
 
-            $key = $this->entryKey($entry);
+            $key = $entry->key();
             if (!array_key_exists($key, $entries)) {
                 $order[] = $key;
                 $entries[$key] = $entry;
                 continue;
             }
 
-            $merged = $this->mergeEntry($entries[$key], $entry);
-            $entries[$key] = $merged;
+            $entries[$key] = $entries[$key]->merge($entry);
         }
 
         return [$entries, $order];
@@ -227,7 +226,8 @@ final class FilePatternBackend implements PatternBackendInterface
             return null;
         }
 
-        if (!in_array($kind, PatternKind::all(), true)) {
+        $patternKind = PatternKind::tryFrom($kind);
+        if (!$patternKind instanceof \Flowd\Phirewall\Pattern\PatternKind) {
             return null;
         }
 
@@ -235,7 +235,7 @@ final class FilePatternBackend implements PatternBackendInterface
         $addedAt = ctype_digit($addedRaw) ? (int) $addedRaw : null;
 
         return new PatternEntry(
-            kind: $kind,
+            kind: $patternKind,
             value: $this->decodeField($value),
             target: $target !== '' ? $this->decodeField($target) : null,
             expiresAt: $expiresAt,
@@ -265,7 +265,7 @@ final class FilePatternBackend implements PatternBackendInterface
     private function formatLine(PatternEntry $patternEntry): string
     {
         $parts = [
-            $patternEntry->kind,
+            $patternEntry->kind->value,
             $this->encodeField($patternEntry->value),
             $patternEntry->target !== null ? $this->encodeField($patternEntry->target) : '',
             $patternEntry->expiresAt !== null ? (string) $patternEntry->expiresAt : '',
@@ -322,31 +322,6 @@ final class FilePatternBackend implements PatternBackendInterface
     private function decodeField(string $value): string
     {
         return str_replace(['\\' . self::DELIMITER, '\\\\'], [self::DELIMITER, '\\'], $value);
-    }
-
-    private function entryKey(PatternEntry $patternEntry): string
-    {
-        return $patternEntry->kind . ':' . $patternEntry->target . ':' . $patternEntry->value;
-    }
-
-    private function mergeEntry(PatternEntry $existing, PatternEntry $incoming): PatternEntry
-    {
-
-        $expiresAt = max($existing->expiresAt ?? 0, $incoming->expiresAt ?? 0);
-
-        $addedAt = $existing->addedAt;
-        if ($incoming->addedAt !== null && ($existing->addedAt === null || $incoming->addedAt > $existing->addedAt)) {
-            $addedAt = $incoming->addedAt;
-        }
-
-        return new PatternEntry(
-            kind: $existing->kind,
-            value: $existing->value,
-            target: $existing->target,
-            expiresAt: $expiresAt,
-            addedAt: $addedAt,
-            metadata: $existing->metadata,
-        );
     }
 
     private function isComment(string $line): bool

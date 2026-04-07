@@ -10,7 +10,7 @@ namespace Flowd\Phirewall\Pattern;
 final readonly class PatternEntry
 {
     /**
-     * @param string $kind One of: ip, cidr, path_exact, path_prefix, path_regex, header_exact, header_regex, request_regex
+     * @param PatternKind $kind Pattern kind (IP, CIDR, path, header, etc.)
      * @param string $value Pattern value; for header_* kinds this is the match expression
      * @param string|null $target Target field (e.g., header name for header_* kinds)
      * @param int|null $expiresAt Unix timestamp when this entry expires
@@ -18,12 +18,45 @@ final readonly class PatternEntry
      * @param array<string, scalar> $metadata Optional metadata for diagnostics
      */
     public function __construct(
-        public string $kind,
+        public PatternKind $kind,
         public string $value,
         public ?string $target = null,
         public ?int $expiresAt = null,
         public ?int $addedAt = null,
         public array $metadata = [],
     ) {
+    }
+
+    /**
+     * Compute a unique identity key for deduplication (kind + target + value).
+     */
+    public function key(): string
+    {
+        return $this->kind->value . ':' . $this->target . ':' . $this->value;
+    }
+
+    /**
+     * Merge this entry with an incoming entry of the same identity.
+     *
+     * Keeps the longer expiry and the most recent addedAt timestamp.
+     * Preserves the existing entry's kind, value, target, and metadata.
+     */
+    public function merge(self $incoming): self
+    {
+        $expiresAt = max($this->expiresAt ?? 0, $incoming->expiresAt ?? 0) ?: null;
+
+        $addedAt = $this->addedAt;
+        if ($incoming->addedAt !== null && ($this->addedAt === null || $incoming->addedAt > $this->addedAt)) {
+            $addedAt = $incoming->addedAt;
+        }
+
+        return new self(
+            kind: $this->kind,
+            value: $this->value,
+            target: $this->target,
+            expiresAt: $expiresAt,
+            addedAt: $addedAt,
+            metadata: $this->metadata,
+        );
     }
 }

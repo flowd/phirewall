@@ -105,7 +105,7 @@ final class InMemoryPatternBackend implements PatternBackendInterface
     public function capabilities(): array
     {
         return [
-            'kinds' => PatternKind::all(),
+            'kinds' => PatternKind::cases(),
             'max_entries' => self::MAX_ENTRIES,
         ];
     }
@@ -131,7 +131,7 @@ final class InMemoryPatternBackend implements PatternBackendInterface
     private function appendInternal(PatternEntry $patternEntry): void
     {
         $now = ($this->now)();
-        $key = $this->entryKey($patternEntry);
+        $key = $patternEntry->key();
         $existing = $this->entries[$key] ?? null;
 
         $incoming = new PatternEntry(
@@ -151,31 +151,7 @@ final class InMemoryPatternBackend implements PatternBackendInterface
             $this->entries[$key] = $incoming;
             $this->order[] = $key;
         } else {
-            $this->entries[$key] = $this->mergeEntry($existing, $incoming);
+            $this->entries[$key] = $existing->merge($incoming);
         }
-    }
-
-    private function entryKey(PatternEntry $patternEntry): string
-    {
-        return $patternEntry->kind . ':' . $patternEntry->target . ':' . $patternEntry->value;
-    }
-
-    private function mergeEntry(PatternEntry $existing, PatternEntry $incoming): PatternEntry
-    {
-        $expiresAt = max($existing->expiresAt ?? 0, $incoming->expiresAt ?? 0);
-
-        $addedAt = $existing->addedAt;
-        if ($incoming->addedAt !== null && ($existing->addedAt === null || $incoming->addedAt > $existing->addedAt)) {
-            $addedAt = $incoming->addedAt;
-        }
-
-        return new PatternEntry(
-            kind: $existing->kind,
-            value: $existing->value,
-            target: $existing->target,
-            expiresAt: $expiresAt ?: null,
-            addedAt: $addedAt,
-            metadata: $existing->metadata,
-        );
     }
 }

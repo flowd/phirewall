@@ -188,7 +188,7 @@ final class InMemoryPatternBackendTest extends TestCase
     public function testCapabilities(): void
     {
         $caps = (new InMemoryPatternBackend())->capabilities();
-        $this->assertSame(PatternKind::all(), $caps['kinds']);
+        $this->assertSame(PatternKind::cases(), $caps['kinds']);
         $this->assertSame(PatternBackendInterface::MAX_ENTRIES_DEFAULT, $caps['max_entries']);
     }
 

@@ -31,7 +31,7 @@ final class FilePatternBackendTest extends TestCase
         $this->assertNotEmpty($patternSnapshot->version);
         $this->assertCount(4, $patternSnapshot->entries);
 
-        $kinds = array_map(static fn(PatternEntry $patternEntry): string => $patternEntry->kind, $patternSnapshot->entries);
+        $kinds = array_map(static fn(PatternEntry $patternEntry): PatternKind => $patternEntry->kind, $patternSnapshot->entries);
         $this->assertContains(PatternKind::IP, $kinds);
         $this->assertContains(PatternKind::CIDR, $kinds);
         $this->assertContains(PatternKind::PATH_PREFIX, $kinds);
@@ -72,7 +72,7 @@ final class FilePatternBackendTest extends TestCase
 
         $filePatternBackend = new FilePatternBackend($file, now: static fn(): int => 1_700_000_000);
 
-        file_put_contents($file, "#comment\n;note\n\n" . PatternKind::IP . "|203.0.113.77|||1700000000\n");
+        file_put_contents($file, "#comment\n;note\n\n" . PatternKind::IP->value . "|203.0.113.77|||1700000000\n");
 
         $patternSnapshot = $filePatternBackend->consume();
         $this->assertCount(1, $patternSnapshot->entries);
