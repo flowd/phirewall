@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Http;
 
 use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\Rule\Fail2BanRule;
 use Flowd\Phirewall\Config\Rule\ThrottleRule;
 use Flowd\Phirewall\Events\Allow2BanBanned;
 use Flowd\Phirewall\Events\BlocklistMatched;
@@ -120,26 +121,8 @@ final readonly class Firewall
             return;
         }
 
-        $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($ruleName, $normalizedKey);
-        $count = $this->counter->increment($failKey, $fail2BanRule->period())->count;
-
-        // Post-handler: the application already processed the request and explicitly
-        // signaled a failure. Use >= so the Nth recorded failure triggers the ban
-        // immediately. Compare with decide() which uses > (pre-handler: N matches
-        // allowed, ban on N+1).
-        if ($count >= $fail2BanRule->threshold()) {
-            $this->config->banManager()->ban($ruleName, $normalizedKey, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
-
-            $this->dispatch(new Fail2BanBanned(
-                rule: $ruleName,
-                key: $normalizedKey,
-                threshold: $fail2BanRule->threshold(),
-                period: $fail2BanRule->period(),
-                banSeconds: $fail2BanRule->banSeconds(),
-                count: $count,
-                serverRequest: $serverRequest,
-            ));
-        }
+        // Post-handler: use >= so the Nth recorded failure triggers the ban immediately.
+        $this->incrementAndBanIfNeeded($fail2BanRule, $normalizedKey, $serverRequest, postHandler: true);
     }
 
     public function decide(ServerRequestInterface $serverRequest): FirewallResult
@@ -247,31 +230,16 @@ final readonly class Firewall
                 return $result;
             }
 
-            if ($fail2BanRule->filter()->match($serverRequest)->isMatch() === true) {
-                $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($name, $normalizedFail2BanKey);
-                $count = $this->counter->increment($failKey, $fail2BanRule->period())->count;
-
-                // Pre-handler: N filter matches allowed, ban on N+1. Use > so
-                // threshold=3 allows 3 matches and bans on the 4th. Compare with
-                // processRecordedFailure() which uses >= (post-handler semantics).
-                if ($count > $fail2BanRule->threshold()) {
-                    $this->config->banManager()->ban($name, $normalizedFail2BanKey, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
-
-                    $this->dispatch(new Fail2BanBanned(
-                        rule: $name,
-                        key: $normalizedFail2BanKey,
-                        threshold: $fail2BanRule->threshold(),
-                        period: $fail2BanRule->period(),
-                        banSeconds: $fail2BanRule->banSeconds(),
-                        count: $count,
-                        serverRequest: $serverRequest,
-                    ));
-                    $decisionPath = DecisionPath::Fail2BanBanned;
-                    $decisionRule = $name;
-                    $result = FirewallResult::blocked($name, 'fail2ban', $this->responseHeaders($includeResponseHeaders, 'fail2ban', $name));
-                    $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
-                    return $result;
-                }
+            // Pre-handler: use > so threshold=3 allows 3 matches, bans on the 4th.
+            if (
+                $fail2BanRule->filter()->match($serverRequest)->isMatch() === true
+                && $this->incrementAndBanIfNeeded($fail2BanRule, $normalizedFail2BanKey, $serverRequest, postHandler: false)
+            ) {
+                $decisionPath = DecisionPath::Fail2BanBanned;
+                $decisionRule = $name;
+                $result = FirewallResult::blocked($name, 'fail2ban', $this->responseHeaders($includeResponseHeaders, 'fail2ban', $name));
+                $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
+                return $result;
             }
         }
 
@@ -404,6 +372,48 @@ final readonly class Firewall
         $result = FirewallResult::pass($pendingRateLimitHeaders ?? []);
         $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
         return $result;
+    }
+
+    /**
+     * Increment the fail counter and ban if the threshold is reached or exceeded.
+     *
+     * @param bool $postHandler When true (post-handler), uses >= so the Nth failure
+     *                          triggers the ban immediately. When false (pre-handler),
+     *                          uses > so N matches are allowed and the (N+1)th is banned.
+     *
+     * @return bool True if the key was banned by this call.
+     */
+    private function incrementAndBanIfNeeded(
+        Fail2BanRule $fail2BanRule,
+        string $normalizedKey,
+        ServerRequestInterface $serverRequest,
+        bool $postHandler,
+    ): bool {
+        $ruleName = $fail2BanRule->name();
+        $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($ruleName, $normalizedKey);
+        $count = $this->counter->increment($failKey, $fail2BanRule->period())->count;
+
+        $exceeded = $postHandler
+            ? $count >= $fail2BanRule->threshold()
+            : $count > $fail2BanRule->threshold();
+
+        if (!$exceeded) {
+            return false;
+        }
+
+        $this->config->banManager()->ban($ruleName, $normalizedKey, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
+
+        $this->dispatch(new Fail2BanBanned(
+            rule: $ruleName,
+            key: $normalizedKey,
+            threshold: $fail2BanRule->threshold(),
+            period: $fail2BanRule->period(),
+            banSeconds: $fail2BanRule->banSeconds(),
+            count: $count,
+            serverRequest: $serverRequest,
+        ));
+
+        return true;
     }
 
     private function dispatchPerformanceMeasured(float $start, DecisionPath $decisionPath, ?string $ruleName): void
