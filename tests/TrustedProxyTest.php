@@ -35,6 +35,7 @@ final class TrustedProxyTest extends TestCase
         $trustedProxyResolver = new TrustedProxyResolver(['127.0.0.1', '10.0.0.0/8']);
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
         $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);

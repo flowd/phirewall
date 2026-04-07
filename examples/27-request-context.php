@@ -43,6 +43,7 @@ echo "--- Setup ---\n\n";
 
 $cache = new InMemoryCache();
 $config = new Config($cache);
+$config->enableResponseHeaders();
 
 // Configure a fail2ban rule for login failures.
 // With RequestContext, the filter always returns false — failures are recorded

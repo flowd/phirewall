@@ -68,6 +68,8 @@ final class FirewallEdgeCasesTest extends TestCase
     public function testBlocklistBeforeThrottle(): void
     {
         $config = new Config(new InMemoryCache());
+        $config->enableResponseHeaders();
+
         $config->blocklists->add('all', fn($r): bool => true);
         $config->throttles->add('never-reached', 10, 60, fn($r): string => '127.0.0.1');
 
@@ -81,6 +83,8 @@ final class FirewallEdgeCasesTest extends TestCase
     public function testMultipleSafelistsFirstMatchWins(): void
     {
         $config = new Config(new InMemoryCache());
+        $config->enableResponseHeaders();
+
         $config->safelists->add('first', fn($r): bool => $r->getUri()->getPath() === '/health');
         $config->safelists->add('second', fn($r): true => true);
 
@@ -115,6 +119,8 @@ final class FirewallEdgeCasesTest extends TestCase
     public function testMultipleThrottlesAllEvaluated(): void
     {
         $config = new Config(new InMemoryCache());
+        $config->enableResponseHeaders();
+
         $config->throttles->add('lenient', 100, 60, fn($r): string => '127.0.0.1');
         $config->throttles->add('strict', 1, 60, fn($r): string => '127.0.0.1');
 

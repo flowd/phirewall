@@ -41,6 +41,8 @@ final class Allow2BanTest extends TestCase
     {
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
+
         $config->allow2ban->add('test', threshold: 5, period: 60, banSeconds: 3600, key: fn($req): string => $req->getServerParams()['REMOTE_ADDR']);
 
         $firewall = new Firewall($config);
@@ -161,6 +163,7 @@ final class Allow2BanTest extends TestCase
             new ClosureKeyExtractor(fn($req): string => $req->getServerParams()['REMOTE_ADDR']),
         );
         $config->allow2ban->addRule($allow2BanRule);
+        $config->enableResponseHeaders();
 
         $firewall = new Firewall($config);
         $serverRequest = $this->makeRequest('10.0.0.5');
@@ -176,6 +179,8 @@ final class Allow2BanTest extends TestCase
     {
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
+
         $config->allow2ban->add('strict', threshold: 2, period: 60, banSeconds: 3600, key: fn($req): string => $req->getServerParams()['REMOTE_ADDR']);
         $config->allow2ban->add('lenient', threshold: 100, period: 60, banSeconds: 3600, key: fn($req): string => $req->getServerParams()['REMOTE_ADDR']);
 

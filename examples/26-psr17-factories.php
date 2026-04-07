@@ -72,6 +72,7 @@ $showResponse = function (string $label, ResponseInterface $response): void {
 echo "--- Approach 1: usePsr17Responses() convenience method ---\n\n";
 
 $config = new Config($cache);
+$config->enableResponseHeaders();
 $config->usePsr17Responses($psr17Factory, $psr17Factory);
 $config->blocklists->add('admin', fn(ServerRequestInterface $serverRequest): bool => str_starts_with($serverRequest->getUri()->getPath(), '/admin'));
 $config->throttles->add('ip', 2, 60, KeyExtractors::ip());
@@ -107,6 +108,7 @@ echo "--- Approach 2: Individual factories with custom body text ---\n\n";
 
 $cache2 = new InMemoryCache();
 $config2 = new Config($cache2);
+$config2->enableResponseHeaders();
 $config2->blocklistedResponseFactory = new Psr17BlocklistedResponseFactory(
     $psr17Factory,
     $psr17Factory,

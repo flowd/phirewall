@@ -39,6 +39,7 @@ $cache = new InMemoryCache();
 $diagnostics = new DiagnosticsCounters();
 $config = new Config($cache, $diagnostics);
 $config->enableRateLimitHeaders(); // Send X-RateLimit-* headers
+$config->enableResponseHeaders();  // Send X-Phirewall headers
 
 // -----------------------------------------------------------------------------
 // Tier 1: Global IP-based limit (baseline protection)

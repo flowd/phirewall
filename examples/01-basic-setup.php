@@ -50,6 +50,9 @@ $config->setKeyPrefix('demo');
 // Enable standard rate limit headers (X-RateLimit-*)
 $config->enableRateLimitHeaders();
 
+// Enable X-Phirewall, X-Phirewall-Matched, and X-Phirewall-Safelist response headers (opt-in)
+$config->enableResponseHeaders();
+
 echo "2. Configuration created with prefix 'demo'\n";
 
 // =============================================================================

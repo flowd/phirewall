@@ -107,6 +107,7 @@ final class RequestAttributeIntegrationTest extends TestCase
         $dispatcher = $this->eventCollector();
         $cache = new InMemoryCache();
         $config = new Config($cache, $dispatcher);
+        $config->enableResponseHeaders();
         // filter returns false — only context signals increment the fail counter
         $config->fail2ban(
             'login-brute-force',

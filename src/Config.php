@@ -53,6 +53,8 @@ final class Config
 
     private bool $owaspDiagnosticsHeaderEnabled = false;
 
+    private bool $responseHeadersEnabled = false;
+
     private string $keyPrefix = 'phirewall';
 
     private ?BanManager $banManager = null;
@@ -240,6 +242,17 @@ final class Config
     public function owaspDiagnosticsHeaderEnabled(): bool
     {
         return $this->owaspDiagnosticsHeaderEnabled;
+    }
+
+    public function enableResponseHeaders(bool $enabled = true): self
+    {
+        $this->responseHeadersEnabled = $enabled;
+        return $this;
+    }
+
+    public function responseHeadersEnabled(): bool
+    {
+        return $this->responseHeadersEnabled;
     }
 
     public function setKeyPrefix(string $prefix): self
