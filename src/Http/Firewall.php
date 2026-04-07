@@ -6,20 +6,16 @@ namespace Flowd\Phirewall\Http;
 
 use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
-use Flowd\Phirewall\Config\Rule\Fail2BanRule;
-use Flowd\Phirewall\Config\Rule\ThrottleRule;
-use Flowd\Phirewall\Events\Allow2BanBanned;
-use Flowd\Phirewall\Events\BlocklistMatched;
-use Flowd\Phirewall\Events\Fail2BanBanned;
 use Flowd\Phirewall\Events\PerformanceMeasured;
-use Flowd\Phirewall\Events\SafelistMatched;
-use Flowd\Phirewall\Events\ThrottleExceeded;
-use Flowd\Phirewall\Events\TrackHit;
-use Flowd\Phirewall\Store\CounterStoreInterface;
+use Flowd\Phirewall\Http\Evaluator\Allow2BanEvaluator;
+use Flowd\Phirewall\Http\Evaluator\BlocklistEvaluator;
+use Flowd\Phirewall\Http\Evaluator\EvaluationContext;
+use Flowd\Phirewall\Http\Evaluator\EvaluatorInterface;
+use Flowd\Phirewall\Http\Evaluator\Fail2BanEvaluator;
+use Flowd\Phirewall\Http\Evaluator\SafelistEvaluator;
+use Flowd\Phirewall\Http\Evaluator\ThrottleEvaluator;
+use Flowd\Phirewall\Http\Evaluator\TrackEvaluator;
 use Flowd\Phirewall\Throttle\FixedWindowCounter;
-use Flowd\Phirewall\Throttle\FixedWindowStrategy;
-use Flowd\Phirewall\Throttle\SlidingWindowStrategy;
-use Flowd\Phirewall\Throttle\ThrottleStrategyInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 final readonly class Firewall
@@ -35,9 +31,24 @@ final readonly class Firewall
      */
     private FixedWindowCounter $counter;
 
+    /** @var list<EvaluatorInterface> */
+    private array $evaluators;
+
+    private Fail2BanEvaluator $fail2BanEvaluator;
+
     public function __construct(private Config $config)
     {
         $this->counter = new FixedWindowCounter($config->cache);
+        $this->fail2BanEvaluator = new Fail2BanEvaluator();
+
+        $this->evaluators = [
+            new TrackEvaluator(),
+            new SafelistEvaluator(),
+            new BlocklistEvaluator(),
+            $this->fail2BanEvaluator,
+            new ThrottleEvaluator(),
+            new Allow2BanEvaluator(),
+        ];
     }
 
     /**
@@ -121,8 +132,10 @@ final readonly class Firewall
             return;
         }
 
+        $context = $this->createContext();
+
         // Post-handler: use >= so the Nth recorded failure triggers the ban immediately.
-        $this->incrementAndBanIfNeeded($fail2BanRule, $normalizedKey, $serverRequest, postHandler: true);
+        $this->fail2BanEvaluator->incrementAndBanIfNeeded($fail2BanRule, $normalizedKey, $serverRequest, $context, postHandler: true);
     }
 
     public function decide(ServerRequestInterface $serverRequest): FirewallResult
@@ -132,288 +145,36 @@ final readonly class Firewall
         }
 
         $start = microtime(true);
-        $decisionPath = DecisionPath::Passed;
-        $decisionRule = null;
+        $context = $this->createContext();
 
-        $pendingRateLimitHeaders = null;
+        foreach ($this->evaluators as $evaluator) {
+            $result = $evaluator->evaluate($serverRequest, $context);
+            if ($result !== null) {
+                $this->dispatchPerformanceMeasured($start, $context->decisionPath, $context->decisionRule);
+                return $result;
+            }
+        }
 
+        $result = FirewallResult::pass($context->pendingRateLimitHeaders ?? []);
+        $this->dispatchPerformanceMeasured($start, $context->decisionPath, $context->decisionRule);
+        return $result;
+    }
+
+    private function createContext(): EvaluationContext
+    {
         $discriminatorNormalizer = $this->config->getDiscriminatorNormalizer();
         $normalize = $discriminatorNormalizer instanceof \Closure
             ? $discriminatorNormalizer
             : static fn(string $key): string => $key;
 
-        $includeResponseHeaders = $this->config->responseHeadersEnabled();
-
-        // 0) Track (passive)
-        foreach ($this->config->tracks->rules() as $trackRule) {
-            $name = $trackRule->name();
-            if ($trackRule->filter()->match($serverRequest)->isMatch() === true) {
-                $key = $trackRule->keyExtractor()->extract($serverRequest);
-                if ($key !== null) {
-                    $normalizedKey = $normalize((string) $key);
-                    $counterKey = $this->config->cacheKeyGenerator()->trackKey($name, $normalizedKey);
-                    $count = $this->counter->increment($counterKey, $trackRule->period())->count;
-                    $limit = $trackRule->limit();
-
-                    $this->dispatch(new TrackHit(
-                        rule: $name,
-                        key: $normalizedKey,
-                        period: $trackRule->period(),
-                        count: $count,
-                        serverRequest: $serverRequest,
-                        limit: $limit,
-                    ));
-                }
-            }
-        }
-
-        // 1) Safelist
-        foreach ($this->config->safelists->rules() as $safelistRule) {
-            $name = $safelistRule->name();
-            if ($safelistRule->matcher()->match($serverRequest)->isMatch() === true) {
-                $this->dispatch(new SafelistMatched($name, $serverRequest));
-
-                $decisionPath = DecisionPath::Safelisted;
-                $decisionRule = $name;
-                $result = FirewallResult::safelisted($name, $includeResponseHeaders ? ['X-Phirewall-Safelist' => $name] : []);
-                $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
-                return $result;
-            }
-        }
-
-        // 2) Blocklist
-        foreach ($this->config->blocklists->rules() as $blocklistRule) {
-            $name = $blocklistRule->name();
-            $match = $blocklistRule->matcher()->match($serverRequest);
-            if ($match->isMatch() === true) {
-                $this->dispatch(new BlocklistMatched($name, $serverRequest));
-
-                $headers = $this->responseHeaders($includeResponseHeaders, 'blocklist', $name);
-                if ($this->config->owaspDiagnosticsHeaderEnabled() && $match->source() === 'owasp') {
-                    $meta = $match->metadata();
-                    if (isset($meta['owasp_rule_id'])) {
-                        $headers['X-Phirewall-Owasp-Rule'] = (string)$meta['owasp_rule_id'];
-                    }
-                }
-
-                $decisionPath = DecisionPath::Blocklisted;
-                $decisionRule = $name;
-                $result = FirewallResult::blocked($name, 'blocklist', $headers);
-                $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
-                return $result;
-            }
-        }
-
-        $cache = $this->config->cache;
-
-        // NOTE: The check → increment → threshold-check sequence is not atomic.
-        // Under high concurrency, a small number of requests may slip through
-        // at the exact moment the threshold is crossed. This is acceptable for
-        // rate-limiting (not a security boundary) and matches fail2ban's pattern.
-
-        // 3) Fail2Ban
-        foreach ($this->config->fail2ban->rules() as $fail2BanRule) {
-            $name = $fail2BanRule->name();
-            $key = $fail2BanRule->keyExtractor()->extract($serverRequest);
-            if ($key === null) {
-                continue;
-            }
-
-            $normalizedFail2BanKey = $normalize((string) $key);
-            $banKey = $this->config->cacheKeyGenerator()->fail2BanBanKey($name, $normalizedFail2BanKey);
-            if ($cache->has($banKey)) {
-
-                $decisionPath = DecisionPath::Fail2BanBlocked;
-                $decisionRule = $name;
-                $result = FirewallResult::blocked($name, 'fail2ban', $this->responseHeaders($includeResponseHeaders, 'fail2ban', $name));
-                $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
-                return $result;
-            }
-
-            // Pre-handler: use > so threshold=3 allows 3 matches, bans on the 4th.
-            if (
-                $fail2BanRule->filter()->match($serverRequest)->isMatch() === true
-                && $this->incrementAndBanIfNeeded($fail2BanRule, $normalizedFail2BanKey, $serverRequest, postHandler: false)
-            ) {
-                $decisionPath = DecisionPath::Fail2BanBanned;
-                $decisionRule = $name;
-                $result = FirewallResult::blocked($name, 'fail2ban', $this->responseHeaders($includeResponseHeaders, 'fail2ban', $name));
-                $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
-                return $result;
-            }
-        }
-
-        // 4) Throttle
-        foreach ($this->config->throttles->rules() as $throttleRule) {
-            $name = $throttleRule->name();
-            $key = $throttleRule->keyExtractor()->extract($serverRequest);
-            if ($key === null) {
-                continue;
-            }
-
-            $normalizedThrottleKey = $normalize((string) $key);
-            $limit = $throttleRule->resolveLimit($serverRequest);
-            $period = $throttleRule->resolvePeriod($serverRequest);
-            $strategy = $this->resolveStrategy($throttleRule);
-
-            // When period is dynamic, include the resolved period in the cache key so
-            // different periods for the same discriminator get independent counters.
-            $effectiveRuleName = $throttleRule->hasDynamicPeriod()
-                ? $name . ':p' . $period
-                : $name;
-            $throttleIncrement = $strategy->increment($effectiveRuleName, $normalizedThrottleKey, $period);
-
-            // ceil() rounds up the floating-point sliding window estimate for a conservative safety margin
-            $count = (int) ceil($throttleIncrement->count);
-            $retryAfter = $throttleIncrement->retryAfter;
-            $remaining = max(0, $limit - $count);
-
-            if ($count > $limit) {
-                $this->dispatch(new ThrottleExceeded(
-                    rule: $name,
-                    key: $normalizedThrottleKey,
-                    limit: $limit,
-                    period: $period,
-                    count: $count,
-                    retryAfter: $retryAfter,
-                    serverRequest: $serverRequest,
-                ));
-
-                $headers = ['Retry-After' => (string)max(1, $retryAfter)]
-                    + $this->responseHeaders($includeResponseHeaders, 'throttle', $name);
-                if ($this->config->rateLimitHeadersEnabled()) {
-                    $headers += [
-                        'X-RateLimit-Limit' => (string)$limit,
-                        'X-RateLimit-Remaining' => '0',
-                        'X-RateLimit-Reset' => (string)max(1, $retryAfter),
-                    ];
-                }
-
-                $decisionPath = DecisionPath::Throttled;
-                $decisionRule = $name;
-                $result = FirewallResult::throttled($name, $retryAfter, $headers);
-                $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
-                return $result;
-            }
-
-            if ($this->config->rateLimitHeadersEnabled() && $pendingRateLimitHeaders === null) {
-                $pendingRateLimitHeaders = [
-                    'X-RateLimit-Limit' => (string)$limit,
-                    'X-RateLimit-Remaining' => (string)$remaining,
-                    'X-RateLimit-Reset' => (string)max(1, $retryAfter),
-                ];
-            }
-        }
-
-        // 5) Allow2Ban
-        // Process all rules so every counter is incremented, then return the first block.
-        $allow2BanResult = null;
-        foreach ($this->config->allow2ban->rules() as $allow2BanRule) {
-            $name = $allow2BanRule->name();
-            $key = $allow2BanRule->keyExtractor()->extract($serverRequest);
-            if ($key === null) {
-                continue;
-            }
-
-            $normalizedAllow2BanKey = $normalize((string) $key);
-            $a2bBanKey = $this->config->cacheKeyGenerator()->allow2BanBanKey($name, $normalizedAllow2BanKey);
-            if ($cache->has($a2bBanKey)) {
-                $banRetryAfter = $this->ttlRemaining($a2bBanKey);
-                if ($banRetryAfter < 1) {
-                    $banRetryAfter = $allow2BanRule->banSeconds();
-                }
-
-                if ($allow2BanResult === null) {
-                    $blockedHeaders = ['Retry-After' => (string) $banRetryAfter]
-                        + $this->responseHeaders($includeResponseHeaders, 'allow2ban', $name);
-                    $allow2BanResult = ['path' => DecisionPath::Allow2BanBlocked, 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', $blockedHeaders)];
-                }
-
-                continue;
-            }
-
-            $a2bHitKey = $this->config->cacheKeyGenerator()->allow2BanHitKey($name, $normalizedAllow2BanKey);
-            $count = $this->counter->increment($a2bHitKey, $allow2BanRule->period())->count;
-
-            if ($count > $allow2BanRule->threshold()) {
-                $this->config->banManager()->ban($name, $normalizedAllow2BanKey, $allow2BanRule->banSeconds(), BanType::Allow2Ban);
-                $cache->delete($a2bHitKey);
-
-                $this->dispatch(new Allow2BanBanned(
-                    rule: $name,
-                    key: $normalizedAllow2BanKey,
-                    threshold: $allow2BanRule->threshold(),
-                    period: $allow2BanRule->period(),
-                    banSeconds: $allow2BanRule->banSeconds(),
-                    count: $count,
-                    serverRequest: $serverRequest,
-                ));
-                $newBanRetryAfter = $this->ttlRemaining($a2bBanKey);
-                if ($newBanRetryAfter < 1) {
-                    $newBanRetryAfter = $allow2BanRule->banSeconds();
-                }
-
-                if ($allow2BanResult === null) {
-                    $bannedHeaders = ['Retry-After' => (string) $newBanRetryAfter]
-                        + $this->responseHeaders($includeResponseHeaders, 'allow2ban', $name);
-                    $allow2BanResult = ['path' => DecisionPath::Allow2BanBanned, 'rule' => $name, 'result' => FirewallResult::blocked($name, 'allow2ban', $bannedHeaders)];
-                }
-            }
-        }
-
-        if ($allow2BanResult !== null) {
-            $decisionPath = $allow2BanResult['path'];
-            $decisionRule = $allow2BanResult['rule'];
-            $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
-            return $allow2BanResult['result'];
-        }
-
-
-        $result = FirewallResult::pass($pendingRateLimitHeaders ?? []);
-        $this->dispatchPerformanceMeasured($start, $decisionPath, $decisionRule);
-        return $result;
-    }
-
-    /**
-     * Increment the fail counter and ban if the threshold is reached or exceeded.
-     *
-     * @param bool $postHandler When true (post-handler), uses >= so the Nth failure
-     *                          triggers the ban immediately. When false (pre-handler),
-     *                          uses > so N matches are allowed and the (N+1)th is banned.
-     *
-     * @return bool True if the key was banned by this call.
-     */
-    private function incrementAndBanIfNeeded(
-        Fail2BanRule $fail2BanRule,
-        string $normalizedKey,
-        ServerRequestInterface $serverRequest,
-        bool $postHandler,
-    ): bool {
-        $ruleName = $fail2BanRule->name();
-        $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($ruleName, $normalizedKey);
-        $count = $this->counter->increment($failKey, $fail2BanRule->period())->count;
-
-        $exceeded = $postHandler
-            ? $count >= $fail2BanRule->threshold()
-            : $count > $fail2BanRule->threshold();
-
-        if (!$exceeded) {
-            return false;
-        }
-
-        $this->config->banManager()->ban($ruleName, $normalizedKey, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
-
-        $this->dispatch(new Fail2BanBanned(
-            rule: $ruleName,
-            key: $normalizedKey,
-            threshold: $fail2BanRule->threshold(),
-            period: $fail2BanRule->period(),
-            banSeconds: $fail2BanRule->banSeconds(),
-            count: $count,
-            serverRequest: $serverRequest,
-        ));
-
-        return true;
+        return new EvaluationContext(
+            config: $this->config,
+            normalize: $normalize,
+            responseHeadersEnabled: $this->config->responseHeadersEnabled(),
+            rateLimitHeadersEnabled: $this->config->rateLimitHeadersEnabled(),
+            owaspDiagnosticsHeaderEnabled: $this->config->owaspDiagnosticsHeaderEnabled(),
+            counter: $this->counter,
+        );
     }
 
     private function dispatchPerformanceMeasured(float $start, DecisionPath $decisionPath, ?string $ruleName): void
@@ -431,50 +192,6 @@ final readonly class Firewall
         $dispatcher->dispatch(new PerformanceMeasured($decisionPath, $durationMicros, $ruleName));
     }
 
-    private function resolveStrategy(ThrottleRule $throttleRule): ThrottleStrategyInterface
-    {
-        /** @var \WeakMap<self, array{fixed: FixedWindowStrategy, sliding: SlidingWindowStrategy}>|null $strategyCache */
-        static $strategyCache = null;
-        $strategyCache ??= new \WeakMap();
-
-        if (!isset($strategyCache[$this])) {
-            $cache = $this->config->cache;
-            $cacheKeyGenerator = $this->config->cacheKeyGenerator();
-
-            $strategyCache[$this] = [
-                'fixed' => new FixedWindowStrategy($cache, $cacheKeyGenerator),
-                'sliding' => new SlidingWindowStrategy($cache, $cacheKeyGenerator, $this->config->now(...)),
-            ];
-        }
-
-        /** @var array{fixed: FixedWindowStrategy, sliding: SlidingWindowStrategy} $strategies */
-        $strategies = $strategyCache[$this];
-
-        return $throttleRule->isSliding()
-            ? $strategies['sliding']
-            : $strategies['fixed'];
-    }
-
-
-    private function ttlRemaining(string $key): int
-    {
-        $cache = $this->config->cache;
-        if ($cache instanceof CounterStoreInterface) {
-            return $cache->ttlRemaining($key);
-        }
-
-        $entry = $cache->get($key);
-        if (!is_array($entry) || !is_scalar($entry['count'] ?? null)) {
-            return 0;
-        }
-
-        $expiresAt = (int)($entry['expires_at'] ?? 0);
-        $now = time();
-        $remaining = $expiresAt - $now;
-
-        return max($remaining, 0);
-    }
-
     /**
      * Normalize a discriminator key using the configured normalizer.
      *
@@ -485,19 +202,5 @@ final readonly class Firewall
         $normalizer = $this->config->getDiscriminatorNormalizer();
 
         return $normalizer instanceof \Closure ? $normalizer($key) : $key;
-    }
-
-    /** @return array<string, string> */
-    private function responseHeaders(bool $enabled, string $type, string $rule): array
-    {
-        return $enabled ? ['X-Phirewall' => $type, 'X-Phirewall-Matched' => $rule] : [];
-    }
-
-    private function dispatch(object $event): void
-    {
-        $dispatcher = $this->config->eventDispatcher;
-        if ($dispatcher instanceof \Psr\EventDispatcher\EventDispatcherInterface) {
-            $dispatcher->dispatch($event);
-        }
     }
 }
