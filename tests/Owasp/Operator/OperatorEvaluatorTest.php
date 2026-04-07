@@ -51,6 +51,33 @@ final class OperatorEvaluatorTest extends TestCase
         $this->assertSame('~foo\~bar~u', $delimited);
     }
 
+    public function testRegexEvaluatorPreservesAlreadyEscapedTilde(): void
+    {
+        // Input: foo + 1 backslash + tilde (odd=1: tilde is escaped)
+        $input = "foo\x5C~bar";
+        $delimited = RegexEvaluator::ensureRegexDelimiters($input);
+        // Output: ~foo + 1 backslash + tilde + bar~u (unchanged)
+        $this->assertSame("~foo\x5C~bar~u", $delimited);
+    }
+
+    public function testRegexEvaluatorEscapesTildeAfterEvenBackslashes(): void
+    {
+        // Input: foo + 2 backslashes + tilde (even=2: backslashes escape each other, tilde is unescaped)
+        $input = "foo\x5C\x5C~bar";
+        $delimited = RegexEvaluator::ensureRegexDelimiters($input);
+        // Output: ~foo + 2 backslashes + escaped tilde (3 backslashes + tilde) + bar~u
+        $this->assertSame("~foo\x5C\x5C\x5C~bar~u", $delimited);
+    }
+
+    public function testRegexEvaluatorPreservesTildeAfterOddBackslashes(): void
+    {
+        // Input: foo + 3 backslashes + tilde (odd=3: last backslash escapes tilde)
+        $input = "foo\x5C\x5C\x5C~bar";
+        $delimited = RegexEvaluator::ensureRegexDelimiters($input);
+        // Output: ~foo + 3 backslashes + tilde + bar~u (unchanged)
+        $this->assertSame("~foo\x5C\x5C\x5C~bar~u", $delimited);
+    }
+
     // --- ContainsEvaluator ---
 
     public function testContainsEvaluatorCaseInsensitiveMatch(): void

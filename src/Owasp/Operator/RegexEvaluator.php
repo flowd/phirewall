@@ -46,8 +46,22 @@ final readonly class RegexEvaluator implements OperatorEvaluatorInterface
             }
         }
 
-        // Only escape unescaped tildes — str_replace would double-escape \~ into \\~
-        $escaped = preg_replace('/(?<!\\\\)~/', '\~', $pattern);
+        // Escape unescaped tildes. A tilde is unescaped when preceded by an
+        // even number (including zero) of backslashes. A simple negative lookbehind
+        // fails for \\~ (even backslashes), so we use a callback that counts them.
+        $escaped = preg_replace_callback(
+            '/(\\\\*)(~)/',
+            static function (array $matches): string {
+                $backslashes = $matches[1];
+                // Odd number of backslashes means the tilde is already escaped
+                if (strlen($backslashes) % 2 !== 0) {
+                    return $matches[0];
+                }
+
+                return $backslashes . '\~';
+            },
+            $pattern,
+        );
         // Use Unicode mode by default to better mirror CRS behavior for text processing
         return '~' . $escaped . '~u';
     }
