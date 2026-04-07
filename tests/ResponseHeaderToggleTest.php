@@ -98,7 +98,9 @@ final class ResponseHeaderToggleTest extends TestCase
         $config->allow2ban->add('ip', threshold: 1, period: 30, banSeconds: 60, key: fn($request): string => '1.2.3.4');
 
         $firewall = new Firewall($config);
-        $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
+        $request = new ServerRequest('GET', '/');
+        $firewall->decide($request); // 1st — within threshold (threshold=1 allows 1)
+        $firewallResult = $firewall->decide($request); // 2nd — exceeds threshold, banned
 
         $this->assertTrue($firewallResult->isBlocked());
         $this->assertArrayHasKey('Retry-After', $firewallResult->headers);

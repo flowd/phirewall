@@ -126,7 +126,7 @@ final class RequestAttributeIntegrationTest extends TestCase
         $middleware->process($request, $handler);
         $middleware->process($request, $handler);
 
-        // Third request triggers ban
+        // Third request reaches threshold and triggers ban (post-handler, >= semantics)
         $response = $middleware->process($request, $handler);
         $this->assertSame(200, $response->getStatusCode());
 
@@ -140,9 +140,9 @@ final class RequestAttributeIntegrationTest extends TestCase
         $this->assertSame('10.0.0.1', $banEvents[0]->key);
 
         // Fourth request should be blocked by the firewall's decide() (already banned)
-        $fourthResponse = $middleware->process($request, $this->passThroughHandler());
-        $this->assertSame(403, $fourthResponse->getStatusCode());
-        $this->assertSame('fail2ban', $fourthResponse->getHeaderLine('X-Phirewall'));
+        $blockedResponse = $middleware->process($request, $this->passThroughHandler());
+        $this->assertSame(403, $blockedResponse->getStatusCode());
+        $this->assertSame('fail2ban', $blockedResponse->getHeaderLine('X-Phirewall'));
     }
 
     public function testFailOpenSwallowsContextProcessingErrors(): void
@@ -218,7 +218,8 @@ final class RequestAttributeIntegrationTest extends TestCase
         $request = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
         $handler = $this->failureRecordingHandler('login-brute-force', '10.0.0.1');
 
-        // Should not throw — fail-open swallows the error
+        // First request records failure, count=1 >= threshold=1, triggers ban
+        // Ban write (set #3) throws — fail-open swallows the error
         $response = $middleware->process($request, $handler);
         $this->assertSame(200, $response->getStatusCode());
 
@@ -303,6 +304,8 @@ final class RequestAttributeIntegrationTest extends TestCase
         $request = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
         $handler = $this->failureRecordingHandler('login-brute-force', '10.0.0.1');
 
+        // First request records failure, count=1 >= threshold=1, triggers ban
+        // Ban write (set #3) throws — fail-closed propagates the exception
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Cache write failed');
         $middleware->process($request, $handler);
@@ -412,8 +415,8 @@ final class RequestAttributeIntegrationTest extends TestCase
         $handler1 = $this->failureRecordingHandler('login-brute-force', 'User@Example.COM');
         $handler2 = $this->failureRecordingHandler('login-brute-force', 'user@example.com');
 
-        $middleware->process($request, $handler1);
-        $middleware->process($request, $handler2);
+        $middleware->process($request, $handler1); // count=1, below threshold
+        $middleware->process($request, $handler2); // count=2 >= threshold=2, triggers ban
 
         // Ban event should fire with normalized key
         $banEvents = array_values(array_filter(

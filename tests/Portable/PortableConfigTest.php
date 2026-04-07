@@ -75,7 +75,9 @@ final class PortableConfigTest extends TestCase
         $fail = $serverRequest->withHeader('X-Login-Failed', '1');
         // First fail passes
         $this->assertTrue($firewall->decide($fail)->isPass());
-        // Second fail hits the threshold and is blocked
+        // Second fail — reaches threshold, still allowed
+        $this->assertTrue($firewall->decide($fail)->isPass());
+        // Third fail — exceeds threshold, blocked
         $second = $firewall->decide($fail);
         $this->assertSame(Outcome::BLOCKED, $second->outcome);
         // Subsequent clean request is still banned

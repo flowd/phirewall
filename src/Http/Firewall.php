@@ -234,7 +234,7 @@ final readonly class Firewall
                 $failKey = $this->config->cacheKeyGenerator()->fail2BanFailKey($name, $normalizedFail2BanKey);
                 $count = $this->increment($failKey, $fail2BanRule->period());
 
-                if ($count >= $fail2BanRule->threshold()) {
+                if ($count > $fail2BanRule->threshold()) {
                     $this->config->banManager()->ban($name, $normalizedFail2BanKey, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
 
                     $this->dispatch(new Fail2BanBanned(
@@ -347,7 +347,7 @@ final readonly class Firewall
             $a2bHitKey = $this->config->cacheKeyGenerator()->allow2BanHitKey($name, $normalizedAllow2BanKey);
             $count = $this->increment($a2bHitKey, $allow2BanRule->period());
 
-            if ($count >= $allow2BanRule->threshold()) {
+            if ($count > $allow2BanRule->threshold()) {
                 $this->config->banManager()->ban($name, $normalizedAllow2BanKey, $allow2BanRule->banSeconds(), BanType::Allow2Ban);
                 $cache->delete($a2bHitKey);
 

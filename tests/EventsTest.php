@@ -113,12 +113,14 @@ final class EventsTest extends TestCase
 
         $this->assertTrue($foundThrottle, 'ThrottleExceeded event not dispatched');
 
-        // Fail2Ban: two failures trigger ban event
+        // Fail2Ban: three failures trigger ban event (threshold=2 means 2 allowed, 3rd exceeds)
         $dispatcher->events = [];
         $serverRequest = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '8.8.8.8']))
             ->withHeader('X-Login-Failed', '1');
-        $this->assertTrue($firewall->decide($serverRequest)->isPass());
+        $this->assertTrue($firewall->decide($serverRequest)->isPass()); // 1st — pass (fail count=1, throttle count=1)
+        $firewall->decide($serverRequest); // 2nd — throttled (fail count=2, within threshold, but throttle limit=1 exceeded)
         $firewall->decide($serverRequest);
+        // 3rd — fail2ban count=3 exceeds threshold, banned
         $foundBan = false;
         /** @var list<object> $events */
         $events = $dispatcher->events;
