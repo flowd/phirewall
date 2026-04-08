@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Tests\Owasp\Operator;
 
+use Flowd\Phirewall\Matchers\Support\RegexMatcher;
 use Flowd\Phirewall\Owasp\Operator\ContainsEvaluator;
 use Flowd\Phirewall\Owasp\Operator\EndsWithEvaluator;
 use Flowd\Phirewall\Owasp\Operator\OperatorEvaluatorFactory;
@@ -18,6 +19,8 @@ use PHPUnit\Framework\TestCase;
 
 final class OperatorEvaluatorTest extends TestCase
 {
+    private const REGEX_MAX_SUBJECT_LENGTH = RegexMatcher::MAX_SUBJECT_LENGTH;
+
     // --- RegexEvaluator ---
 
     public function testRegexEvaluatorMatchesPattern(): void
@@ -31,6 +34,35 @@ final class OperatorEvaluatorTest extends TestCase
     {
         $evaluator = new RegexEvaluator('^/ad[min');
         $this->assertFalse($evaluator->evaluate(['/admin']));
+    }
+
+    public function testRegexEvaluatorSkipsValuesExceedingMaxLength(): void
+    {
+        $evaluator = new RegexEvaluator('a');
+        $oversizedValue = str_repeat('a', self::REGEX_MAX_SUBJECT_LENGTH + 1);
+        $this->assertFalse($evaluator->evaluate([$oversizedValue]));
+    }
+
+    public function testRegexEvaluatorMatchesWithinLengthLimit(): void
+    {
+        $evaluator = new RegexEvaluator('hello');
+        $valueWithinLimit = str_repeat('a', 100) . 'hello';
+        $this->assertTrue($evaluator->evaluate([$valueWithinLimit]));
+    }
+
+    public function testRegexEvaluatorMatchesAtExactlyMaxLength(): void
+    {
+        $evaluator = new RegexEvaluator('a');
+        $exactLimitValue = str_repeat('a', self::REGEX_MAX_SUBJECT_LENGTH);
+        $this->assertTrue($evaluator->evaluate([$exactLimitValue]));
+    }
+
+    public function testRegexEvaluatorStillMatchesShorterValueWhenOverlengthPresent(): void
+    {
+        $evaluator = new RegexEvaluator('match');
+        $oversized = str_repeat('x', self::REGEX_MAX_SUBJECT_LENGTH + 1) . 'match';
+        $normal = 'this should match';
+        $this->assertTrue($evaluator->evaluate([$oversized, $normal]));
     }
 
     public function testRegexEvaluatorPreservesDelimitedPattern(): void
