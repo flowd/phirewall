@@ -6,21 +6,18 @@ namespace Flowd\Phirewall\Tests\Store;
 
 use Flowd\Phirewall\Store\RedisCache;
 use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
-use Predis\ClientInterface;
 
 #[CoversClass(RedisCache::class)]
 final class RedisCacheTest extends TestCase
 {
-    private function createMockClient(): MockObject&ClientInterface
-    {
-        return $this->createMock(ClientInterface::class);
-    }
-
     public function testIncrementReturnsZeroAndTriggersWarningWhenEvalThrows(): void
     {
-        $client = $this->createMockClient();
+        if (!interface_exists(\Predis\ClientInterface::class)) {
+            $this->markTestSkipped('Predis is not installed.');
+        }
+
+        $client = $this->createMock(\Predis\ClientInterface::class);
         $client
             ->method('eval')
             ->willThrowException(new \RuntimeException('Connection refused'));
@@ -29,8 +26,12 @@ final class RedisCacheTest extends TestCase
 
         $capturedWarnings = [];
         set_error_handler(static function (int $errno, string $errstr) use (&$capturedWarnings): bool {
-            $capturedWarnings[] = ['errno' => $errno, 'errstr' => $errstr];
-            return true;
+            if ($errno === E_USER_WARNING) {
+                $capturedWarnings[] = ['errno' => $errno, 'errstr' => $errstr];
+                return true;
+            }
+
+            return false;
         });
 
         try {
