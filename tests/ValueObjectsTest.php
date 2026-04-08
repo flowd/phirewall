@@ -95,6 +95,20 @@ final class ValueObjectsTest extends TestCase
         $this->assertNull($existing->merge($incoming)->expiresAt);
     }
 
+    public function testPatternEntryMergePermanentWithExpiring(): void
+    {
+        $permanent = new PatternEntry(PatternKind::IP, '1.2.3.4', expiresAt: null);
+        $expiring = new PatternEntry(PatternKind::IP, '1.2.3.4', expiresAt: 5000);
+        $this->assertNull($permanent->merge($expiring)->expiresAt);
+    }
+
+    public function testPatternEntryMergeExpiringWithPermanent(): void
+    {
+        $expiring = new PatternEntry(PatternKind::IP, '1.2.3.4', expiresAt: 5000);
+        $permanent = new PatternEntry(PatternKind::IP, '1.2.3.4', expiresAt: null);
+        $this->assertNull($expiring->merge($permanent)->expiresAt);
+    }
+
     public function testPatternEntryMergePreservesExistingIdentityAndMetadata(): void
     {
         $existing = new PatternEntry(PatternKind::IP, '1.2.3.4', target: 'X', metadata: ['src' => 'file']);

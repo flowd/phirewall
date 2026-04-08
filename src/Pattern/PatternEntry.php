@@ -43,7 +43,9 @@ final readonly class PatternEntry
      */
     public function merge(self $incoming): self
     {
-        $expiresAt = max($this->expiresAt ?? 0, $incoming->expiresAt ?? 0) ?: null;
+        $expiresAt = $this->expiresAt === null || $incoming->expiresAt === null
+            ? null
+            : max($this->expiresAt, $incoming->expiresAt);
 
         $addedAt = $this->addedAt;
         if ($incoming->addedAt !== null && ($this->addedAt === null || $incoming->addedAt > $this->addedAt)) {
