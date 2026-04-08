@@ -149,10 +149,15 @@ LUA;
         try {
             $counter = $this->client->eval($script, 1, $namespacedKey, (string)$windowEnd);
         } catch (\Throwable $throwable) {
-            trigger_error(
-                sprintf('RedisCache::increment() failed for key "%s": %s', $key, $throwable->getMessage()),
-                E_USER_WARNING,
-            );
+            try {
+                trigger_error(
+                    sprintf('RedisCache::increment() failed for key "%s": %s', $key, $throwable->getMessage()),
+                    E_USER_WARNING,
+                );
+            } catch (\Throwable) {
+                // Preserve fail-open behavior even when warnings are converted to exceptions.
+            }
+
             return 0;
         }
 
