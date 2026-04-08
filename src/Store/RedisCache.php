@@ -148,8 +148,11 @@ LUA;
 
         try {
             $counter = $this->client->eval($script, 1, $namespacedKey, (string)$windowEnd);
-        } catch (\Throwable) {
-            // In case of Redis errors, fail open and report 0 so callers can decide how to handle.
+        } catch (\Throwable $throwable) {
+            trigger_error(
+                sprintf('RedisCache::increment() failed for key "%s": %s', $key, $throwable->getMessage()),
+                E_USER_WARNING,
+            );
             return 0;
         }
 
