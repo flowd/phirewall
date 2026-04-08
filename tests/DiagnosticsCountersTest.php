@@ -115,6 +115,30 @@ final class DiagnosticsCountersTest extends TestCase
         $this->assertSame(1, $counters['passed']['total'] ?? 0);
     }
 
+    public function testAllow2BanBannedCounterIncrements(): void
+    {
+        $diagnosticsCounters = new DiagnosticsCounters();
+        $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
+        $config->allow2ban->add(
+            'api',
+            threshold: 2,
+            period: 10,
+            banSeconds: 60,
+            key: fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null,
+        );
+        $firewall = new Firewall($config);
+
+        $serverRequest = new ServerRequest('GET', '/api', [], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertTrue($firewall->decide($serverRequest)->isPass()); // 1st — within threshold
+        $this->assertTrue($firewall->decide($serverRequest)->isPass()); // 2nd — reaches threshold
+        $blockedResult = $firewall->decide($serverRequest); // 3rd — exceeds threshold, banned
+        $this->assertTrue($blockedResult->isBlocked());
+
+        $counters = $diagnosticsCounters->all();
+        $this->assertSame(1, $counters['allow2ban_banned']['total'] ?? 0);
+        $this->assertSame(1, $counters['allow2ban_banned']['by_rule']['api'] ?? 0);
+    }
+
     public function testWithoutDiagnosticsNothingBreaks(): void
     {
         $config = new Config(new InMemoryCache());
