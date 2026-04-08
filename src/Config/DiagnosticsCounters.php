@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Config;
 
+use Flowd\Phirewall\Events\Allow2BanBanned;
 use Flowd\Phirewall\Events\BlocklistMatched;
 use Flowd\Phirewall\Events\Fail2BanBanned;
 use Flowd\Phirewall\Events\PerformanceMeasured;
@@ -23,7 +24,7 @@ use Flowd\Phirewall\Http\DecisionPath;
  *   // ... run firewall ...
  *   $counters->all(); // ['safelisted' => ['total' => 1, 'by_rule' => ['health' => 1]], ...]
  *
- * Categories tracked: safelisted, blocklisted, throttle_exceeded, fail2ban_banned, track_hit, passed,
+ * Categories tracked: safelisted, blocklisted, throttle_exceeded, fail2ban_banned, allow2ban_banned, track_hit, passed,
  * fail2ban_blocked (via PerformanceMeasured).
  */
 final class DiagnosticsCounters
@@ -42,6 +43,7 @@ final class DiagnosticsCounters
             $event instanceof BlocklistMatched => $this->increment('blocklisted', $event->rule),
             $event instanceof ThrottleExceeded => $this->increment('throttle_exceeded', $event->rule),
             $event instanceof Fail2BanBanned => $this->increment('fail2ban_banned', $event->rule),
+            $event instanceof Allow2BanBanned => $this->increment('allow2ban_banned', $event->rule),
             $event instanceof TrackHit => $this->increment('track_hit', $event->rule),
             $event instanceof PerformanceMeasured => $this->handlePerformanceMeasured($event),
             default => null,
