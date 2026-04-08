@@ -9,6 +9,9 @@ namespace Flowd\Phirewall\Owasp\Operator;
  */
 final readonly class RegexEvaluator implements OperatorEvaluatorInterface
 {
+    /** Maximum byte length of a value passed to preg_match() to guard against ReDoS attacks. */
+    private const MAX_VALUE_LENGTH = 8192;
+
     /** Cached regex pattern with delimiters, ready for preg_match(). */
     private string $delimitedPattern;
 
@@ -21,6 +24,9 @@ final readonly class RegexEvaluator implements OperatorEvaluatorInterface
     public function evaluate(array $values): bool
     {
         foreach ($values as $value) {
+            if (strlen($value) > self::MAX_VALUE_LENGTH) {
+                continue;
+            }
             if (@preg_match($this->delimitedPattern, $value) === 1) {
                 return true;
             }

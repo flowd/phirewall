@@ -33,6 +33,20 @@ final class OperatorEvaluatorTest extends TestCase
         $this->assertFalse($evaluator->evaluate(['/admin']));
     }
 
+    public function testEvaluateSkipsValuesExceedingMaxLength(): void
+    {
+        $evaluator = new RegexEvaluator('a');
+        $oversizedValue = str_repeat('a', 8193);
+        $this->assertFalse($evaluator->evaluate([$oversizedValue]));
+    }
+
+    public function testEvaluateMatchesWithinLengthLimit(): void
+    {
+        $evaluator = new RegexEvaluator('hello');
+        $valueWithinLimit = str_repeat('a', 100) . 'hello';
+        $this->assertTrue($evaluator->evaluate([$valueWithinLimit]));
+    }
+
     public function testRegexEvaluatorPreservesDelimitedPattern(): void
     {
         $delimited = RegexEvaluator::ensureRegexDelimiters('/^test$/i');
