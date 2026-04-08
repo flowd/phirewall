@@ -4,21 +4,19 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Owasp\Operator;
 
+use Flowd\Phirewall\Matchers\Support\RegexMatcher;
+
 /**
  * Evaluates values against a PCRE regular expression (@rx operator).
+ *
+ * Values exceeding {@see RegexMatcher::MAX_SUBJECT_LENGTH} bytes are skipped (treated as
+ * non-matching). This is an intentional trade-off: extremely long payloads may evade regex
+ * detection, but the alternative — running unbounded regex on attacker-controlled input — risks
+ * catastrophic backtracking that can freeze the process. This mirrors standard WAF behavior
+ * (e.g., ModSecurity SecRequestBodyLimit).
  */
 final readonly class RegexEvaluator implements OperatorEvaluatorInterface
 {
-    /**
-     * Maximum byte length of a value passed to preg_match() to guard against ReDoS attacks.
-     *
-     * Values exceeding this limit are skipped (treated as non-matching). This is an intentional
-     * trade-off: extremely long payloads may evade regex detection, but the alternative — running
-     * unbounded regex on attacker-controlled input — risks catastrophic backtracking that can
-     * freeze the process. This mirrors standard WAF behavior (e.g., ModSecurity SecRequestBodyLimit).
-     */
-    private const MAX_VALUE_LENGTH = 8192;
-
     /** Cached regex pattern with delimiters, ready for preg_match(). */
     private string $delimitedPattern;
 
@@ -31,7 +29,7 @@ final readonly class RegexEvaluator implements OperatorEvaluatorInterface
     public function evaluate(array $values): bool
     {
         foreach ($values as $value) {
-            if (strlen($value) > self::MAX_VALUE_LENGTH) {
+            if (strlen($value) > RegexMatcher::MAX_SUBJECT_LENGTH) {
                 continue;
             }
 
