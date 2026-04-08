@@ -9,7 +9,14 @@ namespace Flowd\Phirewall\Owasp\Operator;
  */
 final readonly class RegexEvaluator implements OperatorEvaluatorInterface
 {
-    /** Maximum byte length of a value passed to preg_match() to guard against ReDoS attacks. */
+    /**
+     * Maximum byte length of a value passed to preg_match() to guard against ReDoS attacks.
+     *
+     * Values exceeding this limit are skipped (treated as non-matching). This is an intentional
+     * trade-off: extremely long payloads may evade regex detection, but the alternative — running
+     * unbounded regex on attacker-controlled input — risks catastrophic backtracking that can
+     * freeze the process. This mirrors standard WAF behavior (e.g., ModSecurity SecRequestBodyLimit).
+     */
     private const MAX_VALUE_LENGTH = 8192;
 
     /** Cached regex pattern with delimiters, ready for preg_match(). */
@@ -27,6 +34,7 @@ final readonly class RegexEvaluator implements OperatorEvaluatorInterface
             if (strlen($value) > self::MAX_VALUE_LENGTH) {
                 continue;
             }
+
             if (@preg_match($this->delimitedPattern, $value) === 1) {
                 return true;
             }

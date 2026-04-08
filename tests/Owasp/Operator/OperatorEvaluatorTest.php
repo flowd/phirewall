@@ -47,6 +47,21 @@ final class OperatorEvaluatorTest extends TestCase
         $this->assertTrue($evaluator->evaluate([$valueWithinLimit]));
     }
 
+    public function testEvaluateMatchesAtExactlyMaxLength(): void
+    {
+        $evaluator = new RegexEvaluator('a');
+        $exactLimitValue = str_repeat('a', 8192);
+        $this->assertTrue($evaluator->evaluate([$exactLimitValue]));
+    }
+
+    public function testEvaluateStillMatchesShorterValueWhenOverlengthPresent(): void
+    {
+        $evaluator = new RegexEvaluator('match');
+        $oversized = str_repeat('x', 8193) . 'match';
+        $normal = 'this should match';
+        $this->assertTrue($evaluator->evaluate([$oversized, $normal]));
+    }
+
     public function testRegexEvaluatorPreservesDelimitedPattern(): void
     {
         $delimited = RegexEvaluator::ensureRegexDelimiters('/^test$/i');
