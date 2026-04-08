@@ -33,31 +33,34 @@ final class OperatorEvaluatorTest extends TestCase
         $this->assertFalse($evaluator->evaluate(['/admin']));
     }
 
-    public function testEvaluateSkipsValuesExceedingMaxLength(): void
+    public function testRegexEvaluatorSkipsValuesExceedingMaxLength(): void
     {
+        $maxLength = 8192;
         $evaluator = new RegexEvaluator('a');
-        $oversizedValue = str_repeat('a', 8193);
+        $oversizedValue = str_repeat('a', $maxLength + 1);
         $this->assertFalse($evaluator->evaluate([$oversizedValue]));
     }
 
-    public function testEvaluateMatchesWithinLengthLimit(): void
+    public function testRegexEvaluatorMatchesWithinLengthLimit(): void
     {
         $evaluator = new RegexEvaluator('hello');
         $valueWithinLimit = str_repeat('a', 100) . 'hello';
         $this->assertTrue($evaluator->evaluate([$valueWithinLimit]));
     }
 
-    public function testEvaluateMatchesAtExactlyMaxLength(): void
+    public function testRegexEvaluatorMatchesAtExactlyMaxLength(): void
     {
+        $maxLength = 8192;
         $evaluator = new RegexEvaluator('a');
-        $exactLimitValue = str_repeat('a', 8192);
+        $exactLimitValue = str_repeat('a', $maxLength);
         $this->assertTrue($evaluator->evaluate([$exactLimitValue]));
     }
 
-    public function testEvaluateStillMatchesShorterValueWhenOverlengthPresent(): void
+    public function testRegexEvaluatorStillMatchesShorterValueWhenOverlengthPresent(): void
     {
+        $maxLength = 8192;
         $evaluator = new RegexEvaluator('match');
-        $oversized = str_repeat('x', 8193) . 'match';
+        $oversized = str_repeat('x', $maxLength + 1) . 'match';
         $normal = 'this should match';
         $this->assertTrue($evaluator->evaluate([$oversized, $normal]));
     }
