@@ -42,7 +42,7 @@ RULE;
 
     public function testFromFileParsesMultilineSecRuleAndContainsId(): void
     {
-        $root = dirname(__DIR__, 2);
+        $root = dirname(__DIR__, 3);
         $path = $root . '/examples/14-owasp_crs_basic/REQUEST-933-APPLICATION-ATTACK-PHP.conf';
         $this->assertFileExists($path);
         $coreRuleSet = SecRuleLoader::fromFile($path);

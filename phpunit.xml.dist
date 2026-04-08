@@ -12,8 +12,12 @@
         </report>
     </coverage>
     <testsuites>
-        <testsuite name="Phirewall Test Suite">
+        <testsuite name="Unit">
             <directory>tests</directory>
+            <exclude>tests/phpt</exclude>
+        </testsuite>
+        <testsuite name="Integration">
+            <directory suffix=".phpt">tests/phpt</directory>
         </testsuite>
     </testsuites>
     <source>
