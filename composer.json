@@ -43,7 +43,7 @@
   },
   "autoload-dev": {
     "psr-4": {
-        "Flowd\\Phirewall\\Tests\\": "tests/"
+        "Flowd\\Phirewall\\Tests\\": ["tests/Unit/", "tests/"]
       }
     },
   "scripts": {
@@ -65,7 +65,8 @@
         "@phpunit",
         "@phpstan"
     ],
-    "test:database": "bin/test-databases.sh"
+    "test:database": "bin/test-databases.sh",
+    "test:phpt": "XDEBUG_MODE=off vendor/bin/phpunit --testsuite Integration --no-coverage"
   },
   "config": {
     "allow-plugins": {
