@@ -17,7 +17,7 @@ interface PatternBackendInterface
     public function type(): string;
 
     /**
-     * @return array<string, int|float|string|bool|array<int, string>>
+     * @return array<string, int|float|string|bool|list<PatternKind>>
      */
     public function capabilities(): array;
 }
