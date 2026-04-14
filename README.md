@@ -150,12 +150,12 @@ The [examples/](examples/) folder contains runnable examples:
 
 Full documentation is available at **[phirewall.de](https://phirewall.de)**:
 
-- [Getting Started](https://phirewall.de/getting-started) - Installation & quick start guide
-- [Framework Integration](https://phirewall.de/examples) - PSR-15, Laravel, Symfony, Slim, Mezzio
-- [Features](https://phirewall.de/features/safelists-blocklists) - Safelists, blocklists, rate limiting, fail2ban, bot detection, OWASP rules
-- [Advanced](https://phirewall.de/advanced/dynamic-throttle) - Dynamic throttles, observability, infrastructure adapters
-- [Common Attacks](https://phirewall.de/common-attacks) - Protection recipes for 10+ attack types
-- [FAQ](https://phirewall.de/faq) - Frequently asked questions
+- [Getting Started](https://phirewall.de/getting-started.html) - Installation & quick start guide
+- [Framework Integration](https://phirewall.de/examples.html) - PSR-15, Laravel, Symfony, Slim, Mezzio
+- [Features](https://phirewall.de/features/safelists-blocklists.html) - Safelists, blocklists, rate limiting, fail2ban, bot detection, OWASP rules
+- [Advanced](https://phirewall.de/advanced/dynamic-throttle.html) - Dynamic throttles, observability, infrastructure adapters
+- [Common Attacks](https://phirewall.de/common-attacks.html) - Protection recipes for 10+ attack types
+- [FAQ](https://phirewall.de/faq.html) - Frequently asked questions
 
 ## Installation
 
