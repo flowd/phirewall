@@ -9,13 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING CHANGE — Ban evaluator threshold semantics unified to `>=`** — `Fail2BanEvaluator` (pre-handler path) and `Allow2BanEvaluator` previously banned on the **(N+1)th** matching request when `threshold = N` (they used `$count > $threshold`). They now ban on the **Nth** matching request (using `$count >= $threshold`), matching the post-handler fail2ban path, the diagnostics events, and classic fail2ban semantics where `maxretry = N` means "ban at the Nth attempt".
+- **BREAKING CHANGE — Ban evaluator threshold semantics unified to `>=`** — `Fail2BanEvaluator` (pre-handler path) and `Allow2BanEvaluator` previously banned only after the threshold was **exceeded**: on the **(N+1)th** matching request when `threshold = N` (they used `$count > $threshold`). They now ban as soon as the threshold is **reached**: on the **Nth** matching request (using `$count >= $threshold`), matching the post-handler fail2ban path, the diagnostics events, and classic fail2ban semantics where `maxretry = N` means "ban at the Nth attempt".
 
   `ThrottleEvaluator` is **not** affected: throttle still uses `$count > $limit` because "N requests per period, 429 on the (N+1)th" is the standard HTTP rate-limit contract.
 
   **Migration:** if you relied on the old behavior (e.g. `threshold: 5` to mean "ban on the 6th request"), subtract 1 from your `threshold` values to retain it.
 
-  The internal `Fail2BanEvaluator::incrementAndBanIfNeeded()` method also drops its `bool $postHandler` parameter — the two paths now share a single semantic. Callers outside `Firewall` that passed this argument must remove it.
+  The internal `Fail2BanEvaluator::incrementAndBanIfNeeded()` method also drops its `bool $postHandler` parameter — the two paths now share the same "ban when the threshold is reached" semantic. Callers outside `Firewall` that passed this argument must remove it.
 
 ### Fixed
 
