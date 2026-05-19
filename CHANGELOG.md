@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Config section API** — New `$config->safelists`, `$config->blocklists`, `$config->throttles`, `$config->fail2ban`, `$config->tracks` section objects replace flat `add*()` methods. Old methods are retained but deprecated for removal in 0.4. (#1)
+- **Config section API** — New `$config->safelists`, `$config->blocklists`, `$config->throttles`, `$config->fail2ban`, `$config->tracks` section objects replace flat `add*()` methods. Old methods are retained but deprecated for removal in 0.5. (#1)
 - **PSR-14 diagnostics** — `DiagnosticsCounters` observer with `DiagnosticsDispatcher` wrapper for event counting and forwarding. Tracks safelisted, blocklisted, throttled, fail2ban, allow2ban, and track events. (#1, #30, #33)
 - **KnownScannerMatcher** — Block sqlmap, nikto, nmap, burp, and other scanner User-Agents via `$config->blocklists->knownScanners()`. (#5)
 - **TrustedBotMatcher** — Safelist Googlebot, Bingbot, etc. via reverse DNS verification. (#6)
@@ -77,7 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 
-- `DeprecatedConfigMethods` trait — all `add*()` / `get*()` methods on `Config`. Use the section API instead (`$config->safelists->add()`, `$config->blocklists->owasp()`, etc.). Will be removed in 0.4.
+- `DeprecatedConfigMethods` trait — all `add*()` / `get*()` methods on `Config`. Use the section API instead (`$config->safelists->add()`, `$config->blocklists->owasp()`, etc.). Will be removed in 0.5.
 
 ## [0.2.0] - 2026-01-27
 
