@@ -143,10 +143,21 @@ final class SecRuleParser
 
         $op = trim(substr($operatorPart, 0, $spacePos));
         $arg = substr($operatorPart, $spacePos + 1);
+
+        // @rx arguments are bare PCRE content per ModSecurity grammar — there is no
+        // second quoting layer to strip. Stripping surrounding quotes here corrupts
+        // patterns whose first and last bytes are literal quote characters (e.g. CRS
+        // rule 942511 wraps its alternation in literal apostrophes), collapsing the
+        // regex to its inner body and matching essentially every HTTP value. The outer
+        // SecRule-level quoting has already been removed by stripQuotes($parts[1]) in
+        // parseLine, so the remaining content is the pattern verbatim.
+        if (strtolower($op) === '@rx') {
+            return [$op, ltrim($arg)];
+        }
+
         // Remove surrounding quotes if present
         $arg = $this->stripQuotes(trim($arg));
-        // For @rx keep escapes but trim leading/trailing whitespace that may precede the pattern inside quotes
-        $arg = strtolower($op) === '@rx' ? ltrim($arg) : trim($this->unescape($arg));
+        $arg = trim($this->unescape($arg));
 
         return [$op, $arg];
     }
