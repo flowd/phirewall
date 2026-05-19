@@ -9,6 +9,14 @@ use Flowd\Phirewall\Matchers\Support\RegexMatcher;
 /**
  * Evaluates values against a PCRE regular expression (@rx operator).
  *
+ * ModSecurity/CRS @rx patterns are bare PCRE content (never pre-delimited),
+ * so the pattern is always wrapped in '~...~u' with any unescaped '~' escaped.
+ * Previous versions also tried to auto-detect "already-delimited" patterns by
+ * checking whether the first and last characters matched — this misfired on
+ * real CRS rules whose patterns happen to start and end with the same literal
+ * character (notably backticks in rule 942510), turning those characters into
+ * PCRE delimiters and collapsing the rule to its inner alternation.
+ *
  * Values exceeding {@see RegexMatcher::MAX_SUBJECT_LENGTH} bytes are skipped (treated as
  * non-matching). This is an intentional trade-off: extremely long payloads may evade regex
  * detection, but the alternative — running unbounded regex on attacker-controlled input — risks
@@ -22,7 +30,7 @@ final readonly class RegexEvaluator implements OperatorEvaluatorInterface
 
     public function __construct(string $pattern)
     {
-        $this->delimitedPattern = self::ensureRegexDelimiters($pattern);
+        $this->delimitedPattern = self::wrapInTildeDelimiters($pattern);
     }
 
     /** @param list<string> $values */
@@ -42,22 +50,13 @@ final readonly class RegexEvaluator implements OperatorEvaluatorInterface
     }
 
     /**
-     * Ensure the pattern has proper PCRE delimiters.
-     * If pattern starts with a valid delimiter char and has a closing one, keep it.
-     * Otherwise, wrap in '~' and escape unescaped '~'.
+     * Wrap a bare PCRE pattern in '~...~u' delimiters, escaping any unescaped '~'.
+     *
+     * This is the only correct transformation for ModSecurity @rx arguments, which
+     * are bare PCRE content by spec.
      */
-    public static function ensureRegexDelimiters(string $pattern): string
+    public static function wrapInTildeDelimiters(string $pattern): string
     {
-        // Valid delimiters: non-alphanumeric, non-whitespace, non-backslash,
-        // and NOT bracket-style openers (these require matching closers: (), {}, [], <>).
-        if ($pattern !== '' && preg_match('/^(.)(.*)\1[imsxuADSUXJ]*$/', $pattern) === 1) {
-            $firstChar = $pattern[0];
-            if (!ctype_alnum($firstChar) && !ctype_space($firstChar)
-                && $firstChar !== '\\' && !in_array($firstChar, ['(', '{', '[', '<'], true)) {
-                return $pattern;
-            }
-        }
-
         // Escape unescaped tildes. A tilde is unescaped when preceded by an
         // even number (including zero) of backslashes. A simple negative lookbehind
         // fails for \\~ (even backslashes), so we use a callback that counts them.
@@ -65,7 +64,6 @@ final readonly class RegexEvaluator implements OperatorEvaluatorInterface
             '/(\\\\*)(~)/',
             static function (array $matches): string {
                 $backslashes = $matches[1];
-                // Odd number of backslashes means the tilde is already escaped
                 if (strlen($backslashes) % 2 !== 0) {
                     return $matches[0];
                 }
@@ -74,7 +72,8 @@ final readonly class RegexEvaluator implements OperatorEvaluatorInterface
             },
             $pattern,
         );
-        // Use Unicode mode by default to better mirror CRS behavior for text processing
+
+        // Unicode mode mirrors CRS behavior for text processing.
         return '~' . $escaped . '~u';
     }
 }

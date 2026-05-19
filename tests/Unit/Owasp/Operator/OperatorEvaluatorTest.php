@@ -65,21 +65,23 @@ final class OperatorEvaluatorTest extends TestCase
         $this->assertTrue($evaluator->evaluate([$oversized, $normal]));
     }
 
-    public function testRegexEvaluatorPreservesDelimitedPattern(): void
+    public function testRegexEvaluatorWrapsBarePattern(): void
     {
-        $delimited = RegexEvaluator::ensureRegexDelimiters('/^test$/i');
-        $this->assertSame('/^test$/i', $delimited);
+        $delimited = RegexEvaluator::wrapInTildeDelimiters('^admin');
+        $this->assertSame('~^admin~u', $delimited);
     }
 
-    public function testRegexEvaluatorWrapsUndelimitedPattern(): void
+    public function testRegexEvaluatorWrapsPatternWithLiteralSlashes(): void
     {
-        $delimited = RegexEvaluator::ensureRegexDelimiters('^admin');
-        $this->assertSame('~^admin~u', $delimited);
+        // CRS @rx patterns are bare PCRE content, so leading/trailing slashes are literal,
+        // not delimiters. The wrapper must keep them inside the body.
+        $delimited = RegexEvaluator::wrapInTildeDelimiters('/^test$/i');
+        $this->assertSame('~/^test$/i~u', $delimited);
     }
 
     public function testRegexEvaluatorEscapesTildeInPattern(): void
     {
-        $delimited = RegexEvaluator::ensureRegexDelimiters('foo~bar');
+        $delimited = RegexEvaluator::wrapInTildeDelimiters('foo~bar');
         $this->assertSame('~foo\~bar~u', $delimited);
     }
 
@@ -87,7 +89,7 @@ final class OperatorEvaluatorTest extends TestCase
     {
         // Input: foo + 1 backslash + tilde (odd=1: tilde is escaped)
         $input = "foo\x5C~bar";
-        $delimited = RegexEvaluator::ensureRegexDelimiters($input);
+        $delimited = RegexEvaluator::wrapInTildeDelimiters($input);
         // Output: ~foo + 1 backslash + tilde + bar~u (unchanged)
         $this->assertSame("~foo\x5C~bar~u", $delimited);
     }
@@ -96,7 +98,7 @@ final class OperatorEvaluatorTest extends TestCase
     {
         // Input: foo + 2 backslashes + tilde (even=2: backslashes escape each other, tilde is unescaped)
         $input = "foo\x5C\x5C~bar";
-        $delimited = RegexEvaluator::ensureRegexDelimiters($input);
+        $delimited = RegexEvaluator::wrapInTildeDelimiters($input);
         // Output: ~foo + 2 backslashes + escaped tilde (3 backslashes + tilde) + bar~u
         $this->assertSame("~foo\x5C\x5C\x5C~bar~u", $delimited);
     }
@@ -105,7 +107,7 @@ final class OperatorEvaluatorTest extends TestCase
     {
         // Input: foo + 3 backslashes + tilde (odd=3: last backslash escapes tilde)
         $input = "foo\x5C\x5C\x5C~bar";
-        $delimited = RegexEvaluator::ensureRegexDelimiters($input);
+        $delimited = RegexEvaluator::wrapInTildeDelimiters($input);
         // Output: ~foo + 3 backslashes + tilde + bar~u (unchanged)
         $this->assertSame("~foo\x5C\x5C\x5C~bar~u", $delimited);
     }
