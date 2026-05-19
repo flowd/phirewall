@@ -134,8 +134,7 @@ final readonly class Firewall
 
         $context = $this->createContext();
 
-        // Post-handler: use >= so the Nth recorded failure triggers the ban immediately.
-        $this->fail2BanEvaluator->incrementAndBanIfNeeded($fail2BanRule, $normalizedKey, $serverRequest, $context, postHandler: true);
+        $this->fail2BanEvaluator->incrementAndBanIfNeeded($fail2BanRule, $normalizedKey, $serverRequest, $context);
     }
 
     public function decide(ServerRequestInterface $serverRequest): FirewallResult

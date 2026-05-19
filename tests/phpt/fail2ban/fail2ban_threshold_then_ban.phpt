@@ -1,5 +1,5 @@
 --TEST--
-Phirewall: fail2ban counts pre-handler failures and bans IP once threshold is exceeded
+Phirewall: fail2ban counts pre-handler failures and bans IP once threshold is reached
 --FILE--
 <?php
 declare(strict_types=1);
@@ -25,20 +25,20 @@ $config->fail2ban->add(
 $middleware = phpt_middleware($config);
 $handler    = phpt_handler();
 
-// Requests 1–3: filter matches, failure counter increments to 1, 2, 3.
-// count > threshold (3) is false for all three, so each request passes through.
-for ($index = 1; $index <= 3; $index++) {
+// Requests 1–2: filter matches, failure counter increments to 1, 2.
+// count >= threshold (3) is false for both, so each request passes through.
+for ($index = 1; $index <= 2; $index++) {
     $request  = phpt_request('POST', '/login', ['REMOTE_ADDR' => '1.2.3.4'], ['X-Auth-Failed' => '1']);
     $response = $middleware->process($request, $handler);
     echo 'failure[' . $index . ']=' . $response->getStatusCode() . "\n";
 }
 
-// Request 4 (with failure header): count reaches 4, 4 > 3 → IP banned, request blocked.
+// Request 3 (with failure header): count reaches 3, 3 >= 3 → IP banned, request blocked.
 $request  = phpt_request('POST', '/login', ['REMOTE_ADDR' => '1.2.3.4'], ['X-Auth-Failed' => '1']);
 $response = $middleware->process($request, $handler);
 echo 'trigger_ban=' . $response->getStatusCode() . "\n";
 
-// Request 5 (no failure header): IP ban key is present → still blocked.
+// Request 4 (no failure header): IP ban key is present → still blocked.
 $request  = phpt_request('GET', '/', ['REMOTE_ADDR' => '1.2.3.4']);
 $response = $middleware->process($request, $handler);
 echo 'still_banned=' . $response->getStatusCode() . "\n";
@@ -46,6 +46,5 @@ echo 'still_banned=' . $response->getStatusCode() . "\n";
 --EXPECT--
 failure[1]=200
 failure[2]=200
-failure[3]=200
 trigger_ban=403
 still_banned=403

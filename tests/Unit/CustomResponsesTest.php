@@ -63,9 +63,8 @@ final class CustomResponsesTest extends TestCase
 
         $middleware = new Middleware($config, new Psr17Factory());
         $handler = $this->handler();
-        // Two failures to exceed threshold (threshold=1 means 1 allowed, 2nd triggers ban)
+        // threshold=1 (>= semantic): the first failure triggers the ban immediately.
         $request = (new ServerRequest('POST', '/login'))->withHeader('X-Login-Failed', '1');
-        $middleware->process($request, $handler);
         $middleware->process($request, $handler);
         // Next request should be banned with custom response
         $secondResponse = $middleware->process(new ServerRequest('GET', '/'), $handler);

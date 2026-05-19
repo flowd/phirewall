@@ -141,10 +141,9 @@ final class ResetHelpersTest extends TestCase
         $result = $firewall->decide($throttleRequest);
         $this->assertSame(Outcome::THROTTLED, $result->outcome);
 
-        // Trigger fail2ban ban (threshold=2 means 2 allowed, 3rd exceeds)
+        // Trigger fail2ban ban (threshold=2 → 2nd failure triggers the ban under >= semantic)
         $banRequest = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']))
             ->withHeader('X-Login-Failed', '1');
-        $firewall->decide($banRequest);
         $firewall->decide($banRequest);
         $firewall->decide($banRequest);
         $this->assertTrue($firewall->isBanned('login', '5.6.7.8'));

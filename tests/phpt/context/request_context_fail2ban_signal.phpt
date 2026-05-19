@@ -16,7 +16,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 
-// threshold: 2 with post-handler semantics uses >= so the 2nd recorded failure triggers the ban.
+// threshold: 2 with the unified >= semantic — the 2nd recorded failure triggers the ban.
 $clock = new FakeClock();
 $config = new Config(new InMemoryCache($clock));
 $config->fail2ban->add(

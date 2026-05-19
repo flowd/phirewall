@@ -83,8 +83,7 @@ final class DiagnosticsCountersTest extends TestCase
         $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
         $fail = $serverRequest->withHeader('X-Login-Failed', '1');
         $this->assertTrue($firewall->decide($fail)->isPass()); // 1st — within threshold
-        $this->assertTrue($firewall->decide($fail)->isPass()); // 2nd — reaches threshold, still allowed
-        $blockedResult = $firewall->decide($fail); // 3rd — exceeds threshold, banned
+        $blockedResult = $firewall->decide($fail); // 2nd — reaches threshold (>= 2), banned
         $this->assertTrue($blockedResult->isBlocked());
 
         $counters = $diagnosticsCounters->all();
@@ -130,8 +129,7 @@ final class DiagnosticsCountersTest extends TestCase
 
         $serverRequest = new ServerRequest('GET', '/api', [], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
         $this->assertTrue($firewall->decide($serverRequest)->isPass()); // 1st — within threshold
-        $this->assertTrue($firewall->decide($serverRequest)->isPass()); // 2nd — reaches threshold
-        $blockedResult = $firewall->decide($serverRequest); // 3rd — exceeds threshold, banned
+        $blockedResult = $firewall->decide($serverRequest); // 2nd — reaches threshold (>= 2), banned
         $this->assertTrue($blockedResult->isBlocked());
 
         $counters = $diagnosticsCounters->all();

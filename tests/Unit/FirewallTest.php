@@ -93,13 +93,10 @@ final class FirewallTest extends TestCase
 
         $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
         $failedRequest = $serverRequest->withHeader('X-Login-Failed', '1');
-        // First failure — within threshold, passes
+        // threshold=2 (>= semantic): 1st failure passes, 2nd failure triggers the ban.
         $this->assertTrue($firewall->decide($failedRequest)->isPass());
-        // Second failure — reaches threshold count but still allowed (threshold=2 means 2 allowed)
-        $this->assertTrue($firewall->decide($failedRequest)->isPass());
-        // Third failure — exceeds threshold, blocked and banned
-        $third = $firewall->decide($failedRequest);
-        $this->assertTrue($third->isBlocked());
+        $second = $firewall->decide($failedRequest);
+        $this->assertTrue($second->isBlocked());
         // Now even a normal request should be banned
         $firewallResult = $firewall->decide($serverRequest);
         $this->assertTrue($firewallResult->isBlocked());
@@ -134,6 +131,54 @@ final class FirewallTest extends TestCase
         // RateLimit headers should be set for the first request in the new window
         $this->assertArrayHasKey('X-RateLimit-Remaining', $afterReset->headers);
         $this->assertSame((string)($limit - 1), $afterReset->headers['X-RateLimit-Remaining']);
+    }
+
+    public function testFail2BanThresholdNRequestBansOnNthRequest(): void
+    {
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
+        $config->enableResponseHeaders();
+
+        $blockedResponseInvocations = 0;
+        $config->blocklistedResponse(function (
+            string $rule,
+            string $type,
+            \Psr\Http\Message\ServerRequestInterface $serverRequest,
+        ) use (&$blockedResponseInvocations): \Psr\Http\Message\ResponseInterface {
+            ++$blockedResponseInvocations;
+            return new \Nyholm\Psr7\Response(403, ['X-Banned' => $rule], 'banned');
+        });
+        $config->fail2ban(
+            'login',
+            threshold: 3,
+            period: 60,
+            ban: 600,
+            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1',
+        );
+
+        $middleware = new \Flowd\Phirewall\Middleware($config, new \Nyholm\Psr7\Factory\Psr17Factory());
+
+        $serverRequest = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']))
+            ->withHeader('X-Login-Failed', '1');
+        $handler = new class () implements \Psr\Http\Server\RequestHandlerInterface {
+            public function handle(\Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
+            {
+                return new \Nyholm\Psr7\Response(200);
+            }
+        };
+
+        // threshold=3 with the new >= semantic: the 3rd matching request is the banning one.
+        $firstResponse = $middleware->process($serverRequest, $handler);
+        $this->assertSame(200, $firstResponse->getStatusCode(), '1st failure must pass');
+
+        $secondResponse = $middleware->process($serverRequest, $handler);
+        $this->assertSame(200, $secondResponse->getStatusCode(), '2nd failure must pass');
+
+        $thirdResponse = $middleware->process($serverRequest, $handler);
+        $this->assertSame(403, $thirdResponse->getStatusCode(), '3rd failure must trigger the ban');
+        $this->assertSame('login', $thirdResponse->getHeaderLine('X-Banned'));
+        $this->assertSame(1, $blockedResponseInvocations, 'blockedResponse factory must be invoked exactly once for the banning request');
     }
 
     public function testFail2BanFailCounterExpiresBeforeThreshold(): void

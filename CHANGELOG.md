@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.4.0 - Unreleased
 
+### Changed
+
+- **BREAKING CHANGE — Ban evaluator threshold semantics unified to `>=`** — `Fail2BanEvaluator` (pre-handler path) and `Allow2BanEvaluator` previously banned only after the threshold was **exceeded**: on the **(N+1)th** matching request when `threshold = N` (they used `$count > $threshold`). They now ban as soon as the threshold is **reached**: on the **Nth** matching request (using `$count >= $threshold`), matching the post-handler fail2ban path, the diagnostics events, and classic fail2ban semantics where `maxretry = N` means "ban at the Nth attempt".
+
+  `ThrottleEvaluator` is **not** affected: throttle still uses `$count > $limit` because "N requests per period, 429 on the (N+1)th" is the standard HTTP rate-limit contract.
+
+  **Migration:** if you relied on the old behavior (e.g. `threshold: 5` to mean "ban on the 6th request"), subtract 1 from your `threshold` values to retain it.
+
+  The internal `Fail2BanEvaluator::incrementAndBanIfNeeded()` method also drops its `bool $postHandler` parameter — the two paths now share the same "ban when the threshold is reached" semantic. Callers outside `Firewall` that passed this argument must remove it.
+
 ### Fixed
 
 - **`RegexEvaluator` no longer treats literal first/last characters of `@rx` patterns as PCRE delimiters** — The previous `ensureRegexDelimiters()` heuristic checked whether a pattern's first and last characters were the same non-alphanumeric, non-bracket character and, if so, returned it unchanged on the assumption that it was already `~…~`-style delimited. ModSecurity/CRS `@rx` patterns are bare regex content by spec, so this heuristic could misfire on rules whose patterns happen to start and end with the same literal character. The clearest case is **CRS 942510** ("SQLi bypass attempt by ticks or backticks"), whose pattern is wrapped in literal backticks; under the old code those backticks were consumed as PCRE delimiters and the rule collapsed to its inner alternation, which matched almost any HTTP value. The `@rx` operator now always wraps in `~…~u` and escapes unescaped `~`. **API change:** the public static `RegexEvaluator::ensureRegexDelimiters()` has been removed; use `RegexEvaluator::wrapInTildeDelimiters()` if you need the helper directly.

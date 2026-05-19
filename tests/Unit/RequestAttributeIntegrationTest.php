@@ -126,7 +126,7 @@ final class RequestAttributeIntegrationTest extends TestCase
         $middleware->process($request, $handler);
         $middleware->process($request, $handler);
 
-        // Third request reaches threshold and triggers ban (post-handler, >= semantics)
+        // Third request reaches threshold and triggers ban (>= semantic)
         $response = $middleware->process($request, $handler);
         $this->assertSame(200, $response->getStatusCode());
 

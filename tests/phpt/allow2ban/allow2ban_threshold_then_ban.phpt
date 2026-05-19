@@ -1,5 +1,5 @@
 --TEST--
-Phirewall: allow2ban counts every request and bans IP once threshold is exceeded
+Phirewall: allow2ban counts every request and bans IP once threshold is reached
 --FILE--
 <?php
 declare(strict_types=1);
@@ -24,15 +24,15 @@ $config->allow2ban->add(
 $middleware = phpt_middleware($config);
 $handler    = phpt_handler();
 
-// Requests 1–3: hit counter increments to 1, 2, 3.
-// count > threshold (3) is false for all three, so each request passes through.
-for ($index = 1; $index <= 3; $index++) {
+// Requests 1–2: hit counter increments to 1, 2.
+// count >= threshold (3) is false for both, so each request passes through.
+for ($index = 1; $index <= 2; $index++) {
     $request  = phpt_request('GET', '/', ['REMOTE_ADDR' => '1.2.3.4']);
     $response = $middleware->process($request, $handler);
     echo 'request[' . $index . ']=' . $response->getStatusCode() . "\n";
 }
 
-// Request 4: count reaches 4, 4 > 3 → IP banned and request blocked immediately.
+// Request 3: count reaches 3, 3 >= 3 → IP banned and request blocked immediately.
 $request  = phpt_request('GET', '/', ['REMOTE_ADDR' => '1.2.3.4']);
 $response = $middleware->process($request, $handler);
 echo 'banned=' . $response->getStatusCode() . "\n";
@@ -40,5 +40,4 @@ echo 'banned=' . $response->getStatusCode() . "\n";
 --EXPECT--
 request[1]=200
 request[2]=200
-request[3]=200
 banned=403

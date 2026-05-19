@@ -13,10 +13,10 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\SimpleCache\CacheInterface;
 
 /**
- * Evaluates allow2ban rules: counts all requests per key and bans when the threshold is exceeded.
+ * Evaluates allow2ban rules: counts all requests per key and bans when the threshold is reached.
  *
  * Processes ALL rules so every counter is incremented, then returns the first block.
- * Uses > threshold so N requests are allowed and the (N+1)th triggers the ban.
+ * threshold = N: increment on each request; ban on the Nth request (>= comparison).
  * Retry-After is always included. X-Phirewall headers are conditional on responseHeadersEnabled.
  */
 final readonly class Allow2BanEvaluator implements EvaluatorInterface
@@ -59,7 +59,7 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
             $hitKey = $evaluationContext->config->cacheKeyGenerator()->allow2BanHitKey($name, $normalizedKey);
             $count = $evaluationContext->counter->increment($hitKey, $allow2BanRule->period())->count;
 
-            if ($count > $allow2BanRule->threshold()) {
+            if ($count >= $allow2BanRule->threshold()) {
                 $evaluationContext->config->banManager()->ban($name, $normalizedKey, $allow2BanRule->banSeconds(), BanType::Allow2Ban);
                 $cache->delete($hitKey);
 
