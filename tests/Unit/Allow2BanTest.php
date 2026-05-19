@@ -32,6 +32,7 @@ final class Allow2BanTest extends TestCase
         $firewall = new Firewall($config);
         $serverRequest = $this->makeRequest('10.0.0.1');
 
+        // threshold=5: requests 1–4 pass; the 5th is the banning request.
         for ($i = 0; $i < 4; ++$i) {
             $this->assertTrue($firewall->decide($serverRequest)->isPass(), sprintf('Request %d should pass', $i));
         }
@@ -48,11 +49,12 @@ final class Allow2BanTest extends TestCase
         $firewall = new Firewall($config);
         $serverRequest = $this->makeRequest('10.0.0.2');
 
-        for ($i = 0; $i < 5; ++$i) {
+        // threshold=5: first 4 pass, the 5th triggers the ban.
+        for ($i = 0; $i < 4; ++$i) {
             $this->assertTrue($firewall->decide($serverRequest)->isPass(), "Request {$i} should pass (within threshold)");
         }
 
-        $firewallResult = $firewall->decide($serverRequest); // 6th -- exceeds threshold
+        $firewallResult = $firewall->decide($serverRequest); // 5th — reaches threshold, banned
         $this->assertTrue($firewallResult->isBlocked());
         $this->assertSame(Outcome::BLOCKED, $firewallResult->outcome);
         $this->assertSame('allow2ban', $firewallResult->headers['X-Phirewall'] ?? '');
@@ -69,8 +71,8 @@ final class Allow2BanTest extends TestCase
         $firewall = new Firewall($config);
         $serverRequest = $this->makeRequest('10.0.0.3');
 
-        // Exhaust threshold (3 allowed) + one more to trigger ban
-        for ($i = 0; $i < 4; ++$i) {
+        // threshold=3: first 2 pass, the 3rd triggers the ban.
+        for ($i = 0; $i < 3; ++$i) {
             $firewall->decide($serverRequest);
         }
 
@@ -90,8 +92,8 @@ final class Allow2BanTest extends TestCase
 
         $firewall = new Firewall($config);
 
-        // Exhaust ip1 (3 allowed + 1 to trigger ban)
-        for ($i = 0; $i < 4; ++$i) {
+        // Exhaust ip1: threshold=3 means the 3rd request triggers the ban.
+        for ($i = 0; $i < 3; ++$i) {
             $firewall->decide($this->makeRequest('192.168.1.1'));
         }
 
@@ -120,8 +122,7 @@ final class Allow2BanTest extends TestCase
         $serverRequest = $this->makeRequest('5.6.7.8');
 
         $firewall->decide($serverRequest); // 1st — within threshold
-        $firewall->decide($serverRequest); // 2nd — reaches threshold count, still allowed
-        $firewall->decide($serverRequest); // 3rd — exceeds threshold, triggers ban
+        $firewall->decide($serverRequest); // 2nd — reaches threshold, triggers ban
 
         $banEvents = array_filter($dispatcher->events, static fn(object $e): bool => $e instanceof Allow2BanBanned);
         $this->assertCount(1, $banEvents);
@@ -133,7 +134,7 @@ final class Allow2BanTest extends TestCase
         $this->assertSame(2, $event->threshold);
         $this->assertSame(60, $event->period);
         $this->assertSame(900, $event->banSeconds);
-        $this->assertSame(3, $event->count);
+        $this->assertSame(2, $event->count);
     }
 
     public function testNullKeySkipsRule(): void
@@ -170,8 +171,7 @@ final class Allow2BanTest extends TestCase
         $serverRequest = $this->makeRequest('10.0.0.5');
 
         $this->assertTrue($firewall->decide($serverRequest)->isPass()); // 1st — within threshold
-        $this->assertTrue($firewall->decide($serverRequest)->isPass()); // 2nd — reaches threshold, still allowed
-        $firewallResult = $firewall->decide($serverRequest); // 3rd — exceeds threshold
+        $firewallResult = $firewall->decide($serverRequest); // 2nd — reaches threshold, banned
         $this->assertTrue($firewallResult->isBlocked());
         $this->assertSame('allow2ban', $firewallResult->headers['X-Phirewall'] ?? '');
         $this->assertSame('direct-rule', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
@@ -190,9 +190,7 @@ final class Allow2BanTest extends TestCase
         $serverRequest = $this->makeRequest('10.0.0.6');
 
         $firewall->decide($serverRequest); // 1st
-        $firewall->decide($serverRequest);
-        // 2nd — reaches strict threshold, still allowed
-        $firewallResult = $firewall->decide($serverRequest); // 3rd — exceeds strict threshold
+        $firewallResult = $firewall->decide($serverRequest); // 2nd — reaches strict threshold, banned
         $this->assertTrue($firewallResult->isBlocked());
         $this->assertSame('strict', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
     }
@@ -316,7 +314,7 @@ final class Allow2BanTest extends TestCase
         $serverRequest = (new ServerRequest('GET', '/'))->withHeader('X-Api-Key', 'alice@domain.com');
         $requestB = (new ServerRequest('GET', '/'))->withHeader('X-Api-Key', 'alice-domain-com');
 
-        // Exhaust threshold for key A
+        // Trigger ban for key A (threshold=3 → 3rd request triggers the ban).
         for ($i = 0; $i < 3; ++$i) {
             $firewall->decide($serverRequest);
         }
@@ -341,14 +339,14 @@ final class Allow2BanTest extends TestCase
         $firewall = new Firewall($config);
         $serverRequest = $this->makeRequest('10.0.0.99');
 
-        // 1) First 3 requests pass (threshold=3 allows 3 before banning)
-        for ($i = 0; $i < 3; ++$i) {
+        // 1) First 2 requests pass (threshold=3 → 3rd request is the banning one)
+        for ($i = 0; $i < 2; ++$i) {
             $this->assertTrue($firewall->decide($serverRequest)->isPass(), sprintf('Request %d should pass', $i + 1));
         }
 
-        // 2) 4th request triggers the ban (count exceeds threshold)
+        // 2) 3rd request reaches threshold and triggers the ban
         $result = $firewall->decide($serverRequest);
-        $this->assertTrue($result->isBlocked(), '4th request should trigger ban');
+        $this->assertTrue($result->isBlocked(), '3rd request should trigger ban');
 
         // 3) Simulate ban expiring by advancing the clock past banSeconds
         $fakeClock->advance(6.0);
@@ -360,13 +358,45 @@ final class Allow2BanTest extends TestCase
         $result = $firewall->decide($serverRequest);
         $this->assertTrue($result->isPass(), 'Second request after ban expires should pass');
 
-        // 5) Verify it takes another 4 requests to get banned again
-        //    We already sent 2 above, so the 3rd should still pass
+        // 5) Verify it takes another 3 requests to get banned again
+        //    We already sent 2 above, so the 3rd should trigger the new ban
         $result = $firewall->decide($serverRequest);
-        $this->assertTrue($result->isPass(), '3rd request in new window should still pass');
+        $this->assertTrue($result->isBlocked(), '3rd request in new window should trigger ban again');
+    }
 
-        // 4th request in new window triggers the ban again
-        $result = $firewall->decide($serverRequest);
-        $this->assertTrue($result->isBlocked(), '4th request in new window should trigger ban again');
+    public function testThresholdNRequestBansOnNthRequest(): void
+    {
+        $blockedResponseInvocations = 0;
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
+        $config->blocklistedResponse(function (
+            string $rule,
+            string $type,
+            \Psr\Http\Message\ServerRequestInterface $serverRequest,
+        ) use (&$blockedResponseInvocations): \Psr\Http\Message\ResponseInterface {
+            ++$blockedResponseInvocations;
+            return new \Nyholm\Psr7\Response(403, [], 'banned');
+        });
+        $config->allow2ban->add('regress', threshold: 3, period: 60, banSeconds: 3600, key: fn($req): string => $req->getServerParams()['REMOTE_ADDR']);
+
+        $middleware = new \Flowd\Phirewall\Middleware($config, new \Nyholm\Psr7\Factory\Psr17Factory());
+
+        $request = $this->makeRequest('10.0.0.50');
+        $handler = new class () implements \Psr\Http\Server\RequestHandlerInterface {
+            public function handle(\Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
+            {
+                return new \Nyholm\Psr7\Response(200);
+            }
+        };
+
+        $firstResponse = $middleware->process($request, $handler);
+        $this->assertSame(200, $firstResponse->getStatusCode(), '1st request must pass');
+
+        $secondResponse = $middleware->process($request, $handler);
+        $this->assertSame(200, $secondResponse->getStatusCode(), '2nd request must pass');
+
+        $thirdResponse = $middleware->process($request, $handler);
+        $this->assertSame(403, $thirdResponse->getStatusCode(), '3rd request must trigger the ban (new >= semantic)');
+        $this->assertSame(1, $blockedResponseInvocations, 'blockedResponse factory must be invoked once for the banning request');
     }
 }

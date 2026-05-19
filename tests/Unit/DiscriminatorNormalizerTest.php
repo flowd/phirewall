@@ -125,11 +125,8 @@ final class DiscriminatorNormalizerTest extends TestCase
         // First failure with "USER_A" — count = 1, passes
         $this->assertSame(Outcome::PASS, $firewall->decide($serverRequest)->outcome);
 
-        // Second failure with "user_a" — normalized to same key, count = 2, still within threshold
-        $this->assertSame(Outcome::PASS, $firewall->decide($failedLowerCase)->outcome);
-
-        // Third failure — exceeds threshold, triggers ban
-        $firewallResult = $firewall->decide($serverRequest);
+        // Second failure with "user_a" — normalized to same key, count = 2, reaches threshold and triggers ban (>= semantic)
+        $firewallResult = $firewall->decide($failedLowerCase);
         $this->assertSame(Outcome::BLOCKED, $firewallResult->outcome);
         $this->assertSame('fail2ban', $firewallResult->headers['X-Phirewall'] ?? '');
         $this->assertSame('login-ban', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
@@ -262,10 +259,7 @@ final class DiscriminatorNormalizerTest extends TestCase
         // First failure — count = 1, passes
         $this->assertSame(Outcome::PASS, $firewall->decide($serverRequest)->outcome);
 
-        // Second failure — count = 2, still within threshold (threshold=2 allows 2)
-        $this->assertSame(Outcome::PASS, $firewall->decide($serverRequest)->outcome);
-
-        // Third failure — count = 3, exceeds threshold, triggers ban
+        // Second failure — count = 2 reaches threshold (>= 2), triggers the ban
         $this->assertSame(Outcome::BLOCKED, $firewall->decide($serverRequest)->outcome);
 
         // Now a clean request from lowercase variant must also be blocked
@@ -306,10 +300,7 @@ final class DiscriminatorNormalizerTest extends TestCase
         // First hit — count = 1, passes
         $this->assertSame(Outcome::PASS, $firewall->decide($serverRequest)->outcome);
 
-        // Second hit — count = 2, still within threshold (threshold=2 allows 2)
-        $this->assertSame(Outcome::PASS, $firewall->decide($serverRequest)->outcome);
-
-        // Third hit — count = 3, exceeds threshold, triggers ban
+        // Second hit — count = 2 reaches threshold (>= 2), triggers the ban
         $this->assertSame(Outcome::BLOCKED, $firewall->decide($serverRequest)->outcome);
 
         // Lowercase variant must also be blocked

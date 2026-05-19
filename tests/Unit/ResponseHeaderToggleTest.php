@@ -99,8 +99,7 @@ final class ResponseHeaderToggleTest extends TestCase
 
         $firewall = new Firewall($config);
         $request = new ServerRequest('GET', '/');
-        $firewall->decide($request); // 1st — within threshold (threshold=1 allows 1)
-        $firewallResult = $firewall->decide($request); // 2nd — exceeds threshold, banned
+        $firewallResult = $firewall->decide($request); // 1st — reaches threshold=1, banned (>= semantic)
 
         $this->assertTrue($firewallResult->isBlocked());
         $this->assertArrayHasKey('Retry-After', $firewallResult->headers);

@@ -12,11 +12,11 @@ use Flowd\Phirewall\Http\FirewallResult;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * Evaluates fail2ban rules: blocks already-banned keys and bans keys that exceed the threshold.
+ * Evaluates fail2ban rules: blocks already-banned keys and bans keys that reach the threshold.
  *
- * Pre-handler (evaluate): uses > so threshold=3 allows 3 matches, bans on the 4th.
- * Post-handler (incrementAndBanIfNeeded with postHandler: true): uses >= so the Nth
- * recorded failure triggers the ban immediately.
+ * threshold = N: increment the failure counter on each match; ban on the Nth match.
+ * Both pre-handler matches (filter()->match()) and post-handler recorded failures share
+ * this single semantic via incrementAndBanIfNeeded().
  */
 final readonly class Fail2BanEvaluator implements EvaluatorInterface
 {
@@ -40,10 +40,10 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
                 return FirewallResult::blocked($name, 'fail2ban', $evaluationContext->responseHeaders('fail2ban', $name));
             }
 
-            // Pre-handler: use > so threshold=3 allows 3 matches, bans on the 4th.
+            // threshold=N: ban on the Nth matching request (>= comparison).
             if (
                 $fail2BanRule->filter()->match($serverRequest)->isMatch()
-                && $this->incrementAndBanIfNeeded($fail2BanRule, $normalizedKey, $serverRequest, $evaluationContext, postHandler: false)
+                && $this->incrementAndBanIfNeeded($fail2BanRule, $normalizedKey, $serverRequest, $evaluationContext)
             ) {
                 $evaluationContext->decisionPath = DecisionPath::Fail2BanBanned;
                 $evaluationContext->decisionRule = $name;
@@ -56,11 +56,7 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
     }
 
     /**
-     * Increment the fail counter and ban if the threshold is reached or exceeded.
-     *
-     * @param bool $postHandler When true (post-handler), uses >= so the Nth failure
-     *                          triggers the ban immediately. When false (pre-handler),
-     *                          uses > so N matches are allowed and the (N+1)th is banned.
+     * Increment the fail counter and ban if the threshold has been reached.
      *
      * @return bool True if the key was banned by this call.
      */
@@ -69,17 +65,12 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
         string $normalizedKey,
         ServerRequestInterface $serverRequest,
         EvaluationContext $evaluationContext,
-        bool $postHandler,
     ): bool {
         $ruleName = $fail2BanRule->name();
         $failKey = $evaluationContext->config->cacheKeyGenerator()->fail2BanFailKey($ruleName, $normalizedKey);
         $count = $evaluationContext->counter->increment($failKey, $fail2BanRule->period())->count;
 
-        $exceeded = $postHandler
-            ? $count >= $fail2BanRule->threshold()
-            : $count > $fail2BanRule->threshold();
-
-        if (!$exceeded) {
+        if ($count < $fail2BanRule->threshold()) {
             return false;
         }
 

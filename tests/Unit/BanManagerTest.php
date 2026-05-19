@@ -82,23 +82,25 @@ final class BanManagerTest extends TestCase
     }
 
     /**
-     * Trigger an allow2ban ban by sending enough requests to exceed the threshold.
+     * Trigger an allow2ban ban by sending exactly $threshold matching requests
+     * (the Nth request triggers the ban under the new >= semantic).
      */
     private function triggerAllow2Ban(Firewall $firewall, string $ip, int $threshold): void
     {
         $serverRequest = $this->makeRequest($ip);
-        for ($i = 0; $i <= $threshold; ++$i) {
+        for ($i = 0; $i < $threshold; ++$i) {
             $firewall->decide($serverRequest);
         }
     }
 
     /**
-     * Trigger a fail2ban ban by sending enough failed requests to exceed the threshold.
+     * Trigger a fail2ban ban by sending exactly $threshold failed requests
+     * (the Nth failure triggers the ban under the new >= semantic).
      */
     private function triggerFail2Ban(Firewall $firewall, string $ip, int $threshold): void
     {
         $serverRequest = $this->makeFailedLoginRequest($ip);
-        for ($i = 0; $i <= $threshold; ++$i) {
+        for ($i = 0; $i < $threshold; ++$i) {
             $firewall->decide($serverRequest);
         }
     }
@@ -329,8 +331,8 @@ final class BanManagerTest extends TestCase
         // Trigger ban on 'api-rate' (allow2ban)
         $this->triggerAllow2Ban($firewall, '10.0.0.1', 3);
 
-        // Trigger ban on 'page-rate' (allow2ban, threshold=5 allows 5, 6th triggers ban)
-        for ($i = 0; $i < 6; ++$i) {
+        // Trigger ban on 'page-rate' (allow2ban, threshold=5 → 5th request triggers the ban)
+        for ($i = 0; $i < 5; ++$i) {
             $firewall->decide($this->makeRequest('10.0.0.2'));
         }
 
