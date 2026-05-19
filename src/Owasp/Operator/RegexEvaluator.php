@@ -73,6 +73,16 @@ final readonly class RegexEvaluator implements OperatorEvaluatorInterface
             $pattern,
         );
 
+        // preg_replace_callback() returns null only on a genuine PCRE engine error
+        // (e.g., invalid UTF-8 in $pattern). Surface that loudly rather than letting
+        // a null leak into the cached delimited pattern.
+        if ($escaped === null) {
+            throw new \RuntimeException(sprintf(
+                'Failed to escape tildes in regex pattern: %s',
+                preg_last_error_msg(),
+            ));
+        }
+
         // Unicode mode mirrors CRS behavior for text processing.
         return '~' . $escaped . '~u';
     }
