@@ -5,6 +5,12 @@ All notable changes to Phirewall are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.0 - Unreleased
+
+### Fixed
+
+- **`RegexEvaluator` no longer treats literal first/last characters of `@rx` patterns as PCRE delimiters** — The previous `ensureRegexDelimiters()` heuristic checked whether a pattern's first and last characters were the same non-alphanumeric, non-bracket character and, if so, returned it unchanged on the assumption that it was already `~…~`-style delimited. ModSecurity/CRS `@rx` patterns are bare regex content by spec, so this heuristic could misfire on rules whose patterns happen to start and end with the same literal character. The clearest case is **CRS 942510** ("SQLi bypass attempt by ticks or backticks"), whose pattern is wrapped in literal backticks; under the old code those backticks were consumed as PCRE delimiters and the rule collapsed to its inner alternation, which matched almost any HTTP value. The `@rx` operator now always wraps in `~…~u` and escapes unescaped `~`. **API change:** the public static `RegexEvaluator::ensureRegexDelimiters()` has been removed; use `RegexEvaluator::wrapInTildeDelimiters()` if you need the helper directly.
+
 ## 0.3.0 - 2026-04-08
 
 ### Added
