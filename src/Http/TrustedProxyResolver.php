@@ -143,8 +143,13 @@ final readonly class TrustedProxyResolver
      */
     private function extractFromXForwardedFor(ServerRequestInterface $serverRequest): array
     {
-        $header = $serverRequest->getHeaderLine('X-Forwarded-For');
-        if ($header === '') {
+        // Read only the last received `X-Forwarded-For` header instance rather
+        // than flattening every instance with getHeaderLine(). PSR-7 stacks
+        // preserve receive order, so the last instance is the one the
+        // closest-to-us (trusted) proxy appended; an attacker who prepends a
+        // duplicate header line lands in an earlier instance and is ignored.
+        $header = $this->lastNonEmptyHeaderValue($serverRequest->getHeader('X-Forwarded-For'));
+        if ($header === null) {
             return [];
         }
 
@@ -161,8 +166,11 @@ final readonly class TrustedProxyResolver
      */
     private function extractFromForwarded(ServerRequestInterface $serverRequest): array
     {
-        $header = $serverRequest->getHeaderLine('Forwarded');
-        if ($header === '') {
+        // As with X-Forwarded-For, consult only the last received `Forwarded`
+        // header instance so a prepended duplicate header line cannot inject a
+        // spoofed `for=` value ahead of the proxy-appended chain.
+        $header = $this->lastNonEmptyHeaderValue($serverRequest->getHeader('Forwarded'));
+        if ($header === null) {
             return [];
         }
 
@@ -196,6 +204,28 @@ final readonly class TrustedProxyResolver
             array_map('trim', explode(',', $headerValue)),
             static fn(string $part): bool => $part !== '',
         ));
+    }
+
+    /**
+     * Return the last non-empty value from a PSR-7 getHeader() array, or null
+     * if every value is empty / the array is empty. Used so a duplicate header
+     * instance appended by the closest-to-us proxy is preferred over earlier
+     * instances, which may have been forwarded verbatim from the inbound
+     * request and are therefore attacker-controlled.
+     *
+     * @param array<string> $values
+     */
+    private function lastNonEmptyHeaderValue(array $values): ?string
+    {
+        $list = array_values($values);
+        for ($index = count($list) - 1; $index >= 0; --$index) {
+            $value = trim($list[$index]);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     private function isTrusted(string $ip): bool
