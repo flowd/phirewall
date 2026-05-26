@@ -48,10 +48,19 @@ final readonly class TrustedProxyResolver
     /** @var list<string> */
     private array $normalizedAllowedHeaders;
 
-    /** @var list<string> */
-    private array $normalizedTrustedProxies;
-
     private int $normalizedMaxChainEntries;
+
+    /**
+     * Set of canonical inet_pton-binary forms for the bare-IP entries of
+     * $trustedProxies. Keying by binary handles IPv6 alt-forms (compressed,
+     * expanded, mixed case) uniformly via inet_pton normalisation.
+     *
+     * @var array<string, true>
+     */
+    private array $trustedProxyBinaries;
+
+    /** @var list<string> CIDR entries of $trustedProxies, kept as strings for CidrMatcher. */
+    private array $trustedProxyCidrs;
 
     /**
      * @param list<string> $trustedProxies List of trusted proxies as IP addresses or CIDR ranges (IPv4/IPv6)
@@ -68,11 +77,29 @@ final readonly class TrustedProxyResolver
         private int $maxChainEntries = 50,
     ) {
         $this->normalizedAllowedHeaders = array_values(array_map('strtolower', $this->allowedHeaders));
-        $this->normalizedTrustedProxies = array_values(array_filter(
-            array_map('trim', $this->trustedProxies),
-            static fn(string $proxy): bool => $proxy !== '',
-        ));
         $this->normalizedMaxChainEntries = max(1, $this->maxChainEntries);
+
+        $bareBinaries = [];
+        $cidrs = [];
+        foreach ($this->trustedProxies as $trustedProxy) {
+            $trustedProxy = trim($trustedProxy);
+            if ($trustedProxy === '') {
+                continue;
+            }
+
+            if (str_contains($trustedProxy, '/')) {
+                $cidrs[] = $trustedProxy;
+                continue;
+            }
+
+            $binary = @inet_pton($trustedProxy);
+            if ($binary !== false) {
+                $bareBinaries[CidrMatcher::canonicalizeBinary($binary)] = true;
+            }
+        }
+
+        $this->trustedProxyBinaries = $bareBinaries;
+        $this->trustedProxyCidrs = $cidrs;
     }
 
     public function resolve(ServerRequestInterface $serverRequest): ?string
@@ -230,16 +257,21 @@ final readonly class TrustedProxyResolver
 
     private function isTrusted(string $ip): bool
     {
-        foreach ($this->normalizedTrustedProxies as $normalizedTrustedProxy) {
-            if (str_contains($normalizedTrustedProxy, '/')) {
-                if (CidrMatcher::containsIp($ip, $normalizedTrustedProxy)) {
-                    return true;
-                }
+        $binary = @inet_pton($ip);
+        if ($binary === false) {
+            return false;
+        }
 
-                continue;
-            }
+        // Trusted-proxy binaries are stored canonicalised (IPv4-mapped IPv6
+        // collapsed to its embedded IPv4 by CidrMatcher::canonicalizeBinary), so
+        // one canonical lookup matches a rule written as IPv4 against an
+        // IPv4-mapped IPv6 peer presentation and vice-versa.
+        if (isset($this->trustedProxyBinaries[CidrMatcher::canonicalizeBinary($binary)])) {
+            return true;
+        }
 
-            if ($ip === $normalizedTrustedProxy) {
+        foreach ($this->trustedProxyCidrs as $trustedProxyCidr) {
+            if (CidrMatcher::containsIp($ip, $trustedProxyCidr)) {
                 return true;
             }
         }
@@ -272,21 +304,21 @@ final readonly class TrustedProxyResolver
             return null;
         }
 
-        // Canonicalise IPv4-mapped IPv6 ("::ffff:1.2.3.4", "::ffff:c000:0201")
-        // to the bare IPv4 form so the same client doesn't end up in two
-        // throttle / fail2ban / allow2ban buckets via dual representation.
-        $packed = inet_pton($ip);
-        if (
-            $packed !== false
-            && strlen($packed) === 16
-            && str_starts_with($packed, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff")
-        ) {
-            $ipv4 = inet_ntop(substr($packed, 12));
-            if ($ipv4 !== false) {
-                return $ipv4;
-            }
+        $binary = inet_pton($ip);
+        if ($binary === false) {
+            // filter_var() already accepted $ip as a valid IP; on the rare
+            // platform where inet_pton still cannot parse it, fall back to the
+            // validated text rather than dropping a usable address.
+            return $ip;
         }
 
-        return $ip;
+        // Collapse IPv4-mapped IPv6 ("::ffff:1.2.3.4", "::ffff:c000:0201") to
+        // the embedded IPv4 form so downstream throttle / fail2ban / allow2ban
+        // keys and event payloads see one representation per host. inet_ntop
+        // then yields the canonical compressed form for genuine IPv6 addresses,
+        // which keeps alt-forms (`2001:0db8::1` vs `2001:db8::1`, mixed case)
+        // from fragmenting per-IP counters.
+        $canonical = inet_ntop(CidrMatcher::canonicalizeBinary($binary));
+        return $canonical === false ? null : $canonical;
     }
 }

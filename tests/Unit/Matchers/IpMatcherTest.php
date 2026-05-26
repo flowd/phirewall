@@ -43,6 +43,46 @@ final class IpMatcherTest extends TestCase
         $this->assertTrue($ipMatcher->match($serverRequest)->isMatch());
     }
 
+    public function testIpv4RuleMatchesIpv4MappedIpv6Peer(): void
+    {
+        // Dual-stack hosts present an IPv4 client as ::ffff:1.2.3.4 when the
+        // PHP-FPM pool listens on an AF_INET6 socket. A rule written in IPv4
+        // notation should match both presentations.
+        $ipMatcher = new IpMatcher(['1.2.3.4']);
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '::ffff:1.2.3.4']);
+
+        $matchResult = $ipMatcher->match($serverRequest);
+        $this->assertTrue($matchResult->isMatch());
+        $this->assertSame('::ffff:1.2.3.4', $matchResult->metadata()['ip']);
+    }
+
+    public function testIpv4MappedRuleEntryMatchesPlainIpv4Peer(): void
+    {
+        // The reverse of testIpv4RuleMatchesIpv4MappedIpv6Peer: a rule written
+        // in IPv4-mapped IPv6 notation must match a plain-IPv4 peer. The stored
+        // key is canonicalized so both presentations collapse to the same key.
+        $ipMatcher = new IpMatcher(['::ffff:1.2.3.4']);
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+
+        $this->assertTrue($ipMatcher->match($serverRequest)->isMatch());
+    }
+
+    public function testIpv4MappedRuleEntryMatchesIpv4MappedPeer(): void
+    {
+        $ipMatcher = new IpMatcher(['::ffff:1.2.3.4']);
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '::ffff:1.2.3.4']);
+
+        $this->assertTrue($ipMatcher->match($serverRequest)->isMatch());
+    }
+
+    public function testIpv4CidrMatchesIpv4MappedIpv6Peer(): void
+    {
+        $ipMatcher = new IpMatcher(['10.0.0.0/24']);
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '::ffff:10.0.0.50']);
+
+        $this->assertTrue($ipMatcher->match($serverRequest)->isMatch());
+    }
+
     // ── CIDR matching ───────────────────────────────────────────────────
 
     public function testCidr24Match(): void

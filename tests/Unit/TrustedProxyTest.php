@@ -149,6 +149,44 @@ final class TrustedProxyTest extends TestCase
         $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
     }
 
+    public function testTrustedProxyMatchesExpandedIpv6FormInRemoteAddr(): void
+    {
+        // Operator wrote the compressed IPv6 form in trustedProxies, but the
+        // server peer arrives in the expanded form. inet_pton canonicalises
+        // both to the same 16-byte binary, so the trust check should match.
+        $trustedProxyResolver = new TrustedProxyResolver(['2001:db8::1']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '2001:0db8:0000:0000:0000:0000:0000:0001']);
+        $request = $request->withHeader('X-Forwarded-For', '203.0.113.7, 2001:0db8::1');
+
+        $this->assertTrue($firewall->decide($request)->isPass());
+        $firewallResult = $firewall->decide($request);
+        $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome, 'Expanded-form proxy must be recognised as trusted, otherwise the throttle would key on the proxy address');
+    }
+
+    public function testTrustedProxyMatchesIpv4MappedIpv6PeerAgainstIpv4Rule(): void
+    {
+        // Operator wrote IPv4 in trustedProxies; PHP-FPM on a dual-stack listener
+        // presents the same host as ::ffff:10.0.0.1. The trust check must
+        // recognise both forms as the same host.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.1']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '::ffff:10.0.0.1']);
+        $request = $request->withHeader('X-Forwarded-For', '203.0.113.7, ::ffff:10.0.0.1');
+
+        $this->assertTrue($firewall->decide($request)->isPass());
+        $firewallResult = $firewall->decide($request);
+        $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
+    }
+
     public function testForwardedHeaderWithBracketedIpv6AndPortIsResolvedAsClientIp(): void
     {
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);

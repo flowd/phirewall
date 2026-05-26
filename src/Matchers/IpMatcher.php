@@ -47,7 +47,10 @@ final class IpMatcher implements RequestMatcherInterface
             } else {
                 $binary = @inet_pton($ipOrCidr);
                 if ($binary !== false) {
-                    $this->exactIps[$binary] = true;
+                    // Canonicalize the stored key the same way lookups are
+                    // canonicalized, so a rule written in IPv4-mapped IPv6 form
+                    // (`::ffff:x.x.x.x`) still matches a plain-IPv4 peer.
+                    $this->exactIps[CidrMatcher::canonicalizeBinary($binary)] = true;
                 }
             }
         }
@@ -64,6 +67,12 @@ final class IpMatcher implements RequestMatcherInterface
         if ($ipBinary === false) {
             return MatchResult::noMatch();
         }
+
+        // Dual-stack hosts often present IPv4 clients via the IPv4-mapped IPv6
+        // form (`::ffff:x.x.x.x`). Collapse to the embedded 4-byte IPv4 binary
+        // before lookup so rules written in IPv4 notation match either
+        // presentation.
+        $ipBinary = CidrMatcher::canonicalizeBinary($ipBinary);
 
         if (isset($this->exactIps[$ipBinary])) {
             return MatchResult::matched('ip_match', ['ip' => $ip]);

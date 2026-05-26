@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Tests\Config;
 
 use Flowd\Phirewall\Config\FileIpBlocklistMatcher;
 use Nyholm\Psr7\ServerRequest;
+use org\bovigo\vfs\vfsStream;
 use PHPUnit\Framework\TestCase;
 
 final class FileIpBlocklistMatcherTest extends TestCase
@@ -93,5 +94,25 @@ final class FileIpBlocklistMatcherTest extends TestCase
                 @unlink($path);
             }
         }
+    }
+
+    public function testIpv4MappedIpv6PeerMatchesIpv4EntryAndCidr(): void
+    {
+        $root = vfsStream::setup('blocklist');
+        vfsStream::newFile('blocklist.txt')->at($root)->setContent("1.2.3.4\n10.0.0.0/24\n");
+        $file = $root->getChild('blocklist.txt')->url();
+
+        $fileIpBlocklistMatcher = new FileIpBlocklistMatcher($file, null, 0);
+
+        // A dual-stack host presents an IPv4 client as ::ffff:x.x.x.x; it must
+        // still match IPv4 entries written in plain notation.
+        $exactRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '::ffff:1.2.3.4']);
+        $this->assertTrue($fileIpBlocklistMatcher->match($exactRequest)->isMatch(), 'Mapped peer should match IPv4 exact entry');
+
+        $cidrRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '::ffff:10.0.0.50']);
+        $this->assertTrue($fileIpBlocklistMatcher->match($cidrRequest)->isMatch(), 'Mapped peer should match IPv4 CIDR entry');
+
+        $miss = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '::ffff:8.8.8.8']);
+        $this->assertFalse($fileIpBlocklistMatcher->match($miss)->isMatch());
     }
 }
