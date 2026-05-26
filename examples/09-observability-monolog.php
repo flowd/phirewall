@@ -64,9 +64,7 @@ $dispatcher = new class ($logger) implements EventDispatcherInterface {
     public function dispatch(object $event): object
     {
         $eventType = (new \ReflectionClass($event))->getShortName();
-        $context = method_exists($event, '__debugInfo')
-            ? $event->__debugInfo()
-            : get_object_vars($event);
+        $context = $this->summarize($event);
 
         // Store for later summary
         $this->eventLog[] = ['type' => $eventType, 'context' => $context];
@@ -79,6 +77,43 @@ $dispatcher = new class ($logger) implements EventDispatcherInterface {
         }
 
         return $event;
+    }
+
+    /**
+     * Extract a curated subset of the event for logging.
+     *
+     * Avoid serialising the embedded ServerRequest verbatim (e.g. via
+     * `get_object_vars($event)` or `json_encode($event)`): the request
+     * exposes every header and the parsed body, which are rarely useful
+     * in aggregated logs and tend to be noisy. The discriminator `key`
+     * is replaced with a short sha256 fingerprint so log lines can be
+     * correlated by identity without storing the underlying value.
+     *
+     * @return array<string, mixed>
+     */
+    private function summarize(object $event): array
+    {
+        $context = [];
+
+        if (property_exists($event, 'rule') && is_string($event->rule)) {
+            $context['rule'] = $event->rule;
+        }
+
+        if (property_exists($event, 'key') && is_string($event->key) && $event->key !== '') {
+            $context['key_fingerprint'] = substr(hash('sha256', $event->key), 0, 16);
+        }
+
+        if (property_exists($event, 'serverRequest') && $event->serverRequest instanceof ServerRequestInterface) {
+            $request = $event->serverRequest;
+            $context['method'] = $request->getMethod();
+            $context['path'] = $request->getUri()->getPath();
+            $remoteAddr = $request->getServerParams()['REMOTE_ADDR'] ?? null;
+            if (is_string($remoteAddr)) {
+                $context['remote_addr'] = $remoteAddr;
+            }
+        }
+
+        return $context;
     }
 
     public function getEventLog(): array
@@ -186,6 +221,10 @@ echo "2. Logging recommendations:\n";
 echo "   - Log BlocklistMatched and Fail2BanBanned at WARNING level\n";
 echo "   - Log ThrottleExceeded at INFO level\n";
 echo "   - Log RequestPassed at DEBUG level (high volume)\n";
+echo "   - Extract a curated subset rather than serialising the whole event:\n";
+echo "     get_object_vars(\$event) / json_encode(\$event) include the full\n";
+echo "     ServerRequest (every header + parsed body) and produce noisy logs.\n";
+echo "     See the \$dispatcher->summarize() helper above.\n";
 echo "\n";
 
 echo "3. Alerting suggestions:\n";

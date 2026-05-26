@@ -112,13 +112,18 @@ $dispatcher = new class ($mockTracer) implements EventDispatcherInterface {
         // Start a span for this event
         $span = $this->tracer->startSpan('phirewall.' . $eventType);
 
-        // Add event-specific attributes
-        if (property_exists($event, 'rule')) {
+        // Add event-specific attributes.
+        //
+        // When the rule keys on Authorization / X-Api-Key / similar,
+        // $event->key carries that raw value. A short sha256 fingerprint
+        // is enough to correlate spans by identity and avoids pushing the
+        // full value into the trace store.
+        if (property_exists($event, 'rule') && is_string($event->rule)) {
             $span->setAttribute('phirewall.rule', $event->rule);
         }
 
-        if (property_exists($event, 'key')) {
-            $span->setAttribute('phirewall.key', $event->key);
+        if (property_exists($event, 'key') && is_string($event->key) && $event->key !== '') {
+            $span->setAttribute('phirewall.key_fingerprint', substr(hash('sha256', $event->key), 0, 16));
         }
 
         // Set status based on event type
@@ -236,6 +241,8 @@ $tracer = $tracerProvider->getTracer('phirewall');
 // In your event dispatcher:
 $span = $tracer->spanBuilder("phirewall.$eventType")
     ->setAttribute('phirewall.rule', $event->rule)
+    // Use a fingerprint; the raw key may be an Authorization / X-Api-Key value.
+    ->setAttribute('phirewall.key_fingerprint', substr(hash('sha256', $event->key), 0, 16))
     ->startSpan();
 
 // ... process event ...
