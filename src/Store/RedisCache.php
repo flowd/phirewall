@@ -127,6 +127,16 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
     /**
      * Atomic fixed-window increment aligned to the end of the current window.
      * Returns the new counter value.
+     *
+     * Errors from the underlying Redis client (connection refused, AUTH failure,
+     * Lua script error, etc.) are re-thrown so that
+     * {@see \Flowd\Phirewall\Middleware::process()} can apply the configured
+     * fail-open / fail-closed policy. A diagnostic `E_USER_WARNING` is emitted
+     * via {@see trigger_error()} before the throw so the failure remains
+     * observable even when callers later suppress the exception.
+     *
+     * @throws \Throwable Re-thrown from the Predis client on infrastructure
+     *                    errors. Concrete type depends on the Predis backend.
      */
     public function increment(string $key, int $period): int
     {
@@ -149,16 +159,22 @@ LUA;
         try {
             $counter = $this->client->eval($script, 1, $namespacedKey, (string)$windowEnd);
         } catch (\Throwable $throwable) {
+            // Diagnostic visibility: emit a warning so operators see infrastructure
+            // failures even when an upstream catch converts the exception. Some
+            // frameworks install error handlers that re-throw on E_USER_WARNING;
+            // the inner try/catch swallows that upgrade so the original Redis
+            // exception is the one that ultimately surfaces.
             try {
                 trigger_error(
                     sprintf('RedisCache::increment() failed for key "%s": %s', $key, $throwable->getMessage()),
                     E_USER_WARNING,
                 );
             } catch (\Throwable) {
-                // Preserve fail-open behavior even when warnings are converted to exceptions.
+                // Diagnostic warning was upgraded to an exception by a hostile
+                // error handler; ignore and surface the underlying Redis error.
             }
 
-            return 0;
+            throw $throwable;
         }
 
         return is_scalar($counter) ? (int) $counter : 0;
