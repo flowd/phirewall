@@ -143,6 +143,7 @@ final class PortableConfig
     public function safelist(string $name, array $filter): self
     {
         $this->assertValidFilter($filter);
+        $this->assertValidSafelistFilter($filter);
         $this->schema['safelists'][] = ['name' => $name, 'filter' => $filter];
         return $this;
     }
@@ -249,6 +250,7 @@ final class PortableConfig
             }
 
             $self->assertValidFilter($s['filter']);
+            $self->assertValidSafelistFilter($s['filter']);
         }
 
         foreach ($self->schema['blocklists'] as $b) {
@@ -362,7 +364,7 @@ final class PortableConfig
             'header_equals' => static function (\Psr\Http\Message\ServerRequestInterface $serverRequest) use ($filter): bool {
                 $name = (string)($filter['name'] ?? '');
                 $value = (string)($filter['value'] ?? '');
-                return $name !== '' && $serverRequest->getHeaderLine($name) === $value;
+                return $name !== '' && hash_equals($value, $serverRequest->getHeaderLine($name));
             },
             'all' => static fn(): bool => true,
             default => throw new \InvalidArgumentException('Unsupported filter type: ' . $type),
@@ -400,6 +402,27 @@ final class PortableConfig
 
         if ($type === 'header_equals' && (!is_string($filter['name'] ?? null) || !is_string($filter['value'] ?? null))) {
             throw new \InvalidArgumentException('header_equals requires name and value');
+        }
+    }
+
+    /**
+     * Additional safelist-only checks.
+     *
+     * `header_equals` is not permitted in safelists: a safelist with a static
+     * header value is a bypass token (anyone presenting the header skips
+     * every downstream rule), and the value sits in the rules file in
+     * plaintext. The `header` key extractor on throttle / fail2ban / track
+     * rules is still allowed because those rules apply restrictions rather
+     * than bypassing them.
+     *
+     * @param array<string,mixed> $filter
+     */
+    private function assertValidSafelistFilter(array $filter): void
+    {
+        if (($filter['type'] ?? null) === 'header_equals') {
+            throw new \InvalidArgumentException(
+                'header_equals filter is not allowed for safelists. Use an authenticated principal or an IP-based filter instead.'
+            );
         }
     }
 

@@ -84,6 +84,33 @@ final class PortableConfigTest extends TestCase
         $this->assertSame('login', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
     }
 
+    public function testSafelistRejectsHeaderEqualsFilter(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/header_equals.*safelist/i');
+
+        PortableConfig::create()->safelist('bypass', PortableConfig::filterHeaderEquals('X-Bypass', 'shh'));
+    }
+
+    public function testFromArrayRejectsHeaderEqualsSafelist(): void
+    {
+        $schema = [
+            'safelists' => [
+                ['name' => 'bypass', 'filter' => ['type' => 'header_equals', 'name' => 'X-Bypass', 'value' => 'shh']],
+            ],
+            'blocklists' => [],
+            'throttles' => [],
+            'fail2bans' => [],
+            'tracks' => [],
+            'options' => [],
+        ];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/header_equals.*safelist/i');
+
+        PortableConfig::fromArray($schema);
+    }
+
     public function testRoundTripExportImport(): void
     {
         $portableConfig = PortableConfig::create()
