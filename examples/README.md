@@ -17,6 +17,7 @@ php examples/01-basic-setup.php
 | Example | Description |
 |---------|-------------|
 | [01-basic-setup.php](01-basic-setup.php) | Minimal configuration with safelist, blocklist, and throttle |
+| [26-psr17-factories.php](26-psr17-factories.php) | PSR-17 response/stream factories for native 403/429 responses |
 
 ### Attack Protection
 
@@ -67,6 +68,7 @@ php examples/01-basic-setup.php
 | [23-dynamic-limits.php](23-dynamic-limits.php) | Role-based dynamic throttle limits |
 | [24-pdo-storage.php](24-pdo-storage.php) | PdoCache with SQLite, MySQL, PostgreSQL |
 | [25-track-threshold.php](25-track-threshold.php) | Track with optional threshold and thresholdReached flag |
+| [28-portable-config-signing.php](28-portable-config-signing.php) | Signed PortableConfig transport (HMAC-SHA256) with tamper detection |
 
 ## Optional Dependencies
 

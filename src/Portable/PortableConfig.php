@@ -40,6 +40,21 @@ use Psr\SimpleCache\CacheInterface;
  */
 final class PortableConfig
 {
+    /**
+     * `typ` value used inside the signed envelope header. Bumping the version
+     * suffix is the migration path when the wire format changes incompatibly.
+     */
+    private const SIGNED_TYPE = 'phirewall.config.v1';
+
+    /**
+     * Minimum HMAC key length accepted by {@see toSignedJson()} and
+     * {@see loadSigned()}. 16 bytes (128 bits) is the floor for HMAC-SHA256
+     * keys recommended by NIST SP 800-107; 32 bytes is preferred. The check
+     * rejects the empty string and short test-fixture values that would
+     * otherwise produce a usable but trivially-brute-forceable signature.
+     */
+    private const MIN_SECRET_KEY_LENGTH = 16;
+
     /** @var Schema */
     private array $schema = [
         'safelists' => [],
@@ -226,6 +241,13 @@ final class PortableConfig
 
     /**
      * Import from a portable schema array.
+     *
+     * Performs schema-shape validation only. When the array is read from a
+     * source the caller does not fully trust (shared filesystems, S3, etcd,
+     * config services, repositories accepting external contributions), use
+     * {@see toSignedJson()} on the producing side and {@see loadSigned()} on
+     * the consuming side to detect tampering before the schema is applied.
+     *
      * @param array<mixed> $data
      */
     public static function fromArray(array $data): self
@@ -272,6 +294,145 @@ final class PortableConfig
         }
 
         return $self;
+    }
+
+    /**
+     * Export the portable schema as a signed JWS-compact-style string.
+     *
+     * The output has the shape `<header>.<payload>.<signature>` where:
+     *   - `<header>` is a base64url-encoded JSON object {"alg":"HS256","typ":"phirewall.config.v1"}
+     *   - `<payload>` is base64url-encoded JSON of {@see toArray()}
+     *   - `<signature>` is base64url-encoded HMAC-SHA256 of `<header>.<payload>`
+     *
+     * Consumers verify the signature with {@see loadSigned()} before applying
+     * the rules. Use this whenever the serialized config crosses a trust
+     * boundary (a writable filesystem, S3 bucket, etcd, config service, git
+     * repository accepting external contributions, etc.) — even when the
+     * channel itself is considered "internal".
+     *
+     * @param string $secretKey HMAC key; SHOULD be at least 32 random bytes.
+     *                          Keys shorter than 16 bytes are rejected to
+     *                          prevent accidental misuse of short / empty
+     *                          strings as a key.
+     */
+    public function toSignedJson(string $secretKey): string
+    {
+        if (strlen($secretKey) < self::MIN_SECRET_KEY_LENGTH) {
+            throw new \InvalidArgumentException(sprintf(
+                'PortableConfig signing key must be at least %d bytes; use random_bytes(32) or a comparable CSPRNG output.',
+                self::MIN_SECRET_KEY_LENGTH,
+            ));
+        }
+
+        $header = $this->base64UrlEncode(json_encode(
+            ['alg' => 'HS256', 'typ' => self::SIGNED_TYPE],
+            JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+        ));
+        $payload = $this->base64UrlEncode(json_encode(
+            $this->schema,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
+        ));
+        $signingInput = $header . '.' . $payload;
+        $signature = $this->base64UrlEncode(hash_hmac('sha256', $signingInput, $secretKey, true));
+
+        return $signingInput . '.' . $signature;
+    }
+
+    /**
+     * Load and verify a signed PortableConfig previously produced by
+     * {@see toSignedJson()}.
+     *
+     * The signature is checked with {@see hash_equals()} for constant-time
+     * comparison. Any tampering with the header, payload, or signature
+     * — including key substitution, algorithm downgrade attempts, and
+     * payload re-ordering — causes a {@see \RuntimeException}.
+     *
+     * @throws \InvalidArgumentException When the input is structurally invalid
+     *                                   (short key, wrong segment count, base64
+     *                                   corruption, non-JSON or non-object payload).
+     * @throws \RuntimeException When the signature does not verify, or the header
+     *                           is malformed or declares an unsupported alg/typ.
+     */
+    public static function loadSigned(string $signedJson, string $secretKey): self
+    {
+        if (strlen($secretKey) < self::MIN_SECRET_KEY_LENGTH) {
+            throw new \InvalidArgumentException(sprintf(
+                'PortableConfig signing key must be at least %d bytes; use random_bytes(32) or a comparable CSPRNG output.',
+                self::MIN_SECRET_KEY_LENGTH,
+            ));
+        }
+
+        // Bounded split (limit 4) so attacker-controlled input with many dots
+        // cannot allocate a huge array; a valid envelope has exactly three
+        // segments, so any extra dot produces a 4th element and is rejected.
+        $parts = explode('.', $signedJson, 4);
+        if (count($parts) !== 3) {
+            throw new \InvalidArgumentException('Signed PortableConfig must have three "."-separated segments (header.payload.signature).');
+        }
+
+        [$encodedHeader, $encodedPayload, $encodedSignature] = $parts;
+        $signingInput = $encodedHeader . '.' . $encodedPayload;
+
+        $headerJson = self::base64UrlDecode($encodedHeader);
+        if ($headerJson === null) {
+            throw new \InvalidArgumentException('Signed PortableConfig header is not valid base64url.');
+        }
+
+        try {
+            /** @var mixed $header */
+            $header = json_decode($headerJson, true, 4, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $jsonException) {
+            throw new \InvalidArgumentException('Signed PortableConfig header is not valid JSON.', $jsonException->getCode(), previous: $jsonException);
+        }
+
+        if (!is_array($header)
+            || ($header['alg'] ?? null) !== 'HS256'
+            || ($header['typ'] ?? null) !== self::SIGNED_TYPE
+        ) {
+            throw new \RuntimeException('Signed PortableConfig header is unsupported or malformed (expected alg=HS256, typ=' . self::SIGNED_TYPE . ').');
+        }
+
+        $expectedSignature = hash_hmac('sha256', $signingInput, $secretKey, true);
+        $providedSignature = self::base64UrlDecode($encodedSignature);
+        if ($providedSignature === null) {
+            throw new \InvalidArgumentException('Signed PortableConfig signature is not valid base64url.');
+        }
+
+        if (!hash_equals($expectedSignature, $providedSignature)) {
+            throw new \RuntimeException('Signed PortableConfig signature verification failed: content was tampered with or signed with a different key.');
+        }
+
+        $payloadJson = self::base64UrlDecode($encodedPayload);
+        if ($payloadJson === null) {
+            throw new \InvalidArgumentException('Signed PortableConfig payload is not valid base64url.');
+        }
+
+        try {
+            /** @var mixed $payload */
+            $payload = json_decode($payloadJson, true, 32, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $jsonException) {
+            throw new \InvalidArgumentException('Signed PortableConfig payload is not valid JSON.', $jsonException->getCode(), previous: $jsonException);
+        }
+
+        // The payload is the PortableConfig schema as a JSON object. A producer
+        // need only include the sections it actually sets — fromArray() defaults
+        // every absent section to empty — so an object with a subset of keys, or
+        // an empty object (a no-op config), is valid. Reject only a non-object
+        // payload: a scalar/null, or a JSON list (a non-empty sequential array).
+        if (!is_array($payload) || (array_is_list($payload) && $payload !== [])) {
+            throw new \InvalidArgumentException('Signed PortableConfig payload must decode to a JSON object, not a list.');
+        }
+
+        // A structurally malformed (but validly-signed) payload — e.g. a scalar
+        // where a section array is expected — can make fromArray() raise a
+        // TypeError on offset access. Normalize it to the documented
+        // InvalidArgumentException so consumers get a consistent validation
+        // error rather than an unexpected crash across the transport boundary.
+        try {
+            return self::fromArray($payload);
+        } catch (\TypeError $typeError) {
+            throw new \InvalidArgumentException('Signed PortableConfig payload is structurally invalid: ' . $typeError->getMessage(), $typeError->getCode(), previous: $typeError);
+        }
     }
 
     /**
@@ -437,5 +598,28 @@ final class PortableConfig
         if ($type === 'header' && !is_string($key['name'] ?? null)) {
             throw new \InvalidArgumentException('header key extractor requires name');
         }
+    }
+
+    private function base64UrlEncode(string $raw): string
+    {
+        return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
+    }
+
+    private static function base64UrlDecode(string $encoded): ?string
+    {
+        $padded = strtr($encoded, '-_', '+/');
+        $remainder = strlen($padded) % 4;
+        if ($remainder === 1) {
+            // A base64 string can never have length % 4 == 1; reject rather
+            // than pad an inherently invalid input.
+            return null;
+        }
+
+        if ($remainder !== 0) {
+            $padded .= str_repeat('=', 4 - $remainder);
+        }
+
+        $decoded = base64_decode($padded, true);
+        return $decoded === false ? null : $decoded;
     }
 }
