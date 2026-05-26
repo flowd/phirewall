@@ -18,6 +18,7 @@ require __DIR__ . '/../vendor/autoload.php';
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\Config\DiagnosticsDispatcher;
+use Flowd\Phirewall\Context\RequestContext;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -44,19 +45,25 @@ $config->enableResponseHeaders();
 // -----------------------------------------------------------------------------
 // This is the most effective protection against brute force attacks.
 // After 5 failed login attempts within 5 minutes, the IP is banned for 1 hour.
+//
+// The filter never matches at request time (`fn() => false`): the firewall
+// cannot know whether a login was successful before the handler runs.
+// Instead, the handler signals failures back to the firewall through the
+// PSR-7 RequestContext attribute set up by Middleware (see the handler
+// implementation below). This is the recommended pattern; the older
+// "request header marker" approach can only succeed if a separate
+// pre-handler middleware reliably sets the header, and tends to be
+// brittle.
 
 $config->fail2ban->add(
     name: 'login-failures',
     threshold: 5,           // Number of failures before ban
     period: 300,            // Time window in seconds (5 minutes)
     ban: 3600,              // Ban duration in seconds (1 hour)
-    filter: fn(ServerRequestInterface $serverRequest): bool =>
-        // Track failed login attempts based on X-Login-Failed header
-        // In a real app, your login handler sets this header on failed login
-        $serverRequest->getHeaderLine('X-Login-Failed') === '1',
+    filter: fn(ServerRequestInterface $serverRequest): bool => false,
     key: KeyExtractors::ip()
 );
-echo "1. Fail2Ban configured: 5 failures in 5 min = 1 hour ban\n";
+echo "1. Fail2Ban configured: 5 failures in 5 min = 1 hour ban (handler signals failures)\n";
 
 // -----------------------------------------------------------------------------
 // Strategy 2: Throttle - Limit login attempts per IP
@@ -106,22 +113,30 @@ echo "3. Account throttle configured: 5 attempts/min per username\n\n";
 
 $middleware = new Middleware($config, new Psr17Factory());
 
-// Simulated login handler
+// Simulated login handler. The handler reports failed logins back to the
+// firewall via RequestContext::recordFailure(); Middleware applies the
+// signal to the matching fail2ban rule after the response is built.
+//
+// The "admin" account here always fails (simulated credential-stuffing
+// attack); any other username succeeds. A real handler would validate
+// against a credential store.
 $handler = new class implements RequestHandlerInterface {
-    private int $attemptCount = 0;
-
     public function handle(ServerRequestInterface $serverRequest): ResponseInterface
     {
-        ++$this->attemptCount;
         $path = $serverRequest->getUri()->getPath();
 
         if ($path === '/login') {
-            // Simulate: first 4 attempts fail, then succeed
             $username = $serverRequest->getHeaderLine('X-Username');
-            if ($this->attemptCount < 5) {
+            $context = $serverRequest->getAttribute(RequestContext::ATTRIBUTE_NAME);
+            $remoteAddr = $serverRequest->getServerParams()['REMOTE_ADDR'] ?? '';
+
+            if ($username === 'admin') {
+                if ($context instanceof RequestContext && $remoteAddr !== '') {
+                    $context->recordFailure('login-failures', $remoteAddr);
+                }
+
                 return new Response(401, [
                     'Content-Type' => 'application/json',
-                    'X-Login-Failed' => '1',  // Signal failure to firewall
                 ], json_encode(['error' => 'Invalid credentials'], JSON_THROW_ON_ERROR));
             }
 
@@ -161,12 +176,13 @@ echo "Simulating failed login attempts from attacker IP...\n\n";
 
 $attackerIp = '10.0.0.100';
 
-// First 5 attempts with failed logins (X-Login-Failed: 1)
+// Requests carry no special marker header: the handler observes the failed
+// login and signals it back to the firewall via RequestContext.
 for ($i = 1; $i <= 6; ++$i) {
     $testRequest(
         sprintf('Login attempt %d (will fail)', $i),
         '/login',
-        ['X-Username' => 'admin', 'X-Login-Failed' => '1'],
+        ['X-Username' => 'admin'],
         $attackerIp
     );
 }
