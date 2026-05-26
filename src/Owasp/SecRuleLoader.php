@@ -162,8 +162,14 @@ final class SecRuleLoader
             throw new \InvalidArgumentException('Rules file not found: ' . $filePath);
         }
 
+        // Confine @pmFromFile resolution to the rule file's own directory,
+        // mirroring fromFiles()/fromDirectory(). Without a context folder an
+        // absolute or symlinked @pmFromFile operand would read arbitrary files.
+        $resolvedPath = realpath($filePath);
+        $contextFolder = dirname($resolvedPath !== false ? $resolvedPath : $filePath);
+
         $content = (string)file_get_contents($filePath);
-        return self::fromString($content);
+        return self::fromString($content, $contextFolder);
     }
 
     /**
