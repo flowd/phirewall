@@ -69,81 +69,78 @@ final class FileIpBlocklistStore
 
         $this->ensureDirectory();
 
-        $handle = @fopen($this->filePath, 'cb+');
-        if ($handle === false) {
-            throw new \RuntimeException(sprintf('Cannot open blocklist file "%s" for writing.', $this->filePath));
-        }
-
+        $lockHandle = $this->acquireLock();
         $now = ($this->now)();
 
         try {
-            if (!flock($handle, LOCK_EX)) {
-                throw new \RuntimeException(sprintf('Cannot lock blocklist file "%s".', $this->filePath));
+            $handle = @fopen($this->filePath, 'cb+');
+            if ($handle === false) {
+                throw new \RuntimeException(sprintf('Cannot open blocklist file "%s" for writing.', $this->filePath));
             }
 
-            $expiredPruned = false;
-            $lastAddedAt = null;
-            [$entries, $order, $lastAddedAt] = $this->readEntries($handle, $now, $expiredPruned);
+            try {
+                $expiredPruned = false;
+                $lastAddedAt = null;
+                [$entries, $order, $lastAddedAt] = $this->readEntries($handle, $now, $expiredPruned);
 
-            $needsRewrite = $expiredPruned;
-            $changedEntries = [];
-            foreach ($ipsOrCidrs as $entry) {
-                $entry = trim($entry);
-                if ($entry === '') {
-                    continue;
+                $needsRewrite = $expiredPruned;
+                $changedEntries = [];
+                foreach ($ipsOrCidrs as $entry) {
+                    $entry = trim($entry);
+                    if ($entry === '') {
+                        continue;
+                    }
+
+                    if (str_starts_with($entry, '#')) {
+                        continue;
+                    }
+
+                    if (str_starts_with($entry, ';')) {
+                        continue;
+                    }
+
+                    $expiresAt = $ttlSeconds === null ? null : $now + $ttlSeconds;
+                    if (!array_key_exists($entry, $entries)) {
+                        $entries[$entry] = ['expiresAt' => $expiresAt, 'addedAt' => $now];
+                        $order[] = $entry;
+                        $needsRewrite = true;
+                        $changedEntries[$entry] = $entries[$entry];
+                        continue;
+                    }
+
+                    $existing = $entries[$entry];
+                    $updated = $this->mergeEntry($existing, $expiresAt, $now);
+                    if ($updated !== $existing) {
+                        $entries[$entry] = $updated;
+                        $needsRewrite = true;
+                        $changedEntries[$entry] = $updated;
+                    }
                 }
 
-                if (str_starts_with($entry, '#')) {
-                    continue;
+                $effectiveLastAddedAt = $lastAddedAt;
+                if ($changedEntries !== []) {
+                    $effectiveLastAddedAt = max($effectiveLastAddedAt ?? $now, $now);
                 }
 
-                if (str_starts_with($entry, ';')) {
-                    continue;
+                $canRewrite = $effectiveLastAddedAt === null || ($now - $effectiveLastAddedAt) >= 60;
+
+                if ($needsRewrite && $canRewrite) {
+                    $this->atomicWrite($this->formatEntries($entries, $order));
+                } elseif ($changedEntries !== []) {
+                    // Append-only update when rewrite throttle is active
+                    fseek($handle, 0, SEEK_END);
+                    foreach ($changedEntries as $entry => $meta) {
+                        $line = $this->formatEntryLine($entry, $meta['expiresAt'], $meta['addedAt']);
+                        fwrite($handle, $line . "\n");
+                    }
+
+                    fflush($handle);
                 }
-
-                $expiresAt = $ttlSeconds === null ? null : $now + $ttlSeconds;
-                if (!array_key_exists($entry, $entries)) {
-                    $entries[$entry] = ['expiresAt' => $expiresAt, 'addedAt' => $now];
-                    $order[] = $entry;
-                    $needsRewrite = true;
-                    $changedEntries[$entry] = $entries[$entry];
-                    continue;
-                }
-
-                $existing = $entries[$entry];
-                $updated = $this->mergeEntry($existing, $expiresAt, $now);
-                if ($updated !== $existing) {
-                    $entries[$entry] = $updated;
-                    $needsRewrite = true;
-                    $changedEntries[$entry] = $updated;
-                }
-            }
-
-            $effectiveLastAddedAt = $lastAddedAt;
-            if ($changedEntries !== []) {
-                $effectiveLastAddedAt = max($effectiveLastAddedAt ?? $now, $now);
-            }
-
-            $canRewrite = $effectiveLastAddedAt === null || ($now - $effectiveLastAddedAt) >= 60;
-
-            if ($needsRewrite && $canRewrite) {
-                ftruncate($handle, 0);
-                rewind($handle);
-                fwrite($handle, $this->formatEntries($entries, $order));
-                fflush($handle);
-            } elseif ($changedEntries !== []) {
-                // Append-only update when rewrite throttle is active
-                fseek($handle, 0, SEEK_END);
-                foreach ($changedEntries as $entry => $meta) {
-                    $line = $this->formatEntryLine($entry, $meta['expiresAt'], $meta['addedAt']);
-                    fwrite($handle, $line . "\n");
-                }
-
-                fflush($handle);
+            } finally {
+                fclose($handle);
             }
         } finally {
-            flock($handle, LOCK_UN);
-            fclose($handle);
+            $this->releaseLock($lockHandle);
         }
     }
 
@@ -281,6 +278,77 @@ final class FileIpBlocklistStore
         return $entry . '|' . $expiresAt . '|' . $addedAt;
     }
 
+    /**
+     * Write `$content` to the blocklist file via a temp file + atomic rename
+     * so a mid-write crash cannot leave the live file empty. Only used on
+     * the full-rewrite path; the append-only path stays in-place because a
+     * partial line at end-of-file is tolerated by the parser and the next
+     * write reconciles the contents. Callers must hold the sidecar lock from
+     * acquireLock() so the inode swap performed by rename() cannot strand a
+     * concurrent writer on the orphaned inode.
+     */
+    private function atomicWrite(string $content): void
+    {
+        $temp = $this->filePath . '.tmp.' . bin2hex(random_bytes(6));
+        $bytes = @file_put_contents($temp, $content);
+        if ($bytes === false) {
+            throw new \RuntimeException(sprintf('Failed to write temp blocklist file "%s".', $temp));
+        }
+
+        // Match the live file's mode (falling back to owner-only) so the rename
+        // never widens a pre-existing restrictive permission set.
+        $mode = 0600;
+        if (is_file($this->filePath)) {
+            $perms = @fileperms($this->filePath);
+            if ($perms !== false) {
+                $mode = $perms & 0777;
+            }
+        }
+
+        @chmod($temp, $mode);
+
+        if (!@rename($temp, $this->filePath)) {
+            @unlink($temp);
+            throw new \RuntimeException(sprintf('Failed to atomically replace blocklist file "%s".', $this->filePath));
+        }
+    }
+
+    /**
+     * Acquire an exclusive lock used to serialize writers.
+     *
+     * The lock lives on a dedicated, never-renamed sidecar file (`<path>.lock`)
+     * instead of on the live blocklist file, because atomicWrite() replaces the
+     * latter via rename(). A lock held on the live file would be stranded on the
+     * orphaned inode after a rename and would no longer serialize concurrent
+     * writers.
+     *
+     * @return resource
+     */
+    private function acquireLock()
+    {
+        $lockPath = $this->filePath . '.lock';
+        $lockHandle = @fopen($lockPath, 'cb');
+        if ($lockHandle === false) {
+            throw new \RuntimeException(sprintf('Cannot open lock file "%s".', $lockPath));
+        }
+
+        if (!flock($lockHandle, LOCK_EX)) {
+            fclose($lockHandle);
+            throw new \RuntimeException(sprintf('Cannot lock blocklist lock file "%s".', $lockPath));
+        }
+
+        return $lockHandle;
+    }
+
+    /**
+     * @param resource $lockHandle
+     */
+    private function releaseLock($lockHandle): void
+    {
+        flock($lockHandle, LOCK_UN);
+        fclose($lockHandle);
+    }
+
     private function ensureDirectory(): void
     {
         $dir = dirname($this->filePath);
@@ -288,7 +356,9 @@ final class FileIpBlocklistStore
             return;
         }
 
-        if (!@mkdir($dir, 0777, true) && !is_dir($dir)) {
+        // 0700: blocklist directory should not be readable by other local
+        // users on the host.
+        if (!@mkdir($dir, 0700, true) && !is_dir($dir)) {
             throw new \RuntimeException(sprintf('Failed to create directory for blocklist file "%s".', $this->filePath));
         }
     }
