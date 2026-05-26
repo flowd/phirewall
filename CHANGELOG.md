@@ -5,6 +5,12 @@ All notable changes to Phirewall are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased — 0.5.0
+
+### Changed
+
+- **`BanManager` registry has a TTL and prunes expired entries on save** — Previously the per-rule ban registry (the audit-view list backing `listBans()` / `listRulesWithBans()`) was written without a TTL and grew monotonically across ban churn. Each save now applies a TTL equal to the longest-surviving entry's remaining lifetime, and `saveRegistry()` prunes already-expired entries before writing so the registry tracks live bans only. The registry is best-effort under concurrent `ban()` calls for the same rule (the primary ban cache key set by `ban()` is the source of truth and is not affected).
+
 ## 0.4.0 - 2026-05-19
 
 ### Changed
