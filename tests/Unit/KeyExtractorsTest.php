@@ -48,6 +48,84 @@ final class KeyExtractorsTest extends TestCase
         $this->assertNull($h(new ServerRequest('GET', '/')));
     }
 
+    public function testHashedHeaderReturnsSha256OfRawValue(): void
+    {
+        $extractor = KeyExtractors::hashedHeader('Authorization');
+        $request = (new ServerRequest('GET', '/'))->withHeader('Authorization', 'Bearer s3cret');
+
+        $this->assertSame(hash('sha256', 'Bearer s3cret'), $extractor($request));
+    }
+
+    public function testHashedHeaderReturnsNullWhenHeaderIsMissing(): void
+    {
+        $extractor = KeyExtractors::hashedHeader('Authorization');
+
+        $this->assertNull($extractor(new ServerRequest('GET', '/')));
+    }
+
+    public function testHashedHeaderReturnsNullForEmptyHeaderValue(): void
+    {
+        // An empty-string header must collapse to null — same contract as
+        // header() — so a present-but-blank header doesn't fingerprint the
+        // empty string and produce a spurious bucket.
+        $extractor = KeyExtractors::hashedHeader('Authorization');
+        $request = (new ServerRequest('GET', '/'))->withHeader('Authorization', '');
+
+        $this->assertNull($extractor($request));
+    }
+
+    public function testHashedHeaderJoinsMultipleHeaderValuesBeforeHashing(): void
+    {
+        // PSR-7's getHeaderLine joins multiple header values with ", ". The
+        // fingerprint is over the joined string — pin this so a refactor to
+        // getHeader()[0] would surface as a test failure rather than silently
+        // changing every stored bucket key.
+        $extractor = KeyExtractors::hashedHeader('X-Api-Key');
+        $request = (new ServerRequest('GET', '/'))
+            ->withHeader('X-Api-Key', 'first')
+            ->withAddedHeader('X-Api-Key', 'second');
+
+        $this->assertSame(hash('sha256', 'first, second'), $extractor($request));
+    }
+
+    public function testHashedHeaderLookupIsCaseInsensitive(): void
+    {
+        // PSR-7 header names are case-insensitive on lookup. An extractor
+        // configured for "Authorization" must match a request that carries
+        // "authorization" so deployments behind a case-folding proxy don't
+        // suddenly produce a different bucket key.
+        $extractor = KeyExtractors::hashedHeader('Authorization');
+        $request = (new ServerRequest('GET', '/'))->withHeader('authorization', 'Bearer s3cret');
+
+        $this->assertSame(hash('sha256', 'Bearer s3cret'), $extractor($request));
+    }
+
+    public function testHashedHeaderIsDeterministic(): void
+    {
+        // The same input must produce the same fingerprint across calls —
+        // otherwise the bucket key would shift between requests for the same
+        // client. Trivial guard, cheap to maintain.
+        $extractor = KeyExtractors::hashedHeader('Authorization');
+        $request = (new ServerRequest('GET', '/'))->withHeader('Authorization', 'Bearer s3cret');
+
+        $this->assertSame($extractor($request), $extractor($request));
+    }
+
+    public function testHashedHeaderFingerprintsExactlyWhatHeaderReturns(): void
+    {
+        // Parity guard: hashedHeader() must fingerprint the same value that
+        // header() returns, against the same request. Catches any future
+        // divergence (e.g. one path trims or normalises while the other
+        // doesn't) in a single assertion.
+        $rawExtractor = KeyExtractors::header('Authorization');
+        $hashedExtractor = KeyExtractors::hashedHeader('Authorization');
+        $request = (new ServerRequest('GET', '/'))->withHeader('Authorization', 'Bearer s3cret');
+
+        $rawValue = $rawExtractor($request);
+        $this->assertNotNull($rawValue);
+        $this->assertSame(hash('sha256', $rawValue), $hashedExtractor($request));
+    }
+
     public function testClientIpWithTrustedProxyResolver(): void
     {
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);

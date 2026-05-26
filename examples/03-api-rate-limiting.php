@@ -129,11 +129,13 @@ echo "6. Authenticated users: 1000 req/min per user\n";
 // -----------------------------------------------------------------------------
 // Tier 6: API key limits
 // -----------------------------------------------------------------------------
+// X-API-Key carries a credential — use hashedHeader() so the cache backend
+// and ban registry store a sha256 fingerprint rather than the raw secret.
 $config->throttles->add(
     name: 'api-key',
     limit: 500,
     period: 60,
-    key: KeyExtractors::header('X-API-Key')
+    key: KeyExtractors::hashedHeader('X-API-Key')
 );
 echo "7. API key: 500 req/min per key\n";
 

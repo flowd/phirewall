@@ -34,8 +34,10 @@ $config->allow2ban->add(
     key: KeyExtractors::ip(),
 );
 
-// Multiple rules can coexist. E.g., also ban by API key for authenticated routes:
-// $config->allow2ban->add('api-key-ban', threshold: 1000, period: 60, banSeconds: 300, key: KeyExtractors::header('X-Api-Key'));
+// Multiple rules can coexist. E.g., also ban by API key for authenticated routes
+// — use hashedHeader() so the raw credential never lands in the cache backend
+// or the ban registry:
+// $config->allow2ban->add('api-key-ban', threshold: 1000, period: 60, banSeconds: 300, key: KeyExtractors::hashedHeader('X-Api-Key'));
 
 $firewall = new Firewall($config);
 
