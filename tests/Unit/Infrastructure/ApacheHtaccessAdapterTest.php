@@ -71,6 +71,14 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $this->assertSame(1, substr_count($content, 'Require not ip 2001:db8::1'), 'Expanded and compressed IPv6 forms should be deduplicated');
     }
 
+    public function testBlockIpCreatesSidecarLockFile(): void
+    {
+        $adapter = new ApacheHtaccessAdapter($this->htaccess);
+        $adapter->blockIp('203.0.113.10');
+
+        $this->assertFileExists($this->htaccess . '.lock', 'Sidecar lock file must be created alongside .htaccess');
+    }
+
     // ─── Removing a ban ──────────────────────────────────────────────
 
     public function testUnblockIpRemovesDirective(): void
@@ -464,6 +472,21 @@ final class ApacheHtaccessAdapterTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageMatches('/Directory does not exist:/');
+        $adapter->blockIp('203.0.113.1');
+    }
+
+    public function testBlockThrowsWhenLockFileCannotBeOpened(): void
+    {
+        // The parent directory exists (so the is_dir guard passes), but a
+        // directory occupies the sidecar `.lock` path, so fopen() cannot open it
+        // as a file. mutate() must surface a clear error rather than silently
+        // proceeding without the write lock.
+        $root = vfsStream::setup('lockjail');
+        vfsStream::newDirectory('.htaccess.lock')->at($root);
+        $adapter = new ApacheHtaccessAdapter($root->url() . '/.htaccess');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/Failed to open lock file:/');
         $adapter->blockIp('203.0.113.1');
     }
 

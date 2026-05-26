@@ -195,8 +195,15 @@ echo "\n";
 
 echo "=== Cleanup ===\n\n";
 
-// Remove temp files
+// Remove temp files. The adapter serialises writers on a sidecar
+// "${htaccessPath}.lock" file that it deliberately never removes (it must stay
+// a stable lock target across the atomic rename), so the demo cleans it up too.
 unlink($htaccessPath);
+$lockPath = $htaccessPath . '.lock';
+if (is_file($lockPath)) {
+    unlink($lockPath);
+}
+
 rmdir($demoDir);
 echo "Temporary files removed\n\n";
 
