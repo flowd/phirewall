@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall;
 
-use Psr\SimpleCache\CacheInterface;
-
 final readonly class BanManager
 {
     public function __construct(private Config $config)
@@ -13,12 +11,21 @@ final readonly class BanManager
     }
 
     /**
-     * Ban a key: set the ban cache key and register in the ban registry.
+     * Ban a key.
+     *
+     * Two writes happen:
+     *   - The primary ban cache key is the source of truth checked by
+     *     {@see isBanned()}. It is set atomically and is not affected by
+     *     contention on the audit registry below.
+     *   - The audit registry backs {@see listBans()} and
+     *     {@see listRulesWithBans()}. It is best-effort: two concurrent
+     *     ban() calls for the same rule may cause one of the entries to
+     *     lose to the other and only appear after the next save reconciles.
      *
      * @param string $ruleName The rule name
      * @param string $key The original (unhashed) key value (e.g. IP address)
      * @param int $banSeconds How long the ban lasts
-     * @param BanType $banType The ban type
+     * @param BanType $banType Which ban category the entry belongs to
      */
     public function ban(string $ruleName, string $key, int $banSeconds, BanType $banType = BanType::Allow2Ban): void
     {
@@ -27,50 +34,9 @@ final readonly class BanManager
 
         $cache->set($banKey, 1, $banSeconds);
 
-        $this->registerBan($cache, $banType, $ruleName, $key, microtime(true) + $banSeconds);
-    }
-
-    /**
-     * Register a ban in the ban registry.
-     *
-     * @param CacheInterface $cache The cache store
-     * @param BanType $banType The ban type
-     * @param string $ruleName The rule name
-     * @param string $key The original (unhashed) key value (e.g. IP address)
-     * @param float $expiresAt microtime(true) + banSeconds
-     */
-    private function registerBan(
-        CacheInterface $cache,
-        BanType $banType,
-        string $ruleName,
-        string $key,
-        float $expiresAt,
-    ): void {
-        $registryKey = $this->config->cacheKeyGenerator()->banRegistryKey($banType->value, $ruleName);
-
-        /** @var array<string, float> $registry */
-        $registry = [];
-        $existing = $cache->get($registryKey);
-        if (is_string($existing)) {
-            try {
-                $decoded = json_decode($existing, true, 512, JSON_THROW_ON_ERROR);
-            } catch (\JsonException) {
-                $decoded = null;
-            }
-
-            if (is_array($decoded)) {
-                /** @var array<string, float> $registry */
-                $registry = $decoded;
-            }
-        }
-
-        $registry[$key] = $expiresAt;
-
-        try {
-            $cache->set($registryKey, json_encode($registry, JSON_THROW_ON_ERROR));
-        } catch (\JsonException) {
-            // Fail closed: the ban cache key is already set, just the registry entry is lost.
-        }
+        $registry = $this->loadRegistry($banType, $ruleName);
+        $registry[$key] = $this->config->now() + $banSeconds;
+        $this->saveRegistry($banType, $ruleName, $registry);
     }
 
     /**
@@ -98,8 +64,9 @@ final readonly class BanManager
 
         $cache->delete($banKey);
 
-        // Remove from registry
-        $this->removeFromRegistry($banType, $ruleName, $key);
+        $registry = $this->loadRegistry($banType, $ruleName);
+        unset($registry[$key]);
+        $this->saveRegistry($banType, $ruleName, $registry);
 
         return true;
     }
@@ -113,7 +80,7 @@ final readonly class BanManager
     {
         $cache = $this->config->cache;
         $registry = $this->loadRegistry($banType, $ruleName);
-        $now = microtime(true);
+        $now = $this->config->now();
         $active = [];
         $changed = false;
 
@@ -150,7 +117,7 @@ final readonly class BanManager
     {
         $cache = $this->config->cache;
         $registry = $this->loadRegistry($banType, $ruleName);
-        $now = microtime(true);
+        $now = $this->config->now();
         $cleared = 0;
 
         foreach ($registry as $key => $expiresAt) {
@@ -242,12 +209,25 @@ final readonly class BanManager
             return [];
         }
 
-        /** @var array<string, float> $decoded */
-        return $decoded;
+        // Coerce defensively: an older format, a tampered cache entry, or a
+        // foreign producer could put non-numeric values here and would
+        // otherwise propagate a TypeError into request handling.
+        $registry = [];
+        foreach ($decoded as $key => $expiresAt) {
+            if (is_string($key) && is_numeric($expiresAt)) {
+                $registry[$key] = (float) $expiresAt;
+            }
+        }
+
+        return $registry;
     }
 
     /**
      * Save the ban registry for a given type and rule name.
+     *
+     * Prunes expired entries before saving and applies a TTL matching the
+     * longest-surviving entry so the registry cannot grow without bound
+     * under ban churn.
      *
      * @param array<string, float> $registry
      */
@@ -256,26 +236,22 @@ final readonly class BanManager
         $cache = $this->config->cache;
         $registryKey = $this->config->cacheKeyGenerator()->banRegistryKey($banType->value, $ruleName);
 
+        $now = $this->config->now();
+        $registry = array_filter($registry, static fn(float $expiresAt): bool => $expiresAt > $now);
+
         if ($registry === []) {
             $cache->delete($registryKey);
             return;
         }
 
+        // TTL matches the longest-surviving ban's remaining lifetime so the
+        // registry cache entry expires together with the last ban it tracks.
+        $ttl = (int) max(1, ceil(max($registry) - $now));
+
         try {
-            $cache->set($registryKey, json_encode($registry, JSON_THROW_ON_ERROR));
+            $cache->set($registryKey, json_encode($registry, JSON_THROW_ON_ERROR), $ttl);
         } catch (\JsonException) {
             // Fail closed: skip registry update rather than breaking request handling.
         }
     }
-
-    /**
-     * Remove a single key from the registry.
-     */
-    private function removeFromRegistry(BanType $banType, string $ruleName, string $key): void
-    {
-        $registry = $this->loadRegistry($banType, $ruleName);
-        unset($registry[$key]);
-        $this->saveRegistry($banType, $ruleName, $registry);
-    }
-
 }

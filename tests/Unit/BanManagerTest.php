@@ -37,8 +37,9 @@ final class BanManagerTest extends TestCase
         int $threshold = 3,
         int $period = 60,
         int $banSeconds = 3600,
+        ?FakeClock $fakeClock = null,
     ): array {
-        $config = new Config($inMemoryCache);
+        $config = new Config($inMemoryCache, clock: $fakeClock);
         $config->allow2ban->add(
             $ruleName,
             threshold: $threshold,
@@ -233,6 +234,56 @@ final class BanManagerTest extends TestCase
             $this->assertIsFloat($ban['expiresAt']);
             $this->assertGreaterThan($fakeClock->now(), $ban['expiresAt'], 'expiresAt should be in the future');
         }
+    }
+
+    // ── Registry TTL ────────────────────────────────────────────────────
+
+    public function testRegistryCacheKeyHasTtlMatchingLongestBan(): void
+    {
+        $fakeClock = new FakeClock();
+        $inMemoryCache = new InMemoryCache($fakeClock);
+        [$config, $firewall] = $this->setupAllow2Ban($inMemoryCache, threshold: 3, banSeconds: 60, fakeClock: $fakeClock);
+
+        $this->triggerAllow2Ban($firewall, '10.0.0.1', 3);
+
+        $registryKey = $config->cacheKeyGenerator()->banRegistryKey(BanType::Allow2Ban->value, 'test-rule');
+        $this->assertTrue($inMemoryCache->has($registryKey), 'Registry should exist while bans are active');
+
+        $fakeClock->advance(61);
+
+        $this->assertFalse(
+            $inMemoryCache->has($registryKey),
+            'Registry cache entry should expire together with the bans it tracks',
+        );
+    }
+
+    public function testLoadRegistryCoercesNonFloatValues(): void
+    {
+        $inMemoryCache = new InMemoryCache();
+        [$config, , $banManager] = $this->setupAllow2Ban($inMemoryCache);
+
+        // Simulate a foreign producer / tampered cache that stored numeric
+        // strings (or other unexpected types) under the registry key. Without
+        // the defensive coerce in loadRegistry(), saveRegistry()'s float-typed
+        // filter would TypeError on the next ban() for this rule.
+        $registryKey = $config->cacheKeyGenerator()->banRegistryKey(BanType::Allow2Ban->value, 'test-rule');
+        $future = (string) (microtime(true) + 3600);
+        $inMemoryCache->set($registryKey, json_encode([
+            '1.1.1.1' => $future,           // numeric string — coerce to float
+            '2.2.2.2' => ['nested' => 1],   // non-scalar value — drop
+            42 => 12345.0,                  // integer key — PHP coerces "42"
+                                            // back to int 42 on json_decode,
+                                            // so is_string($key) drops it
+        ], JSON_THROW_ON_ERROR));
+
+        $banManager->ban('test-rule', '3.3.3.3', 60);
+
+        // ban() succeeds without TypeError, and the registry now contains the
+        // coerced existing entry plus the newly-added one.
+        $bans = $banManager->listBans('test-rule');
+        $keys = array_column($bans, 'key');
+        sort($keys);
+        $this->assertSame(['3.3.3.3'], $keys, 'Coerced 1.1.1.1 has no matching primary ban so listBans drops it; 3.3.3.3 was just banned and survives.');
     }
 
     // ── Test 7: listBans filters expired bans ───────────────────────────
