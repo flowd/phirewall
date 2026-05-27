@@ -11,7 +11,7 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(RedisCache::class)]
 final class RedisCacheTest extends TestCase
 {
-    public function testIncrementReturnsZeroAndTriggersWarningWhenEvalThrows(): void
+    public function testIncrementRethrowsAndTriggersWarningWhenEvalThrows(): void
     {
         if (!interface_exists(\Predis\ClientInterface::class)) {
             $this->markTestSkipped('Predis is not installed.');
@@ -34,21 +34,27 @@ final class RedisCacheTest extends TestCase
             return false;
         });
 
+        $caught = null;
+
         try {
-            $result = $cache->increment('my-counter', 60);
+            $cache->increment('my-counter', 60);
+        } catch (\Throwable $throwable) {
+            $caught = $throwable;
         } finally {
             restore_error_handler();
         }
 
-        $this->assertSame(0, $result, 'increment() must fail open and return 0 on Redis error');
-        $this->assertCount(1, $capturedWarnings, 'Exactly one E_USER_WARNING should be triggered');
+        $this->assertInstanceOf(\RuntimeException::class, $caught, 'increment() must re-throw the underlying Redis error');
+        $this->assertSame('Connection refused', $caught->getMessage());
+
+        $this->assertCount(1, $capturedWarnings, 'Exactly one E_USER_WARNING should be emitted before the re-throw');
         $this->assertSame(E_USER_WARNING, $capturedWarnings[0]['errno']);
         $this->assertStringContainsString('RedisCache::increment()', $capturedWarnings[0]['errstr']);
         $this->assertStringContainsString('my-counter', $capturedWarnings[0]['errstr']);
         $this->assertStringContainsString('Connection refused', $capturedWarnings[0]['errstr']);
     }
 
-    public function testIncrementFailsOpenWhenErrorHandlerThrows(): void
+    public function testIncrementRethrowsEvenWhenErrorHandlerRejectsTheWarning(): void
     {
         if (!interface_exists(\Predis\ClientInterface::class)) {
             $this->markTestSkipped('Predis is not installed.');
@@ -61,17 +67,24 @@ final class RedisCacheTest extends TestCase
 
         $cache = new RedisCache($client);
 
-        // Simulate a framework error handler that converts warnings to exceptions
+        // Simulate a framework error handler that converts warnings to exceptions.
+        // The inner try/catch around trigger_error() in increment() must
+        // swallow that upgrade so the original Redis exception still surfaces.
         set_error_handler(static function (int $errno, string $errstr): bool {
             throw new \ErrorException($errstr, 0, $errno);
         });
 
+        $caught = null;
+
         try {
-            $result = $cache->increment('my-counter', 60);
+            $cache->increment('my-counter', 60);
+        } catch (\Throwable $throwable) {
+            $caught = $throwable;
         } finally {
             restore_error_handler();
         }
 
-        $this->assertSame(0, $result, 'increment() must fail open even when error handler throws');
+        $this->assertInstanceOf(\RuntimeException::class, $caught, 'increment() must surface the underlying Redis error even if the error handler is hostile');
+        $this->assertSame('Connection refused', $caught->getMessage());
     }
 }

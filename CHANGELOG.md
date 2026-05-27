@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **`BanManager` registry has a TTL and prunes expired entries on save** — Previously the per-rule ban registry (the audit-view list backing `listBans()` / `listRulesWithBans()`) was written without a TTL and grew monotonically across ban churn. Each save now applies a TTL equal to the longest-surviving entry's remaining lifetime, and `saveRegistry()` prunes already-expired entries before writing so the registry tracks live bans only. The registry is best-effort under concurrent `ban()` calls for the same rule (the primary ban cache key set by `ban()` is the source of truth and is not affected).
+- **`RedisCache::increment()` re-throws on Redis errors instead of returning `0`** — Previously any `\Throwable` from the underlying Predis client (connection refused, AUTH failure, Lua script error, network blip) was swallowed and `increment()` returned `0`, which every throttle / fail2ban / allow2ban rule then interpreted as "no hits this window". The method now re-throws the original `\Throwable` after emitting an `E_USER_WARNING` for diagnostic visibility, so `Middleware::process()` applies the configured `Config::failOpen` policy uniformly for Redis errors. Integrators relying on the prior fail-open behaviour can keep `Config::failOpen` at its current default of `true`; those wanting the failure to surface as a 5xx can set it to `false`.
 
 ## 0.4.0 - 2026-05-19
 
