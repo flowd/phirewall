@@ -38,7 +38,13 @@ final class InfrastructureBanListener
          */
         ?callable $keyToIp = null,
         /**
-         * Extract IP address from a ServerRequestInterface. Defaults to REMOTE_ADDR.
+         * Extract IP address from a ServerRequestInterface. Defaults to
+         * {@see KeyExtractors::ip()} (REMOTE_ADDR). Deployments behind a
+         * CDN, load balancer, or reverse proxy should pass
+         * `KeyExtractors::clientIp(new TrustedProxyResolver([...]))` so the
+         * infrastructure ban targets the originating client rather than the
+         * upstream proxy itself.
+         *
          * @param callable(ServerRequestInterface):?string $requestToIp
          */
         ?callable $requestToIp = null,

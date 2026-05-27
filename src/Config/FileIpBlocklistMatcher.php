@@ -31,9 +31,19 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
 
     private ?int $lastReloadAttempt = null;
 
+    /**
+     * @param (callable(ServerRequestInterface): ?string)|null $ipResolver
+     *                                                                     How to extract the client IP from a request. Defaults to
+     *                                                                     {@see KeyExtractors::ip()}, which reads `REMOTE_ADDR` verbatim and
+     *                                                                     does NOT consult proxy headers. Deployments behind a CDN, load
+     *                                                                     balancer, or reverse proxy should pass
+     *                                                                     `KeyExtractors::clientIp(new TrustedProxyResolver([...]))` instead,
+     *                                                                     otherwise every request appears to come from the proxy's address
+     *                                                                     and the blocklist will either fail to match real attackers or end
+     *                                                                     up banning the proxy itself.
+     */
     public function __construct(
         private readonly string $filePath,
-        /** @var callable(ServerRequestInterface):?string */
         ?callable $ipResolver = null,
         private readonly int $minReloadIntervalSec = 1,
     ) {
