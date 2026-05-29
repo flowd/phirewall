@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased — 0.5.0
 
+### Added
+
+- **`RequestContext::recordHit()`** — Counterpart of `recordFailure()` for allow2ban rules. Handlers can now signal handler-observable hits (e.g. an expensive operation completed, a webhook delivered a duplicate payload) and have them counted against an allow2ban threshold post-handler, mirroring the fail2ban-via-RequestContext pattern.
+
 ### Changed
+
+- **BREAKING — `RequestContext::recordFailure()` second parameter is now optional and the recorded type renamed** — When `$key` is omitted, the firewall extracts the discriminator from the matching rule's `keyExtractor` against the current request, so handlers no longer need to know whether the rule keys on IP, header, or anything else. `RecordedFailure` was renamed to `RecordedSignal` and gained a `BanType $banType` field so the same recorder can route fail2ban and allow2ban signals through the same channel. `RequestContext::getRecordedFailures()` is replaced by `getRecordedSignals()`; integrators iterating recorded signals manually (rare — `Middleware::process()` does this internally) need to update the method name and adapt to the new field on the returned objects. The existing explicit-key form (`recordFailure($name, $key)`) continues to work unchanged.
 
 - **`BanManager` registry has a TTL and prunes expired entries on save** — Previously the per-rule ban registry (the audit-view list backing `listBans()` / `listRulesWithBans()`) was written without a TTL and grew monotonically across ban churn. Each save now applies a TTL equal to the longest-surviving entry's remaining lifetime, and `saveRegistry()` prunes already-expired entries before writing so the registry tracks live bans only. The registry is best-effort under concurrent `ban()` calls for the same rule (the primary ban cache key set by `ban()` is the source of truth and is not affected).
 - **`RedisCache::increment()` re-throws on Redis errors instead of returning `0`** — Previously any `\Throwable` from the underlying Predis client (connection refused, AUTH failure, Lua script error, network blip) was swallowed and `increment()` returned `0`, which every throttle / fail2ban / allow2ban rule then interpreted as "no hits this window". The method now re-throws the original `\Throwable` after emitting an `E_USER_WARNING` for diagnostic visibility, so `Middleware::process()` applies the configured `Config::failOpen` policy uniformly for Redis errors. Integrators relying on the prior fail-open behaviour can keep `Config::failOpen` at its current default of `true`; those wanting the failure to surface as a 5xx can set it to `false`.

@@ -327,14 +327,16 @@ $config->fail2ban->add('login-ban', threshold: 5, period: 300, ban: 3600,
 );
 ```
 
-In your login handler, signal failures via the request context:
+In your login handler, signal failures via the request context. The second
+argument is optional — when omitted, the firewall reuses the rule's own
+`keyExtractor` against the current request:
 
 ```php
 use Flowd\Phirewall\Context\RequestContext;
 
 $context = $request->getAttribute(RequestContext::ATTRIBUTE_NAME);
 if (!$authenticated && $context instanceof RequestContext) {
-    $context->recordFailure('login-ban', $request->getServerParams()['REMOTE_ADDR'] ?? '');
+    $context->recordFailure('login-ban');
 }
 ```
 

@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Http;
 
 use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Context\RecordedSignal;
 use Flowd\Phirewall\Events\PerformanceMeasured;
 use Flowd\Phirewall\Http\Evaluator\Allow2BanEvaluator;
 use Flowd\Phirewall\Http\Evaluator\BlocklistEvaluator;
@@ -36,10 +37,13 @@ final readonly class Firewall
 
     private Fail2BanEvaluator $fail2BanEvaluator;
 
+    private Allow2BanEvaluator $allow2BanEvaluator;
+
     public function __construct(private Config $config)
     {
         $this->counter = new FixedWindowCounter($config->cache);
         $this->fail2BanEvaluator = new Fail2BanEvaluator();
+        $this->allow2BanEvaluator = new Allow2BanEvaluator();
 
         $this->evaluators = [
             new TrackEvaluator(),
@@ -47,7 +51,7 @@ final readonly class Firewall
             new BlocklistEvaluator(),
             $this->fail2BanEvaluator,
             new ThrottleEvaluator(),
-            new Allow2BanEvaluator(),
+            $this->allow2BanEvaluator,
         ];
     }
 
@@ -111,30 +115,69 @@ final readonly class Firewall
     }
 
     /**
-     * Process a single recorded fail2ban failure signal from the RequestContext.
+     * Process a single signal recorded by the handler via RequestContext.
      *
-     * Looks up the fail2ban rule by name, normalizes the discriminator key,
-     * checks if already banned, increments the fail counter, and bans + dispatches
-     * a Fail2BanBanned event if the threshold is reached.
+     * The signal carries its BanType (Fail2Ban / Allow2Ban) and either an
+     * explicit key or null, in which case the matching rule's keyExtractor
+     * is run on the current request. Unknown rule names are silently
+     * ignored (the handler may post signals defensively without checking
+     * config). Already-banned keys short-circuit so a second signal in the
+     * same window does not double-count or re-emit the event.
      */
-    public function processRecordedFailure(string $ruleName, string $key, ServerRequestInterface $serverRequest): void
+    public function processRecordedSignal(RecordedSignal $recordedSignal, ServerRequestInterface $serverRequest): void
     {
-        $rules = $this->config->fail2ban->rules();
-        $fail2BanRule = $rules[$ruleName] ?? null;
-        if ($fail2BanRule === null) {
+        match ($recordedSignal->banType) {
+            BanType::Fail2Ban => $this->processRecordedFail2BanSignal($recordedSignal, $serverRequest),
+            BanType::Allow2Ban => $this->processRecordedAllow2BanSignal($recordedSignal, $serverRequest),
+        };
+    }
+
+    private function processRecordedFail2BanSignal(
+        RecordedSignal $recordedSignal,
+        ServerRequestInterface $serverRequest,
+    ): void {
+        $rule = $this->config->fail2ban->rules()[$recordedSignal->ruleName] ?? null;
+        if ($rule === null) {
             return;
         }
 
-        $normalizedKey = $this->normalizeDiscriminator($key);
+        $rawKey = $recordedSignal->key ?? $rule->keyExtractor()->extract($serverRequest);
+        if ($rawKey === null || $rawKey === '') {
+            return;
+        }
 
-        $banKey = $this->config->cacheKeyGenerator()->fail2BanBanKey($ruleName, $normalizedKey);
+        $normalizedKey = $this->normalizeDiscriminator($rawKey);
+
+        $banKey = $this->config->cacheKeyGenerator()->fail2BanBanKey($recordedSignal->ruleName, $normalizedKey);
         if ($this->config->cache->has($banKey)) {
             return;
         }
 
-        $context = $this->createContext();
+        $this->fail2BanEvaluator->incrementAndBanIfNeeded($rule, $normalizedKey, $serverRequest, $this->createContext());
+    }
 
-        $this->fail2BanEvaluator->incrementAndBanIfNeeded($fail2BanRule, $normalizedKey, $serverRequest, $context);
+    private function processRecordedAllow2BanSignal(
+        RecordedSignal $recordedSignal,
+        ServerRequestInterface $serverRequest,
+    ): void {
+        $rule = $this->config->allow2ban->rules()[$recordedSignal->ruleName] ?? null;
+        if ($rule === null) {
+            return;
+        }
+
+        $rawKey = $recordedSignal->key ?? $rule->keyExtractor()->extract($serverRequest);
+        if ($rawKey === null || $rawKey === '') {
+            return;
+        }
+
+        $normalizedKey = $this->normalizeDiscriminator($rawKey);
+
+        $banKey = $this->config->cacheKeyGenerator()->allow2BanBanKey($recordedSignal->ruleName, $normalizedKey);
+        if ($this->config->cache->has($banKey)) {
+            return;
+        }
+
+        $this->allow2BanEvaluator->incrementAndBanIfNeeded($rule, $normalizedKey, $serverRequest, $this->createContext());
     }
 
     public function decide(ServerRequestInterface $serverRequest): FirewallResult
