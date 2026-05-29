@@ -69,6 +69,7 @@ php examples/01-basic-setup.php
 | [24-pdo-storage.php](24-pdo-storage.php) | PdoCache with SQLite, MySQL, PostgreSQL |
 | [25-track-threshold.php](25-track-threshold.php) | Track with optional threshold and thresholdReached flag |
 | [28-portable-config-signing.php](28-portable-config-signing.php) | Signed PortableConfig transport (HMAC-SHA256) with tamper detection |
+| [29-portable-config.php](29-portable-config.php) | PortableConfig as data: round-trip, signing, and database hot-reload |
 
 ## Optional Dependencies
 

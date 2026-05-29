@@ -107,6 +107,8 @@ The [examples/](examples/) folder contains runnable examples:
 | 25 | [track-threshold](examples/25-track-threshold.php) | Track with optional threshold and thresholdReached flag |
 | 26 | [psr17-factories](examples/26-psr17-factories.php) | PSR-17 response factory integration |
 | 27 | [request-context](examples/27-request-context.php) | RequestContext API for post-handler fail2ban signaling |
+| 28 | [portable-config-signing](examples/28-portable-config-signing.php) | HMAC-signed PortableConfig transport with tamper rejection |
+| 29 | [portable-config](examples/29-portable-config.php) | PortableConfig as data: round-trip, signing, and DB hot-reload |
 
 ## Features
 
@@ -287,6 +289,49 @@ $rules = \Flowd\Phirewall\Owasp\SecRuleLoader::fromDirectory('/path/to/crs-rules
 ```
 
 See [04-sql-injection-blocking.php](examples/04-sql-injection-blocking.php) and [05-xss-prevention.php](examples/05-xss-prevention.php) for complete examples.
+
+## Portable Config
+
+`PortableConfig` expresses a ruleset as plain, JSON-serializable data instead of PHP closures, so a configuration can be stored in a database, shipped through a config service, diffed in git, or shared between processes — then rebuilt into a live `Config` with `toConfig()`.
+
+```php
+use Flowd\Phirewall\Pattern\PatternKind;
+use Flowd\Phirewall\Portable\PortableConfig;
+
+$portable = PortableConfig::create()
+    ->setKeyPrefix('shop')
+    ->enableResponseHeaders()
+    ->safelist('health', PortableConfig::filterPathEquals('/health'))
+    ->blocklist('admin-probe', PortableConfig::filterPathPrefix('/wp-admin'))
+    ->blocklist('scanners', PortableConfig::filterKnownScanners())
+    ->blocklist('bad-net', PortableConfig::filterIp(['203.0.113.0/24']))
+    ->throttle('api', limit: 100, period: 60, key: PortableConfig::keyHashedHeader('X-Api-Key'), sliding: true)
+    ->allow2ban('volume-cap', threshold: 1000, period: 60, ban: 300, key: PortableConfig::keyIp())
+    ->fail2ban('login', threshold: 5, period: 60, ban: 900, filter: PortableConfig::filterHeaderEquals('X-Login-Failed', '1'), key: PortableConfig::keyIp())
+    ->patternBlocklist('threats', [
+        PortableConfig::patternEntry(PatternKind::CIDR, '10.66.0.0/16'),
+        PortableConfig::patternEntry(PatternKind::PATH_REGEX, '#/\.git(/|$)#'),
+    ]);
+
+// Round-trip as data …
+$array = $portable->toArray();
+$config = PortableConfig::fromArray($array)->toConfig($cache);
+```
+
+**Supported rule types:** safelists, blocklists, throttles (incl. `sliding`), fail2ban, allow2ban, tracks, and pattern backends. **Filters:** `all`, `path_equals`, `path_prefix`, `path_regex`, `method_equals`, `method_in`, `header_equals`, `header_present`, `header_regex`, plus the matcher-backed `ip`, `known_scanners`, and `suspicious_headers`. **Key extractors:** `ip`, `method`, `path`, `header`, `hashed_header`.
+
+### Signed transport
+
+When the serialized config is read back from storage you do not fully control (a shared filesystem, S3, etcd, a config service), sign it so tampering — e.g. an injected allow-all safelist — is rejected before the rules are applied:
+
+```php
+$signed   = $portable->toSignedJson($secretKey);          // HMAC-SHA256 envelope
+$restored = PortableConfig::loadSigned($signed, $secretKey); // throws on tamper / wrong key
+```
+
+Signing keys must be at least 16 bytes (32 random bytes recommended). See [28-portable-config-signing.php](examples/28-portable-config-signing.php) and [29-portable-config.php](examples/29-portable-config.php) (round-trip, signing, and a database hot-reload scenario).
+
+> **Not portable by design:** trusted-bot reverse-DNS matchers, OWASP CRS rulesets, file-backed lists, and closure-driven dynamic throttle limits are not serializable and are intentionally excluded from the schema.
 
 ## Real-World Recipes
 
