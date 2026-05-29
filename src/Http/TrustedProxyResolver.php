@@ -20,8 +20,22 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final readonly class TrustedProxyResolver
 {
+    /**
+     * RFC 7239 `for=` parameter extractor. Matches the parameter at the start of
+     * a forwarded-element or after `;`/space, with optional quoting and optional
+     * IPv6 brackets. The captured value still passes through normalizeIp() for
+     * bracket / port / validation. The character class excludes the parameter
+     * separators (`;`/`,`), the quote character, and all whitespace, so a
+     * malformed element like `for="1.2.3.4 ;proto=https` won't over-capture
+     * past token boundaries.
+     */
+    private const FORWARDED_FOR_PATTERN = '/(?:^|;| )for=\"?\[?([^;,\"\s]+)]?\"?/i';
+
     /** @var list<string> */
     private array $normalizedAllowedHeaders;
+
+    /** @var list<string> */
+    private array $normalizedTrustedProxies;
 
     private int $normalizedMaxChainEntries;
 
@@ -35,6 +49,10 @@ final readonly class TrustedProxyResolver
         private int $maxChainEntries = 50,
     ) {
         $this->normalizedAllowedHeaders = array_values(array_map('strtolower', $this->allowedHeaders));
+        $this->normalizedTrustedProxies = array_values(array_filter(
+            array_map('trim', $this->trustedProxies),
+            static fn(string $proxy): bool => $proxy !== '',
+        ));
         $this->normalizedMaxChainEntries = max(1, $this->maxChainEntries);
     }
 
@@ -78,87 +96,101 @@ final readonly class TrustedProxyResolver
     }
 
     /**
+     * Walks the configured `allowedHeaders` in order and returns the first
+     * non-empty chain. Unknown header names are silently ignored — only
+     * `X-Forwarded-For` and `Forwarded` are recognised.
+     *
      * @return list<string>
      */
     private function extractChain(ServerRequestInterface $serverRequest): array
     {
-        $ips = [];
-
         foreach ($this->normalizedAllowedHeaders as $normalizedAllowedHeader) {
-            if ($normalizedAllowedHeader === 'x-forwarded-for') {
-                $xff = $serverRequest->getHeaderLine('X-Forwarded-For');
-                if ($xff !== '') {
-                    $parts = array_map('trim', explode(',', $xff));
-                    foreach ($parts as $part) {
-                        if ($part === '') {
-                            continue;
-                        }
+            $chain = match ($normalizedAllowedHeader) {
+                'x-forwarded-for' => $this->extractFromXForwardedFor($serverRequest),
+                'forwarded' => $this->extractFromForwarded($serverRequest),
+                default => [],
+            };
 
-                        // Remove quotes and brackets if any
-                        $part = trim($part, " \"'[]");
-                        // Strip port for IPv4 host:port (avoid breaking IPv6 addresses)
-                        if (preg_match('/^[0-9.]+:\\d+$/', $part) === 1) {
-                            $part = explode(':', $part, 2)[0];
-                        }
-
-                        $ips[] = $part;
-                        if (count($ips) >= $this->normalizedMaxChainEntries) {
-                            return $ips;
-                        }
-                    }
-
-                    return $ips;
-                }
-            } elseif ($normalizedAllowedHeader === 'forwarded') {
-                $fwd = $serverRequest->getHeaderLine('Forwarded');
-                if ($fwd !== '') {
-                    // Split by commas into elements
-                    $elements = array_map('trim', explode(',', $fwd));
-                    foreach ($elements as $element) {
-                        if ($element === '') {
-                            continue;
-                        }
-
-                        // Find for= token
-                        if (preg_match('/(?:^|;| )for=\"?\[?([^;,\"]+)]?\"?/i', $element, $m) === 1) {
-                            $candidate = $m[1];
-                            $candidate = trim($candidate, " \"'[]");
-                            if (preg_match('/^[0-9.]+:\\d+$/', $candidate) === 1) {
-                                $candidate = explode(':', $candidate, 2)[0];
-                            }
-
-                            $ips[] = $candidate;
-                            if (count($ips) >= $this->normalizedMaxChainEntries) {
-                                return $ips;
-                            }
-                        }
-                    }
-
-                    return $ips;
-                }
+            if ($chain !== []) {
+                return $chain;
             }
         }
 
         return [];
     }
 
+    /**
+     * @return list<string>
+     */
+    private function extractFromXForwardedFor(ServerRequestInterface $serverRequest): array
+    {
+        $header = $serverRequest->getHeaderLine('X-Forwarded-For');
+        if ($header === '') {
+            return [];
+        }
+
+        // Keep only the rightmost N entries. The XFF chain is appended by each
+        // proxy hop, so the entries closest to us — the ones added by trusted
+        // proxies — sit at the right end. Truncating from the left preserves
+        // that authoritative tail when the header carries more than
+        // `maxChainEntries` values.
+        return array_slice($this->splitElements($header), -$this->normalizedMaxChainEntries);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function extractFromForwarded(ServerRequestInterface $serverRequest): array
+    {
+        $header = $serverRequest->getHeaderLine('Forwarded');
+        if ($header === '') {
+            return [];
+        }
+
+        // A chain entry here is a `for=` value, not a forwarded-element, so
+        // slicing elements upfront would drop valid `for=` entries when
+        // trailing elements are `by=`-only. Walk right-to-left and stop once
+        // `maxChainEntries` `for=` matches are collected — this preserves the
+        // rightmost-N semantics while bounding regex work under header stuffing.
+        $ips = [];
+        $elements = $this->splitElements($header);
+        for ($i = count($elements) - 1; $i >= 0; --$i) {
+            if (preg_match(self::FORWARDED_FOR_PATTERN, $elements[$i], $matches) === 1) {
+                $ips[] = $matches[1];
+                if (count($ips) >= $this->normalizedMaxChainEntries) {
+                    break;
+                }
+            }
+        }
+
+        return array_reverse($ips);
+    }
+
+    /**
+     * Split a comma-separated header value, trim parts, drop empties.
+     *
+     * @return list<string>
+     */
+    private function splitElements(string $headerValue): array
+    {
+        return array_values(array_filter(
+            array_map('trim', explode(',', $headerValue)),
+            static fn(string $part): bool => $part !== '',
+        ));
+    }
+
     private function isTrusted(string $ip): bool
     {
-        foreach ($this->trustedProxies as $trustedProxy) {
-            $trustedProxy = trim($trustedProxy);
-            if ($trustedProxy === '') {
-                continue;
-            }
-
-            if (str_contains($trustedProxy, '/')) {
-                if (CidrMatcher::containsIp($ip, $trustedProxy)) {
+        foreach ($this->normalizedTrustedProxies as $normalizedTrustedProxy) {
+            if (str_contains($normalizedTrustedProxy, '/')) {
+                if (CidrMatcher::containsIp($ip, $normalizedTrustedProxy)) {
                     return true;
                 }
 
                 continue;
             }
 
-            if ($ip === $trustedProxy) {
+            if ($ip === $normalizedTrustedProxy) {
                 return true;
             }
         }
@@ -168,22 +200,40 @@ final readonly class TrustedProxyResolver
 
     private function normalizeIp(string $ip): ?string
     {
-        $ip = trim($ip);
+        // Strip whitespace, surrounding quotes, and IPv6 brackets. Bracket
+        // stripping must precede validation so plain `[2001:db8::1]` passes
+        // FILTER_VALIDATE_IP, and must precede the IPv4:port check below so
+        // the regex sees a bare host.
+        $ip = trim($ip, " \t\n\r\0\x0B\"'[]");
         if ($ip === '') {
             return null;
         }
 
-        // Remove surrounding brackets for IPv6
-        $ip = trim($ip, '[]');
-        // Strip IPv4 port suffix if present
+        // Strip IPv4 port suffix if present (IPv6 addresses contain colons and
+        // are skipped by this pattern).
         if (preg_match('/^[0-9.]+:\\d+$/', $ip) === 1) {
             $ip = explode(':', $ip, 2)[0];
         }
 
-        if (filter_var($ip, FILTER_VALIDATE_IP)) {
-            return $ip;
+        if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+            return null;
         }
 
-        return null;
+        // Canonicalise IPv4-mapped IPv6 ("::ffff:1.2.3.4", "::ffff:c000:0201")
+        // to the bare IPv4 form so the same client doesn't end up in two
+        // throttle / fail2ban / allow2ban buckets via dual representation.
+        $packed = inet_pton($ip);
+        if (
+            $packed !== false
+            && strlen($packed) === 16
+            && str_starts_with($packed, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff")
+        ) {
+            $ipv4 = inet_ntop(substr($packed, 12));
+            if ($ipv4 !== false) {
+                return $ipv4;
+            }
+        }
+
+        return $ip;
     }
 }
