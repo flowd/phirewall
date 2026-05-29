@@ -72,5 +72,10 @@
     "allow-plugins": {
       "infection/extension-installer": false
     }
+  },
+  "extra": {
+    "branch-alias": {
+      "dev-main": "0.4.x-dev"
+    }
   }
 }
