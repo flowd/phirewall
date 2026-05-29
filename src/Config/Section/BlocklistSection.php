@@ -107,7 +107,7 @@ final class BlocklistSection
         }
 
         $resolver = $this->config?->getIpResolver();
-        return $this->addRule(new BlocklistRule($name, new SnapshotBlocklistMatcher($this->patternBackends[$backendName], $resolver)));
+        return $this->addRule(new BlocklistRule($name, new SnapshotBlocklistMatcher($this->patternBackends[$backendName], $resolver, $backendName)));
     }
 
     public function filePatternBackend(string $name, string $filePath): FilePatternBackend

@@ -26,8 +26,35 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
     public function __construct(
         private readonly PatternBackendInterface $patternBackend,
         ?callable $ipResolver = null,
+        private readonly string $backendName = '',
     ) {
         $this->ipExtractor = $ipResolver ?? KeyExtractors::ip();
+    }
+
+    /**
+     * Name of the pattern backend this matcher reads from, as registered on the
+     * Config. Empty when built from a bare backend instance with no registered
+     * name. {@see \Flowd\Phirewall\Config::compose()} uses it to re-point the
+     * matcher at the winning backend when layers override a backend by name.
+     */
+    public function backendName(): string
+    {
+        return $this->backendName;
+    }
+
+    /**
+     * Return an equivalent matcher reading from a different backend instance,
+     * preserving the IP resolver and backend name. Lets composition apply a
+     * later layer's backend override to rules carried over from earlier layers.
+     * Returns $this unchanged when the backend is already identical.
+     */
+    public function withBackend(PatternBackendInterface $patternBackend): self
+    {
+        if ($patternBackend === $this->patternBackend) {
+            return $this;
+        }
+
+        return new self($patternBackend, $this->ipExtractor, $this->backendName);
     }
 
     public function match(ServerRequestInterface $serverRequest): MatchResult

@@ -109,6 +109,7 @@ The [examples/](examples/) folder contains runnable examples:
 | 27 | [request-context](examples/27-request-context.php) | RequestContext API for post-handler fail2ban signaling |
 | 28 | [portable-config-signing](examples/28-portable-config-signing.php) | HMAC-signed PortableConfig transport with tamper rejection |
 | 29 | [portable-config](examples/29-portable-config.php) | PortableConfig as data: round-trip, signing, and DB hot-reload |
+| 30 | [config-composition](examples/30-config-composition.php) | Layer vendor + environment + tenant + deployment Configs into one |
 
 ## Features
 
@@ -331,7 +332,36 @@ $restored = PortableConfig::loadSigned($signed, $secretKey); // throws on tamper
 
 Signing keys must be at least 16 bytes (32 random bytes recommended). See [28-portable-config-signing.php](examples/28-portable-config-signing.php) and [29-portable-config.php](examples/29-portable-config.php) (round-trip, signing, and a database hot-reload scenario).
 
+> **Tip:** Stack several PortableConfigs (vendor baseline, environment, tenant, …) into one effective ruleset with [Config composition / layering](#config-composition--layering).
+
 > **Not portable by design:** trusted-bot reverse-DNS matchers, OWASP CRS rulesets, file-backed lists, and closure-driven dynamic throttle limits are not serializable and are intentionally excluded from the schema.
+
+## Config composition / layering
+
+Real deployments rarely have a single source of firewall rules. A vendor ships a baseline, an environment adds its own rules, a tenant overrides a few, and a single deployment applies a last-minute tweak. `Config::compose()` (and the fluent `$base->mergedWith(...)`) merges these layers into one effective `Config` — **without mutating any input** — so each layer can be owned and shipped independently (often as a [`PortableConfig`](#portable-config)).
+
+```php
+use Flowd\Phirewall\Config;
+
+// Each layer is built independently — frequently rebuilt from a PortableConfig.
+$vendorBaseline    = $vendorPortable->toConfig($cache);   // shared product defaults
+$environmentLayer  = $envPortable->toConfig($cache);      // staging vs. production
+$tenantLayer       = $tenantPortable->toConfig($cache);   // per-customer policy
+$deploymentTweak   = (new Config($cache))->setFailOpen(false);
+
+// Later layers win. Equivalent: Config::compose($vendorBaseline, $environmentLayer, …).
+$effective = $vendorBaseline->mergedWith($environmentLayer, $tenantLayer, $deploymentTweak);
+```
+
+Merge semantics (overlays applied left to right, so **later sources win**):
+
+- **Rules merge by name** within each section (safelists, blocklists, throttles, fail2ban, allow2ban, tracks). When the same rule name appears in more than one layer the later rule **replaces** the earlier one in place — base ordering is preserved and genuinely new rules are appended. The result is a union, never duplicates.
+- **Pattern backends** (behind pattern blocklists) merge by name the same way.
+- **`enabled`** uses **strict last-layer-wins** (fail-safe): the composed value is the last layer's `enabled`, so an explicit `enable()` / `disable()` always takes effect and an ambiguous composition is never left silently disabled — the one exception to "last explicit value wins".
+- **Other scalar / object options** (`keyPrefix`, `failOpen`, the response-header toggles, the IP resolver, the discriminator normalizer, the response factories) follow **last explicit value wins**: the value comes from the last layer whose value differs from the field default, so a layer that simply left an option alone never clobbers an explicit choice from an earlier layer. Note: IP-aware matchers capture their resolver when the rule is built, so composing a different IP resolver does **not** rewrite IP rules carried over from earlier layers.
+- **Infrastructure** — the PSR-16 cache, PSR-14 event dispatcher, and clock — is inherited from the base layer.
+
+See [30-config-composition.php](examples/30-config-composition.php) for a full vendor → environment → tenant → deployment walkthrough.
 
 ## Real-World Recipes
 
