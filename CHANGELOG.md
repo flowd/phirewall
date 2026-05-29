@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Observability examples extract a curated subset instead of dumping the event** — `examples/09-observability-monolog.php` previously called `get_object_vars($event)` and passed the result to Monolog, which serialised the embedded `ServerRequest` (every header + parsed body) into the log sink. The example now uses an explicit `summarize()` helper that extracts only the rule name, method, path, remote address, and a short sha256-prefix fingerprint of the discriminator key. `examples/10-observability-opentelemetry.php` switched from `phirewall.key` to `phirewall.key_fingerprint` for the same reason.
 - **`TrustedProxyResolver` keeps the rightmost `maxChainEntries` of an oversized chain, not the leftmost** — When `X-Forwarded-For` (or `Forwarded`) carried more entries than `maxChainEntries` (default 50), the parser truncated from the left and returned early, dropping the entries closest to the receiver. Because those rightmost entries are the ones added by proxies along the request path, the truncation could discard the authoritative tail in favour of arbitrary leading content. The parser now slices to the last N entries before walking the chain right-to-left.
 
+### Fixed
+
+- **`TrustedProxyResolver` resolves bracketed IPv6+port forms in `X-Forwarded-For` and `Forwarded`** — Entries like `[2001:db8::1]:443` (the form RFC 7239 mandates for IPv6 in `Forwarded for=`, and one some proxies emit in XFF) were silently dropped: bracket-stripping left `2001:db8::1]:443`, which failed `FILTER_VALIDATE_IP`, and the resolver fell back to `REMOTE_ADDR`. `normalizeIp()` now extracts the address from `[…](:port)?` before validating, and the `Forwarded for=` regex no longer over-captures the trailing `]`.
+
 ## 0.4.0 - 2026-05-19
 
 ### Changed
