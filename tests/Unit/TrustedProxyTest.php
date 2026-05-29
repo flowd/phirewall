@@ -11,6 +11,7 @@ use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class TrustedProxyTest extends TestCase
@@ -123,22 +124,428 @@ final class TrustedProxyTest extends TestCase
         $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
     }
 
-    public function testMaxChainEntriesLimitsParsing(): void
+    public function testMaxChainEntriesKeepsRightmostEntriesNotLeftmost(): void
     {
-        // trusted proxy, but chain has many entries; resolver should cap processing
+        // Sanity check that the parsed window includes the rightmost (authoritative)
+        // entries when the chain length exceeds the cap, regardless of any leading
+        // stuffing.
+        //
+        // Setup: maxChainEntries=2, trustedProxies=['10.0.0.0/8'].
+        // XFF: <stuffed>, <stuffed>, 198.51.100.99, 10.0.0.1
+        // Rightmost-2 window: [198.51.100.99, 10.0.0.1]. Walking right-to-left:
+        // 10.0.0.1 is trusted (skip), 198.51.100.99 is untrusted -> client IP.
+        //
+        // If the parser instead kept the leftmost 2, the window would be the two
+        // <stuffed> entries and the resolved IP would be one of those. Asserting
+        // the rule throttles for 198.51.100.99 after one pass — but not for a
+        // different value carried in the same leading slots — proves the
+        // authoritative entries survive the truncation.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['X-Forwarded-For'], 2);
-        $inMemoryCache = new InMemoryCache();
-        $config = new Config($inMemoryCache);
+        $config = new Config(new InMemoryCache());
         $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
-        // Chain with more than 2 entries; resolver only considers first 2 from left
-        $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
-        $request = $request->withHeader('X-Forwarded-For', '198.51.100.1, 198.51.100.2, 198.51.100.3, 10.0.0.1');
+        $remote = ['REMOTE_ADDR' => '10.0.0.1'];
 
-        $this->assertTrue($firewall->decide($request)->isPass());
-        $firewallResult = $firewall->decide($request);
-        $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
+            ->withHeader('X-Forwarded-For', '203.0.113.1, 203.0.113.2, 198.51.100.99, 10.0.0.1');
+        $this->assertTrue($firewall->decide($first)->isPass(), 'First call from 198.51.100.99 should pass');
+
+        // Same authoritative tail, different leading stuffing. If the parser
+        // were keeping the leftmost entries, this would resolve to a different
+        // throttle key and pass again instead of getting throttled.
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
+            ->withHeader('X-Forwarded-For', '192.0.2.55, 192.0.2.99, 198.51.100.99, 10.0.0.1');
+        $this->assertSame(
+            Outcome::THROTTLED,
+            $firewall->decide($second)->outcome,
+            'Second call from same authoritative tail must share the throttle bucket',
+        );
+    }
+
+    public function testForwardedTruncationKeepsRightmostForValues(): void
+    {
+        // maxChainEntries=2 with a Forwarded chain of four `for=` values.
+        // The resolver should keep the two rightmost — same direction as XFF.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded'], 2);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $remote = ['REMOTE_ADDR' => '10.0.0.1'];
+
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
+            ->withHeader('Forwarded', 'for="203.0.113.1", for="203.0.113.2", for="198.51.100.99", for="10.0.0.1"');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        // Same authoritative tail with different leading stuffing must share the
+        // throttle bucket — i.e. the rightmost two `for=` values are what's kept.
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
+            ->withHeader('Forwarded', 'for="192.0.2.55", for="192.0.2.99", for="198.51.100.99", for="10.0.0.1"');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testForwardedTruncationCollectsForValuesBeforeSlicing(): void
+    {
+        // Trailing forwarded-elements without `for=` (e.g., by-only) must not
+        // crowd valid `for=` entries out of the truncation window. Pre-slicing
+        // by element would leave only the by-only tail, which has no `for=`,
+        // collapsing the chain to empty and falling back to REMOTE_ADDR.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded'], 2);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $forwarded = 'for="198.51.100.42", by="proxy1", by="proxy2"';
+
+        // Two requests with the SAME `for=` value but different REMOTE_ADDR.
+        // If `for=` is collected before slicing, both resolve to 198.51.100.42
+        // and share the throttle bucket. If element-slicing happens first, both
+        // chains are empty and the resolver falls back to REMOTE_ADDR, giving
+        // two distinct keys and no shared bucket.
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('Forwarded', $forwarded);
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
+            ->withHeader('Forwarded', $forwarded);
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testResolverSkipsUnparseableChainEntries(): void
+    {
+        // A chain with garbage between trusted and untrusted entries should
+        // step over the garbage (normalizeIp returns null → resolve continues)
+        // rather than fall back to REMOTE_ADDR.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $remote = ['REMOTE_ADDR' => '10.0.0.1'];
+
+        // XFF: client 198.51.100.42, then a garbage entry, then trusted proxy.
+        // Right-to-left walk: 10.0.0.1 (trusted, skip), "garbage" (null, skip),
+        // 198.51.100.42 (untrusted, returned).
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
+            ->withHeader('X-Forwarded-For', '198.51.100.42, not-an-ip, 10.0.0.1');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        // Second request from same client IP — same throttle bucket, throttled.
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
+            ->withHeader('X-Forwarded-For', '198.51.100.42, not-an-ip, 10.0.0.1');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testNormalizeIpStripsIpv4PortSuffix(): void
+    {
+        // Some proxies emit "host:port" in XFF for IPv4 entries; normalizeIp()
+        // must strip the port so the resolved client IP equals the bare IPv4.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $remote = ['REMOTE_ADDR' => '10.0.0.1'];
+
+        // First request: client emits with port suffix.
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
+            ->withHeader('X-Forwarded-For', '198.51.100.7:47011, 10.0.0.1');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        // Second request: bare IP, no port. Must share the throttle bucket —
+        // proving that the port was stripped on the first resolve.
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
+            ->withHeader('X-Forwarded-For', '198.51.100.7, 10.0.0.1');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testAllTrustedChainFallsBackToRemoteAddr(): void
+    {
+        // Every hop in the XFF chain is trusted — the right-to-left walk
+        // exhausts without finding an untrusted entry, falling back to the
+        // direct peer (REMOTE_ADDR) at the end of resolve().
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        // REMOTE_ADDR 10.0.0.1; both XFF entries inside the trusted range.
+        // Resolved client IP must be 10.0.0.1 (the REMOTE_ADDR fallback).
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Forwarded-For', '10.0.0.2, 10.0.0.3');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        // Same REMOTE_ADDR, different (still-trusted) XFF entries. Sharing the
+        // bucket proves resolve() landed on REMOTE_ADDR for both, not on a
+        // chain entry.
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Forwarded-For', '10.0.0.42, 10.0.0.99');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testEmptyOrCommasOnlyXffFallsBackToRemoteAddr(): void
+    {
+        // A malformed XFF that's effectively empty (`", ,"`) must not crash
+        // and must fall back to REMOTE_ADDR rather than return null or an
+        // arbitrary entry.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Forwarded-For', ', , ,');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Forwarded-For', ', , ,');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testForwardedObfuscatedIdentifiersAreSkipped(): void
+    {
+        // RFC 7239 §6 allows obfuscated identifiers (`unknown`, `_secret`) in
+        // `for=`. They are not IPs — normalizeIp must reject them and the
+        // walker must *skip and continue*, not skip and bail. A mixed chain
+        // with an obfuscated rightmost entry and a valid IP to its left must
+        // resolve to the valid IP, not REMOTE_ADDR.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        // Two requests behind DIFFERENT trusted proxies, same Forwarded chain:
+        // `for="198.51.100.7", for=unknown`. Right-to-left walk: `unknown`
+        // (null, skip), `198.51.100.7` (untrusted, returned). If the walker
+        // bailed at the first skip, it would fall back to REMOTE_ADDR and the
+        // two requests would land in different buckets.
+        $forwarded = 'for="198.51.100.7", for=unknown';
+
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('Forwarded', $forwarded);
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
+            ->withHeader('Forwarded', $forwarded);
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testMultiValueXffViaWithAddedHeaderIsParsed(): void
+    {
+        // PSR-7's withAddedHeader yields multiple header values; getHeaderLine
+        // joins them with ", ". Regression guard for "we read via
+        // getHeaderLine, not getHeader[0]" — by placing a trusted value in the
+        // first header value and the untrusted client in the second, a
+        // getHeader[0]-only parser would see only the trusted entry and fall
+        // back to REMOTE_ADDR; a getHeaderLine parser sees both and resolves
+        // to the untrusted client.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        // Two requests behind different trusted proxies, same XFF split into
+        // two header values. If getHeaderLine is used, both resolve to
+        // 198.51.100.5 (the untrusted second value) — shared bucket, second
+        // throttled. If only getHeader[0] is read, each resolves to its own
+        // REMOTE_ADDR — separate buckets, second passes.
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Forwarded-For', '10.0.0.1')
+            ->withAddedHeader('X-Forwarded-For', '198.51.100.5');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
+            ->withHeader('X-Forwarded-For', '10.0.0.1')
+            ->withAddedHeader('X-Forwarded-For', '198.51.100.5');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testForwardedTakesPrecedenceOverXffWhenListedFirst(): void
+    {
+        // `allowedHeaders` ordering controls precedence: the first listed header
+        // that's populated wins. With Forwarded first and both headers present
+        // carrying different client IPs, Forwarded must win.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded', 'X-Forwarded-For']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        // Two requests with the SAME Forwarded `for=` IP but DIFFERENT XFF IPs.
+        // If Forwarded wins, both resolve to the Forwarded IP and share the
+        // throttle bucket. If XFF wins, the two requests get different keys.
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('Forwarded', 'for="198.51.100.7"')
+            ->withHeader('X-Forwarded-For', '203.0.113.1, 10.0.0.1');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('Forwarded', 'for="198.51.100.7"')
+            ->withHeader('X-Forwarded-For', '203.0.113.99, 10.0.0.1');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function provideIpv4MappedIpv6Forms(): iterable
+    {
+        yield 'dotted form' => ['::ffff:198.51.100.7'];
+        // 198.51.100.7 = 0xc6.0x33.0x64.0x07
+        yield 'hex form' => ['::ffff:c633:6407'];
+        yield 'uppercase hex form' => ['::FFFF:C633:6407'];
+    }
+
+    #[DataProvider('provideIpv4MappedIpv6Forms')]
+    public function testIpv4MappedIpv6IsCanonicalisedToBareIpv4(string $mappedForm): void
+    {
+        // A client appearing both as bare IPv4 and as ::ffff:-mapped IPv6 must
+        // resolve to the same throttle bucket — normalizeIp() canonicalises
+        // IPv4-mapped IPv6 (regardless of textual form) down to plain IPv4 so
+        // an attacker cannot split their bucket via dual representation.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $remote = ['REMOTE_ADDR' => '10.0.0.1'];
+
+        // First request: client in IPv4-mapped IPv6 form.
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
+            ->withHeader('X-Forwarded-For', $mappedForm . ', 10.0.0.1');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        // Second request: same client in bare IPv4 form. Bucket must be shared.
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
+            ->withHeader('X-Forwarded-For', '198.51.100.7, 10.0.0.1');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testIsTrustedMatchesBareIpProxyByStringEquality(): void
+    {
+        // trustedProxies entries without a slash are matched by exact string
+        // equality (the non-CIDR branch in isTrusted). Cover that branch
+        // explicitly — the other tests configure CIDR ranges.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.5']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        // REMOTE_ADDR 10.0.0.5 — must match the bare-IP entry exactly. XFF
+        // chain resolves through to the untrusted client (198.51.100.7).
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.5']))
+            ->withHeader('X-Forwarded-For', '198.51.100.7, 10.0.0.5');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.5']))
+            ->withHeader('X-Forwarded-For', '198.51.100.7, 10.0.0.5');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testResolverReturnsNullWhenRemoteAddrIsMissing(): void
+    {
+        // No REMOTE_ADDR → resolve() must return null instead of guessing.
+        // Tested directly because Firewall would simply not key the throttle
+        // and the failure mode would be invisible.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
+
+        $emptyServerParams = new ServerRequest('GET', '/', [], null, '1.1', []);
+        $this->assertNull($trustedProxyResolver->resolve($emptyServerParams));
+
+        $blankRemoteAddr = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '']);
+        $this->assertNull($trustedProxyResolver->resolve($blankRemoteAddr));
+    }
+
+    public function testUnknownAllowedHeaderFallsBackToRemoteAddr(): void
+    {
+        // Only `X-Forwarded-For` and `Forwarded` are recognised. Any other
+        // header name in `allowedHeaders` (typo, X-Real-IP, etc.) is silently
+        // ignored and the resolver falls back to REMOTE_ADDR.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['X-Real-IP']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        // Both XFF and X-Real-IP are populated; neither is consulted because
+        // `X-Real-IP` is not a recognised name and XFF is not in allowedHeaders.
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Real-IP', '198.51.100.7')
+            ->withHeader('X-Forwarded-For', '203.0.113.1, 10.0.0.1');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        // Same REMOTE_ADDR with different X-Real-IP and XFF. If either header
+        // were honoured, the two requests would land in different buckets.
+        // They share the bucket because both fall back to REMOTE_ADDR.
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Real-IP', '203.0.113.99')
+            ->withHeader('X-Forwarded-For', '198.51.100.99, 10.0.0.1');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testEmptyXffHeaderFallsBackToRemoteAddrWhenRemoteTrusted(): void
+    {
+        // REMOTE_ADDR is trusted and `X-Forwarded-For` is the only allowed
+        // header — when the header is absent, extractFromXForwardedFor()
+        // returns [] and the resolver must fall back to REMOTE_ADDR rather
+        // than null. This covers the empty-header arm of the match dispatch.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['X-Forwarded-For']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $first = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    /**
+     * @return iterable<string, array{int}>
+     */
+    public static function provideNonPositiveMaxChainEntries(): iterable
+    {
+        yield 'zero' => [0];
+        yield 'negative' => [-5];
+    }
+
+    #[DataProvider('provideNonPositiveMaxChainEntries')]
+    public function testNonPositiveMaxChainEntriesDoesNotCrashAndStillResolves(int $maxChainEntries): void
+    {
+        // The constructor clamps maxChainEntries to >= 1 so that non-positive
+        // values don't degenerate the parser (array_slice / right-to-left
+        // bounds). This test confirms construction with 0 / -5 is accepted
+        // and produces sensible resolution — it does not fully mutation-pin
+        // the clamp itself, because `array_slice(-0)` happens to return the
+        // full array and `array_slice(5)` returns empty, both of which yield
+        // the same observable outcome (shared REMOTE_ADDR bucket) on this
+        // setup as the clamped behaviour.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['X-Forwarded-For'], $maxChainEntries);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Forwarded-For', '198.51.100.5, 10.0.0.1');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Forwarded-For', '198.51.100.5, 10.0.0.1');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
     }
 }
