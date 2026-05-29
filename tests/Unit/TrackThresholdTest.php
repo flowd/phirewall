@@ -363,10 +363,10 @@ final class TrackThresholdTest extends TestCase
         $this->assertArrayHasKey('limit', $trackEntry, 'Limit key should be present in schema');
         $this->assertSame(10, $trackEntry['limit'] ?? null);
 
-        // Round-trip: export -> import -> toConfig
+        // Round-trip: export -> import -> Config::combine()
         $restored = PortableConfig::fromArray($schema);
         $events = $this->createCollectingDispatcher();
-        $config = $restored->toConfig(new InMemoryCache(), $events);
+        $config = (new Config(new InMemoryCache(), $events))->combine($restored);
 
         $rules = $config->tracks->rules();
         $this->assertArrayHasKey('portable-tracked', $rules);
@@ -390,7 +390,7 @@ final class TrackThresholdTest extends TestCase
         $this->assertArrayNotHasKey('limit', $schema['tracks'][0]);
 
         $restored = PortableConfig::fromArray($schema);
-        $config = $restored->toConfig(new InMemoryCache());
+        $config = (new Config(new InMemoryCache()))->combine($restored);
         $this->assertNull($config->tracks->rules()['no-limit']->limit());
     }
 

@@ -18,6 +18,7 @@ use Flowd\Phirewall\Config\Section\ThrottleSection;
 use Flowd\Phirewall\Config\Section\TrackSection;
 use Flowd\Phirewall\Pattern\PatternBackendInterface;
 use Flowd\Phirewall\Pattern\SnapshotBlocklistMatcher;
+use Flowd\Phirewall\Portable\PortableConfig;
 use Flowd\Phirewall\Store\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -253,6 +254,35 @@ final class Config
     public function mergedWith(self ...$overlays): self
     {
         return self::compose($this, ...$overlays);
+    }
+
+    /**
+     * Combine this Config with one or more {@see PortableConfig}s and return a
+     * NEW composed Config, leaving this instance untouched.
+     *
+     * Each PortableConfig is materialized on THIS Config's cache (and event
+     * dispatcher / clock) — the portable/preset layer never receives a cache
+     * itself, so shareable rule data stays decoupled from the stateful counter
+     * store. The receiver is the base and each PortableConfig is an overlay
+     * applied left to right, so later arguments win on a name clash — the same
+     * precedence as {@see compose()} / {@see mergedWith()}.
+     *
+     * Each materialized layer inherits the receiver's `enabled` state: a
+     * PortableConfig cannot express `enabled`, and `compose()` resolves it with
+     * strict last-layer-wins, so a fresh (default-enabled) layer would otherwise
+     * silently re-enable a disabled receiver. Combining never changes whether
+     * the firewall is enabled.
+     */
+    public function combine(PortableConfig ...$portableConfigs): self
+    {
+        $layers = array_map(
+            fn(PortableConfig $portableConfig): self => $portableConfig->applyTo(
+                (new self($this->cache, $this->eventDispatcher, $this->clock))->setEnabled($this->enabled),
+            ),
+            $portableConfigs,
+        );
+
+        return self::compose($this, ...$layers);
     }
 
     /**

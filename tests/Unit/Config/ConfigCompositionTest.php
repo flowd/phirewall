@@ -321,8 +321,7 @@ final class ConfigCompositionTest extends TestCase
         $baseline = PortableConfig::create()
             ->setKeyPrefix('vendor')
             ->safelist('health', PortableConfig::filterPathEquals('/health'))
-            ->blocklist('scanners', PortableConfig::filterKnownScanners()) // default list incl. sqlmap
-            ->toConfig($cache);
+            ->blocklist('scanners', PortableConfig::filterKnownScanners()); // default list incl. sqlmap
 
         // A tenant overlay, also portable: it OVERRIDES "scanners" (now only "evilbot")
         // and adds a NEW "admin" blocklist, while flipping the key prefix + fail-closed.
@@ -330,10 +329,9 @@ final class ConfigCompositionTest extends TestCase
             ->setKeyPrefix('tenant')
             ->setFailOpen(false)
             ->blocklist('scanners', PortableConfig::filterKnownScanners(['evilbot']))
-            ->blocklist('admin', PortableConfig::filterPathPrefix('/admin'))
-            ->toConfig($cache);
+            ->blocklist('admin', PortableConfig::filterPathPrefix('/admin'));
 
-        $composed = Config::compose($baseline, $overlay);
+        $composed = (new Config($cache))->combine($baseline, $overlay);
 
         // Unioned rule sets across layers.
         $this->assertSame(['health'], array_keys($composed->safelists->rules()));
@@ -354,6 +352,19 @@ final class ConfigCompositionTest extends TestCase
 
         // The brand-new tenant rule blocks /admin.
         $this->assertSame(Outcome::BLOCKED, $firewall->decide(new ServerRequest('GET', '/admin/users'))->outcome);
+    }
+
+    public function testCombinePreservesReceiverEnabledState(): void
+    {
+        $portable = PortableConfig::create()->blocklist('x', PortableConfig::filterPathEquals('/x'));
+
+        // Combining onto a disabled receiver must NOT silently re-enable it: a
+        // PortableConfig cannot express `enabled`, so the materialized layer
+        // inherits the receiver's state instead of the default-enabled value.
+        $this->assertFalse((new Config(new InMemoryCache()))->disable()->combine($portable)->isEnabled());
+
+        // An enabled receiver stays enabled.
+        $this->assertTrue((new Config(new InMemoryCache()))->combine($portable)->isEnabled());
     }
 
     private function configFor(BlocklistRule $blocklistRule): Config

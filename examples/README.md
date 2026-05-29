@@ -71,6 +71,7 @@ php examples/01-basic-setup.php
 | [28-portable-config-signing.php](28-portable-config-signing.php) | Signed PortableConfig transport (HMAC-SHA256) with tamper detection |
 | [29-portable-config.php](29-portable-config.php) | PortableConfig as data: round-trip, signing, and database hot-reload |
 | [30-config-composition.php](30-config-composition.php) | Layer vendor + environment + tenant + deployment Configs into one effective Config |
+| [31-presets.php](31-presets.php) | Ready-to-use rule bundles (API rate limiting, login protection, scanner & sensitive-path blocking), composition, and the update-check seam |
 
 ## Optional Dependencies
 
