@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`KeyExtractors::hashedHeader(string $name)`** — Returns a key extractor that yields the sha256 fingerprint of the named header value instead of the raw value. Preferred over `KeyExtractors::header()` whenever the header is credential-bearing (`Authorization`, `Cookie`, `X-Api-Key`, …), so the cache backend and the ban registry store the fingerprint rather than the verbatim value. The hash is unkeyed sha256 — a deterministic bucket identifier, not a credential-hardening primitive: low-entropy values remain grindable from a leaked cache dump, and the fingerprint does not defeat a chosen-key probing attacker. The `header()` docblock now points readers at this helper.
 - **`RequestContext::recordHit()`** — Counterpart of `recordFailure()` for allow2ban rules. Handlers can now signal handler-observable hits (e.g. an expensive operation completed, a webhook delivered a duplicate payload) and have them counted against an allow2ban threshold post-handler, mirroring the fail2ban-via-RequestContext pattern.
 
 ### Changed

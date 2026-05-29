@@ -55,6 +55,13 @@ final class KeyExtractors
 
     /**
      * Extract a header value by name (first value). Returns null if header missing.
+     *
+     * The raw value flows into per-key counters and into the ban registry for
+     * rules using it. When the header carries a credential or other value the
+     * integrator does not want stored verbatim in the cache backend (e.g.
+     * `Authorization`, `Cookie`, `X-Api-Key`), use {@see hashedHeader()} so
+     * only a sha256 fingerprint reaches the storage layer.
+     *
      * @return Closure(ServerRequestInterface): ?string
      */
     public static function header(string $name): Closure
@@ -62,6 +69,31 @@ final class KeyExtractors
         return static function (ServerRequestInterface $serverRequest) use ($name): ?string {
             $value = $serverRequest->getHeaderLine($name);
             return $value === '' ? null : $value;
+        };
+    }
+
+    /**
+     * Extract a header value by name and return its sha256 fingerprint.
+     *
+     * Preferred over {@see header()} when the header value is sensitive
+     * (`Authorization`, `Cookie`, `X-Api-Key`, …). Per-key counters and ban
+     * registry entries then carry the fingerprint rather than the original
+     * value, so a passive read of the cache backend does not surface the
+     * raw header.
+     *
+     * The hash is unkeyed sha256 — a deterministic identifier suitable as a
+     * bucket key, not a credential-hardening primitive. A low-entropy header
+     * value (short PIN, predictable cookie) remains grindable from a leaked
+     * cache dump, and the fingerprint does not defeat a chosen-key probing
+     * attacker who can send guesses and observe ban behaviour.
+     *
+     * @return Closure(ServerRequestInterface): ?string
+     */
+    public static function hashedHeader(string $name): Closure
+    {
+        return static function (ServerRequestInterface $serverRequest) use ($name): ?string {
+            $value = $serverRequest->getHeaderLine($name);
+            return $value === '' ? null : hash('sha256', $value);
         };
     }
 
