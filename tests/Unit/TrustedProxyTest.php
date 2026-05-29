@@ -124,6 +124,130 @@ final class TrustedProxyTest extends TestCase
         $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
     }
 
+    public function testForwardedHeaderWithBracketedIpv6AndPortIsResolvedAsClientIp(): void
+    {
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        // Two requests behind different trusted proxies but the same bracketed
+        // IPv6+port client. If the form is parsed correctly, both share the
+        // throttle bucket and the second is throttled; if not, the resolver
+        // falls back to REMOTE_ADDR and the two requests get separate keys.
+        $firstRequest = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('Forwarded', 'for="[2001:db8::1]:443"; by="10.0.0.1"');
+        $secondRequest = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
+            ->withHeader('Forwarded', 'for="[2001:db8::1]:443"; by="10.0.0.2"');
+
+        $this->assertTrue($firewall->decide($firstRequest)->isPass());
+        $firewallResult = $firewall->decide($secondRequest);
+        $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
+    }
+
+    public function testXffHeaderWithBracketedIpv6AndPortIsResolvedAsClientIp(): void
+    {
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['X-Forwarded-For']);
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $firstRequest = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Forwarded-For', '[2001:db8::1]:443, 10.0.0.1');
+        $secondRequest = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
+            ->withHeader('X-Forwarded-For', '[2001:db8::1]:443, 10.0.0.2');
+
+        $this->assertTrue($firewall->decide($firstRequest)->isPass());
+        $firewallResult = $firewall->decide($secondRequest);
+        $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
+    }
+
+    public function testForwardedBracketedIpv6WithoutPortIsResolvedAsClientIp(): void
+    {
+        // The literal RFC 7239 IPv6 example: `for="[2001:db8::1]"` (no port).
+        // BRACKETED_IPV6_PATTERN's optional `:port` group means this form
+        // must be accepted alongside the with-port variant.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        // Two requests behind different trusted proxies, same bracketed IPv6
+        // (no port). Resolver must produce the same throttle key.
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('Forwarded', 'for="[2001:db8::42]"');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
+            ->withHeader('Forwarded', 'for="[2001:db8::42]"');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testForwardedMixedChainResolvesBracketedIpv6AndBareIpv4(): void
+    {
+        // Single Forwarded header containing both a bracketed IPv6+port
+        // entry and a bare IPv4 entry. Resolver walks right-to-left through
+        // the for= values, skipping trusted hops, returning the first
+        // untrusted entry — regardless of which form it takes.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $remote = ['REMOTE_ADDR' => '10.0.0.1'];
+
+        // Chain: bracketed IPv6 client, then trusted IPv4 proxy hop. Right-
+        // to-left walk: 10.0.0.1 (trusted, skip), 2001:db8::42 (untrusted,
+        // returned). Two requests share the bucket.
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
+            ->withHeader('Forwarded', 'for="[2001:db8::42]:9090", for=10.0.0.1');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
+            ->withHeader('Forwarded', 'for="[2001:db8::42]:9090", for=10.0.0.1');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testForwardedRejectsValueWithStrayClosingBracket(): void
+    {
+        // A malformed `for=` value with a stray `]` but no matching `[`
+        // (e.g. `for="203.0.113.1]:443"`) must be rejected by the parser
+        // rather than silently parsed as `203.0.113.1`. The lookahead in
+        // FORWARDED_FOR_PATTERN requires the value to end at a token boundary
+        // — `]` is not one. With the malformed element being the only `for=`
+        // entry, the chain becomes empty and the resolver falls back to
+        // REMOTE_ADDR.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        // Two requests behind different trusted proxies, identical malformed
+        // `for=` value. If the regex erroneously accepted it, both would
+        // resolve to 203.0.113.1 and share the bucket → second throttled.
+        // With the rejection, both fall back to their respective REMOTE_ADDRs
+        // → different keys → second passes.
+        $forwarded = 'for="203.0.113.1]:443"';
+
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('Forwarded', $forwarded);
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
+            ->withHeader('Forwarded', $forwarded);
+        $this->assertTrue(
+            $firewall->decide($second)->isPass(),
+            'Different REMOTE_ADDRs should give different buckets when malformed value is rejected',
+        );
+    }
+
     public function testMaxChainEntriesKeepsRightmostEntriesNotLeftmost(): void
     {
         // Sanity check that the parsed window includes the rightmost (authoritative)

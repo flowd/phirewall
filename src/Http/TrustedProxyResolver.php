@@ -21,15 +21,29 @@ use Psr\Http\Message\ServerRequestInterface;
 final readonly class TrustedProxyResolver
 {
     /**
-     * RFC 7239 `for=` parameter extractor. Matches the parameter at the start of
-     * a forwarded-element or after `;`/space, with optional quoting and optional
-     * IPv6 brackets. The captured value still passes through normalizeIp() for
-     * bracket / port / validation. The character class excludes the parameter
-     * separators (`;`/`,`), the quote character, and all whitespace, so a
-     * malformed element like `for="1.2.3.4 ;proto=https` won't over-capture
-     * past token boundaries.
+     * RFC 7239 `for=` parameter extractor. Matches the parameter at the start
+     * of a forwarded-element or after `;`/space. The value is one of:
+     *
+     * - `[ipv6](:port)?` — RFC 7239 form for IPv6 hosts (the bracketed form
+     *   may carry an optional port; the captured group keeps both for
+     *   normalizeIp() to strip).
+     * - a bare value (IPv4, IPv4:port, IPv6 without port, or RFC 7239 §6
+     *   obfuscated identifier) containing no `;`, `,`, `"`, whitespace, or
+     *   brackets.
+     *
+     * The trailing positive lookahead `(?=[\s;,"]|$)` requires the value to
+     * end at a valid token boundary, so a malformed element like
+     * `for="203.0.113.1]:443"` (stray `]` without a matching `[`) is rejected
+     * outright rather than silently parsed as `203.0.113.1`.
      */
-    private const FORWARDED_FOR_PATTERN = '/(?:^|;| )for=\"?\[?([^;,\"\s]+)]?\"?/i';
+    private const FORWARDED_FOR_PATTERN = '/(?:^|;| )for=\"?(\[[^\[\]\s]+](?::\d+)?|[^;,\"\s\[\]]+)(?=[\s;,\"]|$)/i';
+
+    /**
+     * Bracketed IPv6 + optional port — RFC 7239 form for IPv6 hosts and the
+     * shape some proxies emit in X-Forwarded-For. Captures the address only;
+     * the trailing port is discarded by normalizeIp() before validation.
+     */
+    private const BRACKETED_IPV6_PATTERN = '/^\[([^\]]+)](?::\d+)?$/';
 
     /** @var list<string> */
     private array $normalizedAllowedHeaders;
@@ -200,18 +214,22 @@ final readonly class TrustedProxyResolver
 
     private function normalizeIp(string $ip): ?string
     {
-        // Strip whitespace, surrounding quotes, and IPv6 brackets. Bracket
-        // stripping must precede validation so plain `[2001:db8::1]` passes
-        // FILTER_VALIDATE_IP, and must precede the IPv4:port check below so
-        // the regex sees a bare host.
-        $ip = trim($ip, " \t\n\r\0\x0B\"'[]");
+        // Strip whitespace and surrounding quotes. Brackets are *not* stripped
+        // here — the bracketed-IPv6 regex below needs to see them so the
+        // `[…](:port)?` form (RFC 7239 IPv6 in `Forwarded for=`, and some
+        // proxies' XFF emission) gets the address extracted and the port
+        // discarded before validation.
+        $ip = trim($ip, " \t\n\r\0\x0B\"'");
         if ($ip === '') {
             return null;
         }
 
-        // Strip IPv4 port suffix if present (IPv6 addresses contain colons and
-        // are skipped by this pattern).
-        if (preg_match('/^[0-9.]+:\\d+$/', $ip) === 1) {
+        // [IPv6](:port)? — extract the address between brackets; the optional
+        // port is discarded.
+        if (preg_match(self::BRACKETED_IPV6_PATTERN, $ip, $matches) === 1) {
+            $ip = $matches[1];
+        } elseif (preg_match('/^[0-9.]+:\\d+$/', $ip) === 1) {
+            // IPv4:port — strip the port (IPv6 contains colons and is skipped here).
             $ip = explode(':', $ip, 2)[0];
         }
 
