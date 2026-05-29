@@ -55,11 +55,16 @@ final readonly class TrustedProxyResolver
 
     /**
      * @param list<string> $trustedProxies List of trusted proxies as IP addresses or CIDR ranges (IPv4/IPv6)
-     * @param list<string> $allowedHeaders List of header names (case-insensitive) that may contain client IP chains
+     * @param list<string> $allowedHeaders Header names (case-insensitive) the resolver should consult for the
+     *                                     client-IP chain, walked in order until one is non-empty. Only
+     *                                     `X-Forwarded-For` and `Forwarded` (RFC 7239) are recognised; other
+     *                                     names are silently ignored. Defaults to `['X-Forwarded-For']` — pass
+     *                                     `['Forwarded']` or `['Forwarded', 'X-Forwarded-For']` explicitly when
+     *                                     the upstream proxy emits RFC 7239 instead of (or in addition to) XFF.
      */
     public function __construct(
         private array $trustedProxies,
-        private array $allowedHeaders = ['X-Forwarded-For', 'Forwarded'],
+        private array $allowedHeaders = ['X-Forwarded-For'],
         private int $maxChainEntries = 50,
     ) {
         $this->normalizedAllowedHeaders = array_values(array_map('strtolower', $this->allowedHeaders));

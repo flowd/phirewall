@@ -124,6 +124,31 @@ final class TrustedProxyTest extends TestCase
         $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
     }
 
+    public function testDefaultAllowedHeadersIgnoresForwarded(): void
+    {
+        // Pins the new default: $allowedHeaders defaults to ['X-Forwarded-For']
+        // only, so an RFC 7239 `Forwarded` header is silently ignored unless
+        // the integrator opts in by listing it. Two requests with different
+        // `for=` values but identical XFF chains must share the throttle
+        // bucket — proving the resolver did not consult Forwarded at all.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Forwarded-For', '203.0.113.9, 10.0.0.1')
+            ->withHeader('Forwarded', 'for="198.51.100.1"');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Forwarded-For', '203.0.113.9, 10.0.0.1')
+            ->withHeader('Forwarded', 'for="198.51.100.99"');
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
     public function testForwardedHeaderWithBracketedIpv6AndPortIsResolvedAsClientIp(): void
     {
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
