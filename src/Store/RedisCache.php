@@ -16,6 +16,8 @@ use Psr\SimpleCache\CacheInterface;
  */
 final readonly class RedisCache implements CacheInterface, CounterStoreInterface
 {
+    use KeyValidationTrait;
+
     public function __construct(
         private ClientInterface $client,
         private string $namespace = 'Phirewall:'
@@ -24,6 +26,7 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
 
     public function get(string $key, mixed $default = null): mixed
     {
+        $this->validateKey($key);
         $value = $this->client->get($this->prefixKey($key));
         if ($value === null) {
             return $default;
@@ -34,6 +37,7 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
 
     public function set(string $key, mixed $value, null|int|DateInterval $ttl = null): bool
     {
+        $this->validateKey($key);
         $namespacedKey = $this->prefixKey($key);
         $payload = $this->serializeValue($value);
         if ($ttl === null) {
@@ -49,6 +53,7 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
 
     public function delete(string $key): bool
     {
+        $this->validateKey($key);
         $this->client->del([$this->prefixKey($key)]);
         return true;
     }
@@ -72,34 +77,27 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
 
     public function getMultiple(iterable $keys, mixed $default = null): iterable
     {
-        $keyMapping = [];
-        $namespacedKeys = [];
-        foreach ($keys as $key) {
-            $stringKey = (string)$key;
-            $keyMapping[$this->prefixKey($stringKey)] = $stringKey;
-            $namespacedKeys[] = $this->prefixKey($stringKey);
-        }
+        $orderedKeys = $this->validateKeyList($keys);
+        $namespacedKeys = array_map($this->prefixKey(...), $orderedKeys);
 
         $values = $namespacedKeys === [] ? [] : $this->client->mget($namespacedKeys);
         $result = [];
-        $index = 0;
-        foreach ($keyMapping as $original) {
+        foreach ($orderedKeys as $index => $original) {
             $raw = $values[$index] ?? null;
             $result[$original] = $raw === null ? $default : $this->unserializeValue($raw);
-            ++$index;
         }
 
         return $result;
     }
 
     /**
-     * @param iterable<string|int, mixed> $values
+     * @param iterable<mixed, mixed> $values
      */
     public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
     {
         $ttlSeconds = $ttl === null ? null : $this->ttlToSeconds($ttl);
-        foreach ($values as $key => $value) {
-            $this->set((string)$key, $value, $ttlSeconds);
+        foreach ($this->validateKeyedValues($values) as $key => $value) {
+            $this->set($key, $value, $ttlSeconds);
         }
 
         return true;
@@ -107,10 +105,7 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
 
     public function deleteMultiple(iterable $keys): bool
     {
-        $namespacedKeys = [];
-        foreach ($keys as $key) {
-            $namespacedKeys[] = $this->prefixKey((string)$key);
-        }
+        $namespacedKeys = array_map($this->prefixKey(...), $this->validateKeyList($keys));
 
         if ($namespacedKeys !== []) {
             $this->client->del($namespacedKeys);
@@ -121,6 +116,7 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
 
     public function has(string $key): bool
     {
+        $this->validateKey($key);
         return (bool)$this->client->exists($this->prefixKey($key));
     }
 
@@ -140,6 +136,7 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
      */
     public function increment(string $key, int $period): int
     {
+        $this->validateKey($key);
         $namespacedKey = $this->prefixKey($key);
         $now = time();
         $windowStart = intdiv($now, $period) * $period;
@@ -182,6 +179,7 @@ LUA;
 
     public function ttlRemaining(string $key): int
     {
+        $this->validateKey($key);
         $ttl = $this->client->ttl($this->prefixKey($key));
         return max($ttl, 0);
     }

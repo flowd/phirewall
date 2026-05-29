@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Tests\Store;
 
+use Flowd\Phirewall\Store\InvalidCacheKeyException;
 use Flowd\Phirewall\Store\RedisCache;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -11,6 +12,50 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(RedisCache::class)]
 final class RedisCacheTest extends TestCase
 {
+    private function requirePredisOrSkip(): void
+    {
+        if (!interface_exists(\Predis\ClientInterface::class)) {
+            $this->markTestSkipped('Predis is not installed.');
+        }
+    }
+
+    public function testGetRejectsKeyWithReservedCharacter(): void
+    {
+        $this->requirePredisOrSkip();
+
+        $client = $this->createMock(\Predis\ClientInterface::class);
+        $client->expects($this->never())->method('get');
+
+        $this->expectException(InvalidCacheKeyException::class);
+        (new RedisCache($client))->get('bad:key');
+    }
+
+    public function testGetMultipleRejectsNonStringKey(): void
+    {
+        $this->requirePredisOrSkip();
+
+        $client = $this->createMock(\Predis\ClientInterface::class);
+        $client->expects($this->never())->method('mget');
+
+        $this->expectException(InvalidCacheKeyException::class);
+        /** @phpstan-ignore-next-line intentionally invalid: non-string key */
+        (new RedisCache($client))->getMultiple(['valid', 42]);
+    }
+
+    public function testValidKeyReachesTheClient(): void
+    {
+        $this->requirePredisOrSkip();
+
+        $client = $this->createMock(\Predis\ClientInterface::class);
+        $client
+            ->expects($this->once())
+            ->method('get')
+            ->with('Phirewall:valid.key')
+            ->willReturn(null);
+
+        $this->assertSame('default', (new RedisCache($client))->get('valid.key', 'default'));
+    }
+
     public function testIncrementRethrowsAndTriggersWarningWhenEvalThrows(): void
     {
         if (!interface_exists(\Predis\ClientInterface::class)) {

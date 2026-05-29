@@ -9,6 +9,8 @@ use Psr\SimpleCache\CacheInterface;
 
 final class InMemoryCache implements CacheInterface, CounterStoreInterface
 {
+    use KeyValidationTrait;
+
     private const PURGE_INTERVAL = 1000;
 
     /** @var array<string, array{value:mixed,expires:float|null}> */
@@ -22,6 +24,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
 
     public function get(string $key, mixed $default = null): mixed
     {
+        $this->validateKey($key);
         $this->maybePurge();
 
         if (!isset($this->data[$key])) {
@@ -39,6 +42,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
 
     public function set(string $key, mixed $value, null|int|DateInterval $ttl = null): bool
     {
+        $this->validateKey($key);
         $expires = $this->computeExpiry($ttl);
         $this->data[$key] = ['value' => $value, 'expires' => $expires];
         $this->maybePurge();
@@ -47,6 +51,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
 
     public function delete(string $key): bool
     {
+        $this->validateKey($key);
         unset($this->data[$key]);
         return true;
     }
@@ -60,7 +65,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
     public function getMultiple(iterable $keys, mixed $default = null): iterable
     {
         $result = [];
-        foreach ($keys as $key) {
+        foreach ($this->validateKeyList($keys) as $key) {
             $result[$key] = $this->get($key, $default);
         }
 
@@ -68,12 +73,12 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
     }
 
     /**
-         * @param iterable<string|int, mixed> $values
-         */
+     * @param iterable<mixed, mixed> $values
+     */
     public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
     {
-        foreach ($values as $key => $value) {
-            $this->set((string)$key, $value, $ttl);
+        foreach ($this->validateKeyedValues($values) as $key => $value) {
+            $this->set($key, $value, $ttl);
         }
 
         return true;
@@ -81,8 +86,8 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
 
     public function deleteMultiple(iterable $keys): bool
     {
-        foreach ($keys as $key) {
-            $this->delete((string)$key);
+        foreach ($this->validateKeyList($keys) as $key) {
+            $this->delete($key);
         }
 
         return true;
@@ -90,6 +95,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
 
     public function has(string $key): bool
     {
+        $this->validateKey($key);
         $this->maybePurge();
 
         if (!isset($this->data[$key])) {
@@ -109,6 +115,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
      */
     public function increment(string $key, int $period): int
     {
+        $this->validateKey($key);
         $now = $this->clock?->now() ?? microtime(true);
         // Align expiry to the end of the current fixed window
         $windowStart = floor($now / $period) * $period;
@@ -134,6 +141,7 @@ final class InMemoryCache implements CacheInterface, CounterStoreInterface
 
     public function ttlRemaining(string $key): int
     {
+        $this->validateKey($key);
         $entry = $this->data[$key] ?? null;
         if ($entry === null || $entry['expires'] === null) {
             return 0;

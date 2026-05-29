@@ -15,37 +15,37 @@ final class CacheKeyGenerator
 
     public function throttleKey(string $name, string $key): string
     {
-        return $this->prefix . ':throttle:' . $this->normalizeName($name) . ':' . $this->hashKey($key);
+        return $this->prefix . '.throttle.' . $this->normalizeName($name) . '.' . $this->hashKey($key);
     }
 
     public function slidingWindowKey(string $name, string $key, int $windowStart): string
     {
-        return $this->prefix . ':throttle:' . $this->normalizeName($name) . ':' . $this->hashKey($key) . ':w:' . $windowStart;
+        return $this->prefix . '.throttle.' . $this->normalizeName($name) . '.' . $this->hashKey($key) . '.w.' . $windowStart;
     }
 
     public function fail2BanFailKey(string $name, string $key): string
     {
-        return $this->prefix . ':fail2ban:fail:' . $this->normalizeName($name) . ':' . $this->hashKey($key);
+        return $this->prefix . '.fail2ban.fail.' . $this->normalizeName($name) . '.' . $this->hashKey($key);
     }
 
     public function fail2BanBanKey(string $name, string $key): string
     {
-        return $this->prefix . ':fail2ban:ban:' . $this->normalizeName($name) . ':' . $this->hashKey($key);
+        return $this->prefix . '.fail2ban.ban.' . $this->normalizeName($name) . '.' . $this->hashKey($key);
     }
 
     public function allow2BanHitKey(string $name, string $key): string
     {
-        return $this->prefix . ':allow2ban:hit:' . $this->normalizeName($name) . ':' . $this->hashKey($key);
+        return $this->prefix . '.allow2ban.hit.' . $this->normalizeName($name) . '.' . $this->hashKey($key);
     }
 
     public function allow2BanBanKey(string $name, string $key): string
     {
-        return $this->prefix . ':allow2ban:ban:' . $this->normalizeName($name) . ':' . $this->hashKey($key);
+        return $this->prefix . '.allow2ban.ban.' . $this->normalizeName($name) . '.' . $this->hashKey($key);
     }
 
     public function trackKey(string $name, string $key): string
     {
-        return $this->prefix . ':track:' . $this->normalizeName($name) . ':' . $this->hashKey($key);
+        return $this->prefix . '.track.' . $this->normalizeName($name) . '.' . $this->hashKey($key);
     }
 
     /**
@@ -53,7 +53,7 @@ final class CacheKeyGenerator
      */
     public function banRegistryKey(string $type, string $ruleName): string
     {
-        return $this->prefix . ':ban-registry:' . $type . ':' . $this->normalizeName($ruleName);
+        return $this->prefix . '.ban-registry.' . $type . '.' . $this->normalizeName($ruleName);
     }
 
     /**
@@ -84,7 +84,7 @@ final class CacheKeyGenerator
             return 'empty';
         }
 
-        $sanitized = preg_replace('/[^A-Za-z0-9._:-]/', '_', $original);
+        $sanitized = preg_replace('/[^A-Za-z0-9._-]/', '_', $original);
         if ($sanitized === null) {
             $sanitized = 'invalid';
         }

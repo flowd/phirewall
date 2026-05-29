@@ -50,7 +50,7 @@ final class TrustedBotMatcher implements RequestMatcherInterface
         ['ua' => 'applebot',              'hostname' => '.applebot.apple.com'],
     ];
 
-    private const CACHE_PREFIX = 'phirewall:trusted_bot:';
+    private const CACHE_PREFIX = 'phirewall.trusted_bot.';
 
     private const DEFAULT_CACHE_TTL = 86400;
 

@@ -151,6 +151,8 @@ The [examples/](examples/) folder contains runnable examples:
 | `RedisCache` | Multi-server production |
 | `PdoCache` | SQL-backed persistence (MySQL, PostgreSQL, SQLite) |
 
+All backends are PSR-16 caches and validate keys accordingly: a key must be a non-empty string with none of the PSR-16 reserved characters (`{}()/\@:`). As an additional restriction of its own (beyond PSR-16), Phirewall also rejects control and whitespace characters, and the multi-key methods reject non-string keys. Invalid keys raise `Flowd\Phirewall\Store\InvalidCacheKeyException` (a `Psr\SimpleCache\InvalidArgumentException`). Phirewall's own keys are always compliant.
+
 ## Documentation
 
 Full documentation is available at **[phirewall.de](https://phirewall.de)**:

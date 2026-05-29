@@ -77,11 +77,11 @@ $period = 5; // seconds; large enough to avoid rollover during tight loop
 echo "=== InMemoryCache Benchmarks ===\n\n";
 
 $mem = new InMemoryCache();
-$keyBase = 'bench:mem:' . bin2hex(random_bytes(4));
+$keyBase = 'bench.mem.' . bin2hex(random_bytes(4));
 
 $result = benchmark('InMemory increment', function (int $n) use ($mem, $period, $keyBase): void {
     for ($i = 0; $i < $n; ++$i) {
-        $mem->increment($keyBase . ':' . ($i % 16), $period);
+        $mem->increment($keyBase . '.' . ($i % 16), $period);
     }
 });
 echo formatResult($result) . "\n";
@@ -89,12 +89,12 @@ $results['inmemory_increment'] = $result;
 
 // Prepare keys for TTL test
 for ($i = 0; $i < 16; ++$i) {
-    $mem->set($keyBase . ':ttl:' . $i, 1, 10);
+    $mem->set($keyBase . '.ttl.' . $i, 1, 10);
 }
 
 $result = benchmark('InMemory ttlRemaining', function (int $n) use ($mem, $keyBase): void {
     for ($i = 0; $i < $n; ++$i) {
-        $mem->ttlRemaining($keyBase . ':ttl:' . ($i % 16));
+        $mem->ttlRemaining($keyBase . '.ttl.' . ($i % 16));
     }
 });
 echo formatResult($result) . "\n\n";
@@ -108,11 +108,11 @@ echo "=== ApcuCache Benchmarks ===\n\n";
 
 try {
     $apcu = new ApcuCache();
-    $keyBase = 'bench:apcu:' . bin2hex(random_bytes(4));
+    $keyBase = 'bench.apcu.' . bin2hex(random_bytes(4));
 
     $result = benchmark('APCu increment', function (int $n) use ($apcu, $period, $keyBase): void {
         for ($i = 0; $i < $n; ++$i) {
-            $apcu->increment($keyBase . ':' . ($i % 16), $period);
+            $apcu->increment($keyBase . '.' . ($i % 16), $period);
         }
     });
     echo formatResult($result) . "\n";
@@ -120,12 +120,12 @@ try {
 
     // Prepare keys for TTL test
     for ($i = 0; $i < 16; ++$i) {
-        $apcu->set($keyBase . ':ttl:' . $i, 1, 10);
+        $apcu->set($keyBase . '.ttl.' . $i, 1, 10);
     }
 
     $result = benchmark('APCu ttlRemaining', function (int $n) use ($apcu, $keyBase): void {
         for ($i = 0; $i < $n; ++$i) {
-            $apcu->ttlRemaining($keyBase . ':ttl:' . ($i % 16));
+            $apcu->ttlRemaining($keyBase . '.ttl.' . ($i % 16));
         }
     });
     echo formatResult($result) . "\n\n";
@@ -153,15 +153,15 @@ if ($redisUrl && class_exists(\Predis\Client::class)) {
             throw new RuntimeException('Redis PING failed');
         }
 
-        $redis = new RedisCache($client, 'phirewall:bench:');
-        $keyBase = 'bench:redis:' . bin2hex(random_bytes(4));
+        $redis = new RedisCache($client, 'phirewall.bench.');
+        $keyBase = 'bench.redis.' . bin2hex(random_bytes(4));
 
         // Use fewer iterations for Redis (network latency)
         $redisIterations = 10_000;
 
         $result = benchmark('Redis increment', function (int $n) use ($redis, $period, $keyBase): void {
             for ($i = 0; $i < $n; ++$i) {
-                $redis->increment($keyBase . ':' . ($i % 16), $period);
+                $redis->increment($keyBase . '.' . ($i % 16), $period);
             }
         }, $redisIterations);
         echo formatResult($result) . "\n";
@@ -169,19 +169,19 @@ if ($redisUrl && class_exists(\Predis\Client::class)) {
 
         // Prepare keys for TTL test
         for ($i = 0; $i < 16; ++$i) {
-            $redis->set($keyBase . ':ttl:' . $i, 1, 10);
+            $redis->set($keyBase . '.ttl.' . $i, 1, 10);
         }
 
         $result = benchmark('Redis ttlRemaining', function (int $n) use ($redis, $keyBase): void {
             for ($i = 0; $i < $n; ++$i) {
-                $redis->ttlRemaining($keyBase . ':ttl:' . ($i % 16));
+                $redis->ttlRemaining($keyBase . '.ttl.' . ($i % 16));
             }
         }, $redisIterations);
         echo formatResult($result) . "\n\n";
         $results['redis_ttl'] = $result;
 
         // Cleanup
-        $keys = $client->keys('phirewall:bench:*');
+        $keys = $client->keys('phirewall.bench.*');
         if (count($keys) > 0) {
             $client->del($keys);
         }

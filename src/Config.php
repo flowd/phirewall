@@ -19,6 +19,7 @@ use Flowd\Phirewall\Config\Section\TrackSection;
 use Flowd\Phirewall\Pattern\PatternBackendInterface;
 use Flowd\Phirewall\Pattern\SnapshotBlocklistMatcher;
 use Flowd\Phirewall\Portable\PortableConfig;
+use Flowd\Phirewall\Store\CacheKeyRules;
 use Flowd\Phirewall\Store\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -482,14 +483,41 @@ final class Config
 
     public function setKeyPrefix(string $prefix): self
     {
-        $normalized = trim($prefix);
+        $normalized = rtrim(trim($prefix), ':');
         if ($normalized === '') {
             throw new \InvalidArgumentException('Key prefix cannot be empty');
         }
 
-        $this->keyPrefix = rtrim($normalized, ':');
+        $this->assertKeyPrefixIsCacheSafe($normalized);
+
+        $this->keyPrefix = $normalized;
         $this->cacheKeyGenerator = null;
         return $this;
+    }
+
+    /**
+     * Reject a key prefix that would produce invalid PSR-16 cache keys.
+     *
+     * The prefix is concatenated verbatim into every generated cache key, so a
+     * prefix carrying a PSR-16 reserved character ({}()/\@:) or a control/whitespace
+     * character would pass configuration silently and only surface as an
+     * InvalidCacheKeyException on the first cache operation. Failing fast here
+     * names the offending character at the call site that introduced it.
+     *
+     * Mirrors the reserved-character set enforced by the cache backends'
+     * {@see \Flowd\Phirewall\Store\KeyValidationTrait}.
+     */
+    private function assertKeyPrefixIsCacheSafe(string $prefix): void
+    {
+        // Report the offending character, not the raw prefix: a prefix carrying
+        // control/newline bytes would otherwise inject them into any log that
+        // records the exception message (CWE-117). The character rules are
+        // shared with the cache backends via CacheKeyRules so the two cannot
+        // drift apart.
+        $illegalCharacter = CacheKeyRules::firstIllegalCharacter($prefix);
+        if ($illegalCharacter !== null) {
+            throw new \InvalidArgumentException(CacheKeyRules::describeViolation('Key prefix', $illegalCharacter));
+        }
     }
 
     public function getKeyPrefix(): string

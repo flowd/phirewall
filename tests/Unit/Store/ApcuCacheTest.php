@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Tests\Store;
 
 use Flowd\Phirewall\Store\ApcuCache;
+use Flowd\Phirewall\Store\InvalidCacheKeyException;
 use PHPUnit\Framework\TestCase;
 
 final class ApcuCacheTest extends TestCase
@@ -20,7 +21,7 @@ final class ApcuCacheTest extends TestCase
     {
         $this->requireApcuOrSkip();
         $apcuCache = new ApcuCache();
-        $key = 'test:apcu:counter:' . uniqid('', true);
+        $key = 'test.apcu.counter.' . uniqid('', true);
         $period = 2; // seconds
 
         $count1 = $apcuCache->increment($key, $period);
@@ -37,7 +38,7 @@ final class ApcuCacheTest extends TestCase
     {
         $this->requireApcuOrSkip();
         $apcuCache = new ApcuCache();
-        $key = 'test:apcu:psr16:' . uniqid('', true);
+        $key = 'test.apcu.psr16.' . uniqid('', true);
         $this->assertFalse($apcuCache->has($key));
         $this->assertSame('d', $apcuCache->get($key, 'd'));
         $this->assertTrue($apcuCache->set($key, 'v', 5));
@@ -45,5 +46,20 @@ final class ApcuCacheTest extends TestCase
         $this->assertSame('v', $apcuCache->get($key));
         $this->assertTrue($apcuCache->delete($key));
         $this->assertFalse($apcuCache->has($key));
+    }
+
+    public function testRejectsKeyWithReservedCharacter(): void
+    {
+        $this->requireApcuOrSkip();
+        $this->expectException(InvalidCacheKeyException::class);
+        (new ApcuCache())->get('bad:key');
+    }
+
+    public function testGetMultipleRejectsNonStringKey(): void
+    {
+        $this->requireApcuOrSkip();
+        $this->expectException(InvalidCacheKeyException::class);
+        /** @phpstan-ignore-next-line intentionally invalid: non-string key */
+        (new ApcuCache())->getMultiple(['valid', 42]);
     }
 }

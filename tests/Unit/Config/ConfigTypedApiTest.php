@@ -91,11 +91,43 @@ final class ConfigTypedApiTest extends TestCase
     public function testSetKeyPrefixNormalizationAndValidation(): void
     {
         $config = new Config(new InMemoryCache());
-        $config->setKeyPrefix('  app:prod:  ');
-        $this->assertSame('app:prod', $config->getKeyPrefix());
+
+        // Surrounding whitespace is trimmed and trailing colons are stripped,
+        // so a prefix written as a namespace separator still works.
+        $config->setKeyPrefix('  app.prod:  ');
+        $this->assertSame('app.prod', $config->getKeyPrefix());
 
         $this->expectException(\InvalidArgumentException::class);
         $config->setKeyPrefix('   ');
+    }
+
+    public function testSetKeyPrefixRejectsInternalReservedCharacter(): void
+    {
+        $config = new Config(new InMemoryCache());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('reserved character ":"');
+        $config->setKeyPrefix('my:app');
+    }
+
+    public function testSetKeyPrefixRejectsControlOrWhitespaceCharacter(): void
+    {
+        $config = new Config(new InMemoryCache());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('control or whitespace character');
+        $config->setKeyPrefix("my\tapp");
+    }
+
+    public function testSetKeyPrefixAcceptsValidPrefixAndIsUsable(): void
+    {
+        $config = new Config(new InMemoryCache());
+        $config->setKeyPrefix('my.app');
+
+        $this->assertSame('my.app', $config->getKeyPrefix());
+        // A valid prefix must produce a key the cache backends accept.
+        $config->cache->set($config->cacheKeyGenerator()->throttleKey('login', '203.0.113.1'), 1);
+        $this->assertTrue($config->cache->has($config->cacheKeyGenerator()->throttleKey('login', '203.0.113.1')));
     }
 
     public function testDiagnosticsCountersLifecycle(): void
