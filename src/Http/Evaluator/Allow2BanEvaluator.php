@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Http\Evaluator;
 
 use Flowd\Phirewall\BanType;
+use Flowd\Phirewall\Config\Rule\Allow2BanRule;
 use Flowd\Phirewall\Events\Allow2BanBanned;
 use Flowd\Phirewall\Http\DecisionPath;
 use Flowd\Phirewall\Http\FirewallResult;
@@ -56,23 +57,7 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
                 continue;
             }
 
-            $hitKey = $evaluationContext->config->cacheKeyGenerator()->allow2BanHitKey($name, $normalizedKey);
-            $count = $evaluationContext->counter->increment($hitKey, $allow2BanRule->period())->count;
-
-            if ($count >= $allow2BanRule->threshold()) {
-                $evaluationContext->config->banManager()->ban($name, $normalizedKey, $allow2BanRule->banSeconds(), BanType::Allow2Ban);
-                $cache->delete($hitKey);
-
-                $evaluationContext->dispatch(new Allow2BanBanned(
-                    rule: $name,
-                    key: $normalizedKey,
-                    threshold: $allow2BanRule->threshold(),
-                    period: $allow2BanRule->period(),
-                    banSeconds: $allow2BanRule->banSeconds(),
-                    count: $count,
-                    serverRequest: $serverRequest,
-                ));
-
+            if ($this->incrementAndBanIfNeeded($allow2BanRule, $normalizedKey, $serverRequest, $evaluationContext)) {
                 $newBanRetryAfter = $this->ttlRemaining($cache, $banKey);
                 if ($newBanRetryAfter < 1) {
                     $newBanRetryAfter = $allow2BanRule->banSeconds();
@@ -98,6 +83,45 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
         }
 
         return null;
+    }
+
+    /**
+     * Increment the hit counter and ban if the threshold has been reached.
+     *
+     * Shared between the pre-handler evaluate() loop and the post-handler
+     * RequestContext::recordHit() path so both go through the same
+     * increment-and-ban semantic.
+     *
+     * @return bool True if the key was banned by this call.
+     */
+    public function incrementAndBanIfNeeded(
+        Allow2BanRule $allow2BanRule,
+        string $normalizedKey,
+        ServerRequestInterface $serverRequest,
+        EvaluationContext $evaluationContext,
+    ): bool {
+        $name = $allow2BanRule->name();
+        $hitKey = $evaluationContext->config->cacheKeyGenerator()->allow2BanHitKey($name, $normalizedKey);
+        $count = $evaluationContext->counter->increment($hitKey, $allow2BanRule->period())->count;
+
+        if ($count < $allow2BanRule->threshold()) {
+            return false;
+        }
+
+        $evaluationContext->config->banManager()->ban($name, $normalizedKey, $allow2BanRule->banSeconds(), BanType::Allow2Ban);
+        $evaluationContext->config->cache->delete($hitKey);
+
+        $evaluationContext->dispatch(new Allow2BanBanned(
+            rule: $name,
+            key: $normalizedKey,
+            threshold: $allow2BanRule->threshold(),
+            period: $allow2BanRule->period(),
+            banSeconds: $allow2BanRule->banSeconds(),
+            count: $count,
+            serverRequest: $serverRequest,
+        ));
+
+        return true;
     }
 
     private function ttlRemaining(CacheInterface $cache, string $key): int

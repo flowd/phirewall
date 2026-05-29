@@ -94,9 +94,13 @@ $loginHandler = new class () implements RequestHandlerInterface {
         // Check credentials
         $validPassword = $this->validCredentials[$username] ?? null;
         if ($validPassword === null || $password !== $validPassword) {
-            // Signal the failure via RequestContext
-            $ip = $serverRequest->getServerParams()['REMOTE_ADDR'] ?? 'unknown';
-            $context?->recordFailure('login-failures', $ip);
+            // Signal the failure. With no second argument, the firewall reuses
+            // the rule's own keyExtractor against this request — handlers do
+            // not need to know whether the rule keys on IP, header, or any
+            // other discriminator. Pass an explicit key only when the value
+            // is something the firewall cannot derive from the request itself
+            // (e.g. a user id looked up from a session).
+            $context?->recordFailure('login-failures');
 
             return new Response(
                 401,
@@ -239,7 +243,8 @@ echo "--- Test 6: Null-safe access pattern ---\n\n";
 echo "  When your handler might run without the middleware (e.g. in tests),\n";
 echo "  use the null-safe operator for safety:\n\n";
 echo "    \$context = \$request->getAttribute(RequestContext::ATTRIBUTE_NAME);\n";
-echo "    \$context?->recordFailure('login-failures', \$ip);\n\n";
+echo "    \$context?->recordFailure('login-failures');           // fail2ban\n";
+echo "    \$context?->recordHit('expensive-endpoint');            // allow2ban\n\n";
 echo "  If the middleware is not in the stack, \$context is null and the call\n";
 echo "  is silently skipped — no errors, no side effects.\n\n";
 

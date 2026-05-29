@@ -75,16 +75,12 @@ final readonly class Middleware implements MiddlewareInterface
     }
 
     /**
-     * Process all recorded failure signals from the request context.
+     * Process all signals recorded by the handler via RequestContext.
      */
     private function processContextSignals(RequestContext $requestContext, ServerRequestInterface $serverRequest): void
     {
-        foreach ($requestContext->getRecordedFailures() as $recordedFailure) {
-            $this->firewall->processRecordedFailure(
-                $recordedFailure->ruleName,
-                $recordedFailure->key,
-                $serverRequest,
-            );
+        foreach ($requestContext->getRecordedSignals() as $recordedSignal) {
+            $this->firewall->processRecordedSignal($recordedSignal, $serverRequest);
         }
     }
 

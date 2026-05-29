@@ -426,4 +426,91 @@ final class RequestAttributeIntegrationTest extends TestCase
         $this->assertCount(1, $banEvents);
         $this->assertSame('user@example.com', $banEvents[0]->key);
     }
+
+    public function testRecordFailureWithoutKeyUsesRuleDiscriminator(): void
+    {
+        $dispatcher = $this->eventCollector();
+        $cache = new InMemoryCache();
+        $config = new Config($cache, $dispatcher);
+        $config->fail2ban(
+            'login-brute-force',
+            threshold: 2,
+            period: 300,
+            ban: 3600,
+            filter: fn($request): bool => false,
+            key: KeyExtractors::ip(),
+        );
+
+        $middleware = new Middleware($config, new Psr17Factory());
+
+        // Handler omits the key — Firewall should derive it from the rule's keyExtractor.
+        $handler = new class () implements RequestHandlerInterface {
+            public function handle(ServerRequestInterface $serverRequest): ResponseInterface
+            {
+                $context = $serverRequest->getAttribute(RequestContext::ATTRIBUTE_NAME);
+                if ($context instanceof RequestContext) {
+                    $context->recordFailure('login-brute-force');
+                }
+
+                return new Response(200);
+            }
+        };
+
+        $request = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
+        $middleware->process($request, $handler);
+        $middleware->process($request, $handler);
+
+        $banEvents = array_values(array_filter(
+            $dispatcher->events,
+            fn(object $event): bool => $event instanceof Fail2BanBanned,
+        ));
+        $this->assertCount(1, $banEvents, 'Threshold should fire after 2 implicit-key signals from the same IP');
+        $this->assertSame('10.0.0.1', $banEvents[0]->key);
+    }
+
+    public function testRecordHitTriggersAllow2BanThreshold(): void
+    {
+        $dispatcher = $this->eventCollector();
+        $cache = new InMemoryCache();
+        $config = new Config($cache, $dispatcher);
+        // Pre-handler keyExtractor returns null so allow2ban skips counting
+        // every request. The handler decides which requests count via recordHit().
+        $config->allow2ban->add(
+            'expensive-endpoint',
+            threshold: 2,
+            period: 300,
+            banSeconds: 3600,
+            key: fn($req): ?string => null,
+        );
+
+        $middleware = new Middleware($config, new Psr17Factory());
+
+        // Handler omits the key in recordHit() — Firewall could not derive one
+        // because the rule's keyExtractor returns null, so we pass an explicit
+        // value here as the override.
+        $handler = new class () implements RequestHandlerInterface {
+            public function handle(ServerRequestInterface $serverRequest): ResponseInterface
+            {
+                $context = $serverRequest->getAttribute(RequestContext::ATTRIBUTE_NAME);
+                $ip = $serverRequest->getServerParams()['REMOTE_ADDR'] ?? '';
+                if ($context instanceof RequestContext) {
+                    $context->recordHit('expensive-endpoint', (string) $ip);
+                }
+
+                return new Response(200);
+            }
+        };
+
+        $request = new ServerRequest('GET', '/api/expensive', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']);
+        $middleware->process($request, $handler);
+        $middleware->process($request, $handler);
+
+        $banEvents = array_values(array_filter(
+            $dispatcher->events,
+            fn(object $event): bool => $event instanceof \Flowd\Phirewall\Events\Allow2BanBanned,
+        ));
+        $this->assertCount(1, $banEvents, 'Threshold=2 should fire after 2 recordHit calls');
+        $this->assertSame('expensive-endpoint', $banEvents[0]->rule);
+        $this->assertSame('10.0.0.2', $banEvents[0]->key);
+    }
 }
