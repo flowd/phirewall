@@ -75,15 +75,15 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
             $toAdd[] = $this->normalizeIp((string)$ipAddress);
         }
 
-        [$before, $managed, $after] = $this->readSections();
-        $entries = $this->parseManaged($managed);
-        foreach ($toAdd as $ip) {
-            if (!in_array($ip, $entries, true)) {
-                $entries[] = $ip;
+        $this->mutate(static function (array $entries) use ($toAdd): array {
+            foreach ($toAdd as $ip) {
+                if (!in_array($ip, $entries, true)) {
+                    $entries[] = $ip;
+                }
             }
-        }
 
-        $this->writeSections($before, $entries, $after);
+            return $entries;
+        });
     }
 
     /**
@@ -105,14 +105,49 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
             $toRemove[] = $this->normalizeIp((string)$ipAddress);
         }
 
-        [$before, $managed, $after] = $this->readSections();
-        $current = $this->parseManaged($managed);
         $removeSet = array_flip($toRemove);
-        $entries = array_values(array_filter(
-            $current,
-            static fn(string $existing): bool => !isset($removeSet[$existing])
-        ));
-        $this->writeSections($before, $entries, $after);
+        $this->mutate(static fn(array $entries): array => array_values(array_filter(
+            $entries,
+            static fn(string $existing): bool => !isset($removeSet[$existing]),
+        )));
+    }
+
+    /**
+     * Serialise concurrent block/unblock writers via flock on a sidecar lock
+     * file. The lock file is `${htaccessPath}.lock`; it lives next to the
+     * htaccess and is never renamed, so an advisory flock on it remains
+     * coherent across the atomic rename inside writeSections().
+     *
+     * @param callable(list<string>): list<string> $mutator
+     */
+    private function mutate(callable $mutator): void
+    {
+        // Validate the parent directory before opening the lock so the
+        // existing "Directory does not exist:" error surfaces ahead of any
+        // filesystem side-effect of creating the lock file.
+        $dir = dirname($this->htaccessPath);
+        if (!is_dir($dir)) {
+            throw new RuntimeException('Directory does not exist: ' . $dir);
+        }
+
+        $lockPath = $this->htaccessPath . '.lock';
+        $lockHandle = @fopen($lockPath, 'c');
+        if ($lockHandle === false) {
+            throw new RuntimeException('Failed to open lock file: ' . $lockPath);
+        }
+
+        try {
+            if (!flock($lockHandle, LOCK_EX)) {
+                throw new RuntimeException('Failed to acquire exclusive lock on ' . $lockPath);
+            }
+
+            [$before, $managed, $after] = $this->readSections();
+            $entries = $mutator($this->parseManaged($managed));
+            $this->writeSections($before, $entries, $after);
+        } finally {
+            flock($lockHandle, LOCK_UN);
+            fclose($lockHandle);
+        }
     }
 
     private function normalizeIp(string $ipAddress): string
