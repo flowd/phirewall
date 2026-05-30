@@ -226,6 +226,65 @@ final class OperatorEvaluatorTest extends TestCase
         $this->assertTrue($evaluator->evaluate(['/blocked-content']));
     }
 
+    public function testPhraseMatchFromFileEvaluatorRejectsAbsoluteOperandWithContextFolder(): void
+    {
+        $root = vfsStream::setup('rules');
+        vfsStream::newDirectory('sub')->at($root);
+
+        $evaluator = new PhraseMatchFromFileEvaluator('/etc/passwd', $root->url() . '/sub');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Absolute path not permitted');
+        $evaluator->evaluate(['test']);
+    }
+
+    public function testPhraseMatchFromFileEvaluatorRejectsWindowsAbsoluteOperandWithContextFolder(): void
+    {
+        $root = vfsStream::setup('rules');
+        vfsStream::newDirectory('sub')->at($root);
+
+        $evaluator = new PhraseMatchFromFileEvaluator('C:\\Windows\\System32\\drivers\\etc\\hosts', $root->url() . '/sub');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Absolute path not permitted');
+        $evaluator->evaluate(['test']);
+    }
+
+    public function testPhraseMatchFromFileEvaluatorRejectsUncAbsoluteOperandWithContextFolder(): void
+    {
+        $root = vfsStream::setup('rules');
+        vfsStream::newDirectory('sub')->at($root);
+
+        $evaluator = new PhraseMatchFromFileEvaluator('\\\\server\\share\\phrases.txt', $root->url() . '/sub');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Absolute path not permitted');
+        $evaluator->evaluate(['test']);
+    }
+
+    public function testPhraseMatchFromFileEvaluatorConfinementRejectsResolvedEscape(): void
+    {
+        // The realpath()-based confinement branch in loadPhrases() cannot be
+        // driven through evaluate() under vfsStream (realpath() returns false on
+        // vfs:// streams, so the branch is skipped). The boundary decision the
+        // evaluator owns is therefore verified directly: a relative operand that
+        // resolves (e.g. via a symlink) OUTSIDE the context folder must be
+        // rejected, while one resolving inside is kept.
+        $evaluator = new PhraseMatchFromFileEvaluator('words.txt');
+        $isWithinContext = new \ReflectionMethod(PhraseMatchFromFileEvaluator::class, 'isWithinContext');
+
+        // Resolved inside the context folder -> contained.
+        $this->assertTrue($isWithinContext->invoke($evaluator, '/srv/rules/sub/words.txt', '/srv/rules/sub'));
+        // Resolved to the context folder itself -> contained.
+        $this->assertTrue($isWithinContext->invoke($evaluator, '/srv/rules/sub', '/srv/rules/sub'));
+        // Symlink escape to a sibling directory -> rejected (caller throws).
+        $this->assertFalse($isWithinContext->invoke($evaluator, '/srv/rules/other/words.txt', '/srv/rules/sub'));
+        // Escape to a parent / unrelated tree -> rejected.
+        $this->assertFalse($isWithinContext->invoke($evaluator, '/etc/passwd', '/srv/rules/sub'));
+        // Sibling sharing a name prefix must NOT be mistaken for nested.
+        $this->assertFalse($isWithinContext->invoke($evaluator, '/srv/rules/sub-evil/words.txt', '/srv/rules/sub'));
+    }
+
     public function testPhraseMatchFromFileEvaluatorSkipsComments(): void
     {
         $root = vfsStream::setup('rules');

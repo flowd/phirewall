@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Tests\Owasp;
 
 use Flowd\Phirewall\Owasp\SecRuleLoader;
 use Nyholm\Psr7\ServerRequest;
+use org\bovigo\vfs\vfsStream;
 use PHPUnit\Framework\TestCase;
 
 final class SecRuleLoaderTest extends TestCase
@@ -52,6 +53,24 @@ RULE;
         $req = new ServerRequest('GET', '/');
         $req = $req->withCookieParams(['sess' => 'xx<?php yy']);
         $this->assertSame(933100, $coreRuleSet->match($req));
+    }
+
+    public function testFromFileConfinesPmFromFileToRuleDirectory(): void
+    {
+        // A single-file load must apply the same @pmFromFile confinement as
+        // fromFiles()/fromDirectory(): the rule's @pmFromFile operand pointing
+        // at an absolute path outside the rule file's directory is rejected
+        // rather than silently read (arbitrary file read).
+        $root = vfsStream::setup('rules');
+        vfsStream::newFile('crs.conf')
+            ->withContent('SecRule REQUEST_URI "@pmFromFile /etc/passwd" "id:730001,phase:2,deny"' . "\n")
+            ->at($root);
+
+        $coreRuleSet = SecRuleLoader::fromFile($root->url() . '/crs.conf');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Absolute path not permitted');
+        $coreRuleSet->match(new ServerRequest('GET', '/anything'));
     }
 
     public function testFromStringWithReportCountsParsedAndSkipped(): void

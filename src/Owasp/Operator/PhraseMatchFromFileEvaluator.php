@@ -39,8 +39,25 @@ final readonly class PhraseMatchFromFileEvaluator implements OperatorEvaluatorIn
 
         $path = $this->filePath;
         if ($this->contextFolder !== null) {
+            // When the loader provides a context folder, the operand is treated
+            // as relative to it. Reject absolute paths and any post-resolve
+            // location that escapes the context folder (e.g. via symlinks).
+            if ($this->isAbsolutePath($this->filePath)) {
+                throw new \RuntimeException('Absolute path not permitted in @pmFromFile operand when a context folder is configured.');
+            }
+
             $path = rtrim($this->contextFolder, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR .
                 ltrim($this->filePath, DIRECTORY_SEPARATOR);
+
+            $resolvedPath = realpath($path);
+            $resolvedContext = realpath($this->contextFolder);
+            if ($resolvedPath !== false && $resolvedContext !== false) {
+                if (!$this->isWithinContext($resolvedPath, $resolvedContext)) {
+                    throw new \RuntimeException('@pmFromFile operand resolved outside the configured context folder.');
+                }
+
+                $path = $resolvedPath;
+            }
         }
 
         /** @var array<string, list<string>> $cache */
@@ -93,5 +110,42 @@ final readonly class PhraseMatchFromFileEvaluator implements OperatorEvaluatorIn
 
         $cache[$path] = $phrases;
         return $phrases;
+    }
+
+    /**
+     * Detect absolute paths on both POSIX (leading `/` or `\`) and Windows
+     * (drive-letter prefix like `C:\` / `C:/`, plus the `\\server\share` UNC
+     * form).
+     */
+    private function isAbsolutePath(string $path): bool
+    {
+        if ($path === '') {
+            return false;
+        }
+
+        if ($path[0] === '/' || $path[0] === '\\') {
+            return true;
+        }
+
+        return preg_match('#^[A-Za-z]:[\\\\/]#', $path) === 1;
+    }
+
+    /**
+     * Whether an already-resolved (realpath) file path stays within an
+     * already-resolved context folder — equal to it, or nested beneath it.
+     *
+     * Resolving symlinks is delegated to {@see realpath()}; rejecting a path
+     * that resolved outside the context folder (e.g. a symlink pointing to a
+     * sibling or parent directory) is the boundary decision enforced here. The
+     * trailing separator on both operands prevents a sibling that merely shares
+     * a name prefix (`/ctx-evil` vs `/ctx`) from being treated as nested. Kept
+     * pure and side-effect-free so the check is unit-testable without a real
+     * filesystem (vfsStream cannot satisfy realpath()).
+     */
+    private function isWithinContext(string $resolvedPath, string $resolvedContext): bool
+    {
+        $confinement = rtrim($resolvedContext, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+
+        return str_starts_with($resolvedPath . DIRECTORY_SEPARATOR, $confinement);
     }
 }
