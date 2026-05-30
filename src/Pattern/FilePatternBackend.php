@@ -39,84 +39,150 @@ final class FilePatternBackend implements PatternBackendInterface
     public function append(PatternEntry $patternEntry): void
     {
         $this->ensureDirectory();
-        $handle = @fopen($this->filePath, 'cb+');
-        if ($handle === false) {
-            throw new \RuntimeException(sprintf('Cannot open pattern file "%s" for writing.', $this->filePath));
-        }
 
+        $lockHandle = $this->acquireLock();
         $now = ($this->now)();
 
         try {
-            if (!flock($handle, LOCK_EX)) {
-                throw new \RuntimeException(sprintf('Cannot lock pattern file "%s".', $this->filePath));
+            $handle = @fopen($this->filePath, 'cb+');
+            if ($handle === false) {
+                throw new \RuntimeException(sprintf('Cannot open pattern file "%s" for writing.', $this->filePath));
             }
 
-            [$entries, $order] = $this->readEntriesRaw($handle, $now);
-            $key = $patternEntry->key();
-            $existing = $entries[$key] ?? null;
+            try {
+                [$entries, $order] = $this->readEntriesRaw($handle, $now);
+                $key = $patternEntry->key();
+                $existing = $entries[$key] ?? null;
 
-            $incoming = new PatternEntry(
-                kind: $patternEntry->kind,
-                value: $patternEntry->value,
-                target: $patternEntry->target,
-                expiresAt: $patternEntry->expiresAt,
-                addedAt: $patternEntry->addedAt ?? $now,
-                metadata: $patternEntry->metadata,
-            );
+                $incoming = new PatternEntry(
+                    kind: $patternEntry->kind,
+                    value: $patternEntry->value,
+                    target: $patternEntry->target,
+                    expiresAt: $patternEntry->expiresAt,
+                    addedAt: $patternEntry->addedAt ?? $now,
+                    metadata: $patternEntry->metadata,
+                );
 
-            $changed = false;
-            if ($existing === null) {
-                $entries[$key] = $incoming;
-                $order[] = $key;
-                $changed = true;
-            } else {
-                $merged = $existing->merge($incoming);
-                if ($merged->expiresAt !== $existing->expiresAt || $merged->addedAt !== $existing->addedAt) {
-                    $entries[$key] = $merged;
+                $changed = false;
+                if ($existing === null) {
+                    $entries[$key] = $incoming;
+                    $order[] = $key;
                     $changed = true;
+                } else {
+                    $merged = $existing->merge($incoming);
+                    if ($merged->expiresAt !== $existing->expiresAt || $merged->addedAt !== $existing->addedAt) {
+                        $entries[$key] = $merged;
+                        $changed = true;
+                    }
                 }
-            }
 
-            if ($changed) {
-                if (count($entries) > self::MAX_ENTRIES) {
-                    throw new \RuntimeException(sprintf('Pattern file exceeds maximum entries (%d).', self::MAX_ENTRIES));
+                if ($changed) {
+                    if (count($entries) > self::MAX_ENTRIES) {
+                        throw new \RuntimeException(sprintf('Pattern file exceeds maximum entries (%d).', self::MAX_ENTRIES));
+                    }
+
+                    $this->atomicWrite($this->formatEntries($entries, $order));
                 }
-
-                ftruncate($handle, 0);
-                rewind($handle);
-                fwrite($handle, $this->formatEntries($entries, $order));
-                fflush($handle);
+            } finally {
+                fclose($handle);
             }
         } finally {
-            flock($handle, LOCK_UN);
-            fclose($handle);
+            $this->releaseLock($lockHandle);
         }
     }
 
     public function pruneExpired(): void
     {
         $this->ensureDirectory();
-        $handle = @fopen($this->filePath, 'cb+');
-        if ($handle === false) {
-            throw new \RuntimeException(sprintf('Cannot open pattern file "%s" for writing.', $this->filePath));
-        }
 
+        $lockHandle = $this->acquireLock();
         $now = ($this->now)();
 
         try {
-            if (!flock($handle, LOCK_EX)) {
-                throw new \RuntimeException(sprintf('Cannot lock pattern file "%s".', $this->filePath));
+            $handle = @fopen($this->filePath, 'cb+');
+            if ($handle === false) {
+                throw new \RuntimeException(sprintf('Cannot open pattern file "%s" for writing.', $this->filePath));
             }
 
-            [$entries, $order] = $this->readEntriesRaw($handle, $now, pruneExpired: true);
-            ftruncate($handle, 0);
-            rewind($handle);
-            fwrite($handle, $this->formatEntries($entries, $order));
-            fflush($handle);
+            try {
+                [$entries, $order] = $this->readEntriesRaw($handle, $now, pruneExpired: true);
+                $this->atomicWrite($this->formatEntries($entries, $order));
+            } finally {
+                fclose($handle);
+            }
         } finally {
-            flock($handle, LOCK_UN);
-            fclose($handle);
+            $this->releaseLock($lockHandle);
         }
+    }
+
+    /**
+     * Write `$content` to the pattern file via a temp file + atomic rename so
+     * a mid-write crash cannot leave the live file empty. Callers must hold the
+     * sidecar lock from acquireLock() while calling this: the rename swaps the
+     * live file's inode, so a lock held on the live file itself would not
+     * serialize a writer already blocked on the now-orphaned inode, letting it
+     * resume against stale content and clobber the just-completed update.
+     */
+    private function atomicWrite(string $content): void
+    {
+        $temp = $this->filePath . '.tmp.' . bin2hex(random_bytes(6));
+        $bytes = @file_put_contents($temp, $content);
+        if ($bytes === false) {
+            throw new \RuntimeException(sprintf('Failed to write temp pattern file "%s".', $temp));
+        }
+
+        // Match the live file's mode (falling back to owner-only) so the rename
+        // never widens a pre-existing restrictive permission set.
+        $mode = 0600;
+        if (is_file($this->filePath)) {
+            $perms = @fileperms($this->filePath);
+            if ($perms !== false) {
+                $mode = $perms & 0777;
+            }
+        }
+
+        @chmod($temp, $mode);
+
+        if (!@rename($temp, $this->filePath)) {
+            @unlink($temp);
+            throw new \RuntimeException(sprintf('Failed to atomically replace pattern file "%s".', $this->filePath));
+        }
+    }
+
+    /**
+     * Acquire an exclusive lock used to serialize writers.
+     *
+     * The lock lives on a dedicated, never-renamed sidecar file (`<path>.lock`)
+     * instead of on the live pattern file, because atomicWrite() replaces the
+     * latter via rename(). A lock held on the live file would be stranded on the
+     * orphaned inode after a rename and would no longer serialize concurrent
+     * writers.
+     *
+     * @return resource
+     */
+    private function acquireLock()
+    {
+        $lockPath = $this->filePath . '.lock';
+        $lockHandle = @fopen($lockPath, 'cb');
+        if ($lockHandle === false) {
+            throw new \RuntimeException(sprintf('Cannot open lock file "%s".', $lockPath));
+        }
+
+        if (!flock($lockHandle, LOCK_EX)) {
+            fclose($lockHandle);
+            throw new \RuntimeException(sprintf('Cannot lock pattern lock file "%s".', $lockPath));
+        }
+
+        return $lockHandle;
+    }
+
+    /**
+     * @param resource $lockHandle
+     */
+    private function releaseLock($lockHandle): void
+    {
+        flock($lockHandle, LOCK_UN);
+        fclose($lockHandle);
     }
 
     public function type(): string
@@ -342,7 +408,9 @@ final class FilePatternBackend implements PatternBackendInterface
             return;
         }
 
-        if (!@mkdir($dir, 0777, true) && !is_dir($dir)) {
+        // 0700: pattern files contain blocklist data; the directory should not
+        // be readable by other local users on the host.
+        if (!@mkdir($dir, 0700, true) && !is_dir($dir)) {
             throw new \RuntimeException(sprintf('Failed to create directory for pattern file "%s".', $this->filePath));
         }
     }
