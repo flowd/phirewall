@@ -488,15 +488,13 @@ final class TrustedProxyTest extends TestCase
         $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
     }
 
-    public function testMultiValueXffViaWithAddedHeaderIsParsed(): void
+    public function testMultiInstanceXffResolvesViaTheLastReceivedInstance(): void
     {
-        // PSR-7's withAddedHeader yields multiple header values; getHeaderLine
-        // joins them with ", ". Regression guard for "we read via
-        // getHeaderLine, not getHeader[0]" — by placing a trusted value in the
-        // first header value and the untrusted client in the second, a
-        // getHeader[0]-only parser would see only the trusted entry and fall
-        // back to REMOTE_ADDR; a getHeaderLine parser sees both and resolves
-        // to the untrusted client.
+        // H12: PSR-7's withAddedHeader yields multiple header instances. The
+        // resolver reads only the LAST instance (the one the closest-to-us
+        // proxy appended), not getHeaderLine's flattened join and not
+        // getHeader()[0]. Here the last instance carries the untrusted client
+        // 198.51.100.5, so both requests resolve to it.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
         $config = new Config(new InMemoryCache());
         $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
@@ -504,10 +502,11 @@ final class TrustedProxyTest extends TestCase
         $firewall = new Firewall($config);
 
         // Two requests behind different trusted proxies, same XFF split into
-        // two header values. If getHeaderLine is used, both resolve to
-        // 198.51.100.5 (the untrusted second value) — shared bucket, second
-        // throttled. If only getHeader[0] is read, each resolves to its own
-        // REMOTE_ADDR — separate buckets, second passes.
+        // two instances. Reading the last instance, both resolve to
+        // 198.51.100.5 — shared bucket, second throttled. A getHeader()[0]-only
+        // parser would read the trusted 10.0.0.1, fall back to each request's
+        // own REMOTE_ADDR (separate buckets) and let the second through, so the
+        // throttle below guards against reading the wrong instance.
         $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
             ->withHeader('X-Forwarded-For', '10.0.0.1')
             ->withAddedHeader('X-Forwarded-For', '198.51.100.5');
@@ -517,6 +516,66 @@ final class TrustedProxyTest extends TestCase
             ->withHeader('X-Forwarded-For', '10.0.0.1')
             ->withAddedHeader('X-Forwarded-For', '198.51.100.5');
         $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+    }
+
+    public function testDuplicateXffHeaderInstanceIgnoresAttackerPrependedInstance(): void
+    {
+        // H12 regression guard for the spoofing primitive. An attacker prepends
+        // a duplicate X-Forwarded-For header line ("1.2.3.4") ahead of the one
+        // the trusted proxy appends ("10.0.0.1", a trusted hop only).
+        //   - getHeaderLine() would flatten both to "1.2.3.4, 10.0.0.1"; the
+        //     right-to-left walk skips the trusted 10.0.0.1 and resolves to the
+        //     spoofed 1.2.3.4 — the bug.
+        //   - Reading only the last instance ("10.0.0.1") leaves an all-trusted
+        //     chain, so the resolver falls back to REMOTE_ADDR and the spoof is
+        //     ignored.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        // Same spoofed prepended instance on both requests, different trusted
+        // REMOTE_ADDRs. Reading the last instance keys each request on its own
+        // REMOTE_ADDR (separate buckets, both pass). getHeaderLine would key
+        // both on the spoofed 1.2.3.4 (shared bucket, second throttled).
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Forwarded-For', '1.2.3.4')
+            ->withAddedHeader('X-Forwarded-For', '10.0.0.1');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
+            ->withHeader('X-Forwarded-For', '1.2.3.4')
+            ->withAddedHeader('X-Forwarded-For', '10.0.0.1');
+        $this->assertTrue(
+            $firewall->decide($second)->isPass(),
+            'A prepended duplicate XFF instance must be ignored; each request keys on its own REMOTE_ADDR',
+        );
+    }
+
+    public function testDuplicateForwardedHeaderInstanceIgnoresAttackerPrependedInstance(): void
+    {
+        // Same H12 guard for the RFC 7239 `Forwarded` header: the attacker
+        // prepends `for="1.2.3.4"`; the trusted proxy appends `for="10.0.0.1"`
+        // (a trusted hop). Reading only the last instance discards the spoof.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
+        $config = new Config(new InMemoryCache());
+        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('Forwarded', 'for="1.2.3.4"')
+            ->withAddedHeader('Forwarded', 'for="10.0.0.1"');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
+            ->withHeader('Forwarded', 'for="1.2.3.4"')
+            ->withAddedHeader('Forwarded', 'for="10.0.0.1"');
+        $this->assertTrue(
+            $firewall->decide($second)->isPass(),
+            'A prepended duplicate Forwarded instance must be ignored; each request keys on its own REMOTE_ADDR',
+        );
     }
 
     public function testForwardedTakesPrecedenceOverXffWhenListedFirst(): void
