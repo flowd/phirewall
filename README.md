@@ -40,9 +40,11 @@ $config->blocklists->add('scanners', fn($req) => str_starts_with($req->getUri()-
 // Rate limit: 100 requests per minute per IP
 $config->throttles->add('api', limit: 100, period: 60 /* seconds */, key: KeyExtractors::ip());
 
-// Ban IP after 5 failed logins in 5 minutes
+// Ban IP after 5 failed logins in 5 minutes. The filter never matches at
+// request time — failures are signaled from the handler via RequestContext
+// (see "Login Protection" below for the handler-side snippet).
 $config->fail2ban->add('login', threshold: 5, period: 300 /* seconds */, ban: 3600 /* seconds */,
-    filter: fn($req) => $req->getHeaderLine('X-Login-Failed') === '1',
+    filter: fn($req) => false,
     key: KeyExtractors::ip()
 );
 
