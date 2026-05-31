@@ -74,15 +74,58 @@ final class CidrMatcherTest extends TestCase
         $this->assertFalse(CidrMatcher::containsIp('192.168.2.0', '192.168.1.0/24'));
     }
 
-    public function testIpv4MappedIpv6DoesNotMatchIpv4Cidr(): void
+    public function testIpv4MappedIpv6MatchesIpv4Cidr(): void
     {
-        // IPv4-mapped IPv6 (::ffff:10.0.0.1) is a different address family
-        // and does NOT match IPv4 CIDRs — this is by design
+        // Dual-stack hosts present an IPv4 client as ::ffff:10.0.0.1. The binary
+        // is collapsed to the embedded IPv4 address so a single IPv4 CIDR rule
+        // matches either presentation.
         $compiled = CidrMatcher::compile('10.0.0.0/8');
         $this->assertNotNull($compiled);
 
         $mappedBinary = @inet_pton('::ffff:10.0.0.1');
         $this->assertNotFalse($mappedBinary);
-        $this->assertFalse(CidrMatcher::matches($mappedBinary, $compiled));
+        $this->assertTrue(CidrMatcher::matches($mappedBinary, $compiled));
+
+        $outOfRange = @inet_pton('::ffff:11.0.0.1');
+        $this->assertNotFalse($outOfRange);
+        $this->assertFalse(CidrMatcher::matches($outOfRange, $compiled));
+    }
+
+    public function testIpv4MappedIpv6CidrIsCanonicalisedToIpv4(): void
+    {
+        // An IPv4-mapped IPv6 CIDR collapses to its embedded IPv4 form (prefix
+        // length minus the 96-bit `::ffff:` prefix) so it matches the
+        // canonicalised peer, mirroring the exact-match path. `::ffff:10.0.0.0/120`
+        // is therefore equivalent to `10.0.0.0/24`.
+        $compiled = CidrMatcher::compile('::ffff:10.0.0.0/120');
+        $this->assertNotNull($compiled);
+
+        $this->assertTrue(CidrMatcher::matches((string) inet_pton('::ffff:10.0.0.1'), $compiled));
+        $this->assertTrue(CidrMatcher::matches((string) inet_pton('10.0.0.42'), $compiled));
+        $this->assertFalse(CidrMatcher::matches((string) inet_pton('10.0.1.1'), $compiled));
+    }
+
+    public function testCanonicalizeIpCollapsesIpv4MappedIpv6(): void
+    {
+        $this->assertSame('1.2.3.4', CidrMatcher::canonicalizeIp('::ffff:1.2.3.4'));
+        // Plain IPv4 and already-canonical IPv6 round-trip to themselves;
+        // unparseable input is returned unchanged.
+        $this->assertSame('1.2.3.4', CidrMatcher::canonicalizeIp('1.2.3.4'));
+        $this->assertSame('::1', CidrMatcher::canonicalizeIp('::1'));
+        $this->assertSame('not-an-ip', CidrMatcher::canonicalizeIp('not-an-ip'));
+    }
+
+    public function testCanonicalizeIpNormalizesGenuineIpv6AltForms(): void
+    {
+        // Zero-padded, expanded, and mixed-case genuine IPv6 all collapse to the
+        // compressed lowercase form, so text-comparing matchers treat every
+        // spelling of the same address as equal.
+        $this->assertSame('2001:db8::1', CidrMatcher::canonicalizeIp('2001:0DB8::1'));
+        $this->assertSame('2001:db8::1', CidrMatcher::canonicalizeIp('2001:db8:0:0:0:0:0:1'));
+        $this->assertSame('2001:db8::1', CidrMatcher::canonicalizeIp('2001:DB8::1'));
+        $this->assertSame(
+            CidrMatcher::canonicalizeIp('2001:0DB8::1'),
+            CidrMatcher::canonicalizeIp('2001:db8::1'),
+        );
     }
 }

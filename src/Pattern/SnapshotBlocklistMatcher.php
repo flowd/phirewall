@@ -40,6 +40,10 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
         // Pre-compute binary IP once (used by CIDR matching)
         $ipBinary = ($ip !== null) ? @inet_pton($ip) : false;
 
+        // Collapse IPv4-mapped IPv6 peers (`::ffff:x.x.x.x`) once so a client
+        // presented in that form by a dual-stack host still matches IPv4 entries.
+        $canonicalIp = ($ip !== null) ? CidrMatcher::canonicalizeIp($ip) : null;
+
         foreach ($patternSnapshot->entries as $entry) {
             $compiled = $this->compiled[$entry->kind->value][$this->entryKey($entry)] ?? null;
             if ($compiled === null) {
@@ -48,7 +52,8 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
 
             switch ($entry->kind) {
                 case PatternKind::IP:
-                    if ($ip !== null && $ip === $entry->value) {
+                    // $compiled is the entry's canonical IP, pre-computed in compileEntry().
+                    if ($canonicalIp !== null && $canonicalIp === $compiled) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
@@ -147,6 +152,10 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
     {
         return match ($patternEntry->kind) {
             PatternKind::CIDR => CidrMatcher::compile($patternEntry->value),
+            // Canonicalise IP entries once at compile time so match() compares
+            // against a pre-computed key instead of re-running inet_pton/inet_ntop
+            // for every entry on every request (mirrors IpMatcher's keying).
+            PatternKind::IP => CidrMatcher::canonicalizeIp($patternEntry->value),
             PatternKind::PATH_REGEX, PatternKind::HEADER_REGEX, PatternKind::REQUEST_REGEX => RegexMatcher::compile($patternEntry->value),
             default => $patternEntry->value,
         };

@@ -66,7 +66,9 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
 
         $this->reloadIfChanged();
 
-        if (isset($this->exactIps[$ipAddress])) {
+        // Collapse IPv4-mapped IPv6 peers (`::ffff:x.x.x.x`) so a client
+        // presented in that form by a dual-stack host still matches IPv4 entries.
+        if (isset($this->exactIps[CidrMatcher::canonicalizeIp($ipAddress)])) {
             return MatchResult::matched('ip_file_blocklist', ['ip' => $ipAddress]);
         }
 
@@ -153,7 +155,7 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
             }
 
             if (filter_var($entry, FILTER_VALIDATE_IP) !== false) {
-                $exactIps[$entry] = true;
+                $exactIps[CidrMatcher::canonicalizeIp($entry)] = true;
             }
         }
 

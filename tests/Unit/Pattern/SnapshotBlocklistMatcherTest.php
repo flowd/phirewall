@@ -72,6 +72,27 @@ final class SnapshotBlocklistMatcherTest extends TestCase
         @unlink($file);
     }
 
+    public function testIpv4MappedIpv6PeerMatchesIpv4EntryAndCidr(): void
+    {
+        $inMemoryPatternBackend = new InMemoryPatternBackend([
+            new PatternEntry(PatternKind::IP, '203.0.113.10'),
+            new PatternEntry(PatternKind::CIDR, '198.51.100.0/24'),
+        ]);
+
+        $snapshotBlocklistMatcher = new SnapshotBlocklistMatcher($inMemoryPatternBackend);
+
+        // A dual-stack host presents an IPv4 client as ::ffff:x.x.x.x; it must
+        // still match IPv4 entries.
+        $exactRequest = new ServerRequest('GET', '/any', [], null, '1.1', ['REMOTE_ADDR' => '::ffff:203.0.113.10']);
+        $this->assertTrue($snapshotBlocklistMatcher->match($exactRequest)->isMatch(), 'Mapped peer should match IPv4 exact entry');
+
+        $cidrRequest = new ServerRequest('GET', '/any', [], null, '1.1', ['REMOTE_ADDR' => '::ffff:198.51.100.77']);
+        $this->assertTrue($snapshotBlocklistMatcher->match($cidrRequest)->isMatch(), 'Mapped peer should match IPv4 CIDR entry');
+
+        $miss = new ServerRequest('GET', '/any', [], null, '1.1', ['REMOTE_ADDR' => '::ffff:8.8.8.8']);
+        $this->assertFalse($snapshotBlocklistMatcher->match($miss)->isMatch());
+    }
+
     public function testRequestRegexMatchesHeaderOnOwnLine(): void
     {
         $inMemoryPatternBackend = new InMemoryPatternBackend([
