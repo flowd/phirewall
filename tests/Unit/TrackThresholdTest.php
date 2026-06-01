@@ -12,6 +12,7 @@ use Flowd\Phirewall\Events\TrackHit;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Portable\PortableConfig;
 use Flowd\Phirewall\Store\InMemoryCache;
+use Flowd\Phirewall\Tests\Support\FakeClock;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -395,7 +396,14 @@ final class TrackThresholdTest extends TestCase
 
     private function createConfig(?EventDispatcherInterface $eventDispatcher = null): Config
     {
-        return new Config(new InMemoryCache(), $eventDispatcher);
+        // Frozen clock so the 60s fixed-window counter cannot roll mid-test:
+        // without it, a request straddling a wall-clock minute boundary lands
+        // in a new window and undercounts (flaky "3 is not 5" on slow CI). The
+        // window is computed inside InMemoryCache::increment(), so the clock
+        // must be injected into the CACHE — Config's clock alone does not drive
+        // the counter.
+        $clock = new FakeClock();
+        return new Config(new InMemoryCache($clock), $eventDispatcher, $clock);
     }
 
     /**
