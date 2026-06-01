@@ -478,7 +478,7 @@ final class PortableConfig
         }
 
         foreach ($entries as $entry) {
-            $this->assertValidPatternEntry($entry);
+            $this->assertValidPatternEntry(self::requireArray($entry, 'Invalid pattern backend entry'));
         }
 
         $this->schema['patternBackends'][] = ['name' => $name, 'entries' => array_values($entries)];
@@ -1214,7 +1214,7 @@ final class PortableConfig
         }
 
         foreach ($value as $item) {
-            if (!is_string($item)) {
+            if (!is_string($item) || trim($item) === '') {
                 return false;
             }
         }
