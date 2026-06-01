@@ -5,8 +5,25 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Portable;
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\ClosureKeyExtractor;
+use Flowd\Phirewall\Config\ClosureRequestMatcher;
+use Flowd\Phirewall\Config\RequestMatcherInterface;
+use Flowd\Phirewall\Config\Rule\Allow2BanRule;
+use Flowd\Phirewall\Config\Rule\BlocklistRule;
+use Flowd\Phirewall\Config\Rule\Fail2BanRule;
+use Flowd\Phirewall\Config\Rule\SafelistRule;
+use Flowd\Phirewall\Config\Rule\ThrottleRule;
+use Flowd\Phirewall\Config\Rule\TrackRule;
 use Flowd\Phirewall\KeyExtractors;
+use Flowd\Phirewall\Matchers\IpMatcher;
+use Flowd\Phirewall\Matchers\KnownScannerMatcher;
+use Flowd\Phirewall\Matchers\Support\RegexMatcher;
+use Flowd\Phirewall\Matchers\SuspiciousHeadersMatcher;
+use Flowd\Phirewall\Pattern\InMemoryPatternBackend;
+use Flowd\Phirewall\Pattern\PatternEntry;
+use Flowd\Phirewall\Pattern\PatternKind;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use Psr\SimpleCache\CacheInterface;
 
 /**
@@ -19,22 +36,37 @@ use Psr\SimpleCache\CacheInterface;
  * @phpstan-type FilterTypeGeneric array{type: string}
  * @phpstan-type FilterTypeAll array{type: 'all'}
  * @phpstan-type FilterMethodEquals FilterTypeGeneric&array{type: 'method_equals', method: string}
+ * @phpstan-type FilterMethodIn FilterTypeGeneric&array{type: 'method_in', methods: list<string>}
  * @phpstan-type FilterPathEquals FilterTypeGeneric&array{type: 'path_equals', path: string}
+ * @phpstan-type FilterPathPrefix FilterTypeGeneric&array{type: 'path_prefix', prefix: string}
+ * @phpstan-type FilterPathRegex FilterTypeGeneric&array{type: 'path_regex', pattern: string}
  * @phpstan-type FilterHeaderEquals FilterTypeGeneric&array{type: 'header_equals', name: string, value: string}
- * @phpstan-type Filter FilterMethodEquals|FilterPathEquals|FilterHeaderEquals|FilterTypeGeneric|FilterTypeAll
- * @phpstan-type Key array{type: 'ip'}|array{type: 'method'}|array{type: 'path'}|array{type: 'header', name: string}
+ * @phpstan-type FilterHeaderPresent FilterTypeGeneric&array{type: 'header_present', name: string}
+ * @phpstan-type FilterHeaderRegex FilterTypeGeneric&array{type: 'header_regex', name: string, pattern: string}
+ * @phpstan-type FilterIp FilterTypeGeneric&array{type: 'ip', ips: list<string>}
+ * @phpstan-type FilterKnownScanners FilterTypeGeneric&array{type: 'known_scanners', patterns?: list<string>}
+ * @phpstan-type FilterSuspiciousHeaders FilterTypeGeneric&array{type: 'suspicious_headers', headers?: list<string>}
+ * @phpstan-type Filter FilterMethodEquals|FilterMethodIn|FilterPathEquals|FilterPathPrefix|FilterPathRegex|FilterHeaderEquals|FilterHeaderPresent|FilterHeaderRegex|FilterIp|FilterKnownScanners|FilterSuspiciousHeaders|FilterTypeGeneric|FilterTypeAll
+ * @phpstan-type Key array{type: 'ip'}|array{type: 'method'}|array{type: 'path'}|array{type: 'header', name: string}|array{type: 'hashed_header', name: string}
+ * @phpstan-type PatternEntryArray array{kind: string, value: string, target?: string|null, expiresAt?: int|null, addedAt?: int|null, metadata?: array<string, scalar>}
  * @phpstan-type SchemaSafelists list<array{name: string, filter: Filter}>
  * @phpstan-type SchemaBlocklists list<array{name: string, filter: Filter}>
- * @phpstan-type SchemaThrottles list<array{name: string, limit: int, period: int, key: Key}>
+ * @phpstan-type SchemaThrottles list<array{name: string, limit: int, period: int, key: Key, sliding?: bool}>
  * @phpstan-type SchemaFail2Bans list<array{name: string, threshold: int, period: int, ban: int, filter: Filter, key: Key}>
+ * @phpstan-type SchemaAllow2Bans list<array{name: string, threshold: int, period: int, ban: int, key: Key}>
  * @phpstan-type SchemaTracks list<array{name: string, period: int, filter: Filter, key: Key, limit?: int}>
- * @phpstan-type SchemaOptions array{rateLimitHeaders?: bool, responseHeaders?: bool, keyPrefix?: string}
+ * @phpstan-type SchemaPatternBackends list<array{name: string, entries: list<PatternEntryArray>}>
+ * @phpstan-type SchemaPatternBlocklists list<array{name: string, backend: string}>
+ * @phpstan-type SchemaOptions array{rateLimitHeaders?: bool, responseHeaders?: bool, owaspDiagnosticsHeader?: bool, failOpen?: bool, keyPrefix?: string}
  * @phpstan-type Schema array{
  *   safelists: SchemaSafelists,
  *   blocklists: SchemaBlocklists,
  *   throttles: SchemaThrottles,
  *   fail2bans: SchemaFail2Bans,
+ *   allow2bans: SchemaAllow2Bans,
  *   tracks: SchemaTracks,
+ *   patternBackends: SchemaPatternBackends,
+ *   patternBlocklists: SchemaPatternBlocklists,
  *   options: SchemaOptions
  * }
  */
@@ -61,7 +93,10 @@ final class PortableConfig
         'blocklists' => [],
         'throttles' => [],
         'fail2bans' => [],
+        'allow2bans' => [],
         'tracks' => [],
+        'patternBackends' => [],
+        'patternBlocklists' => [],
         'options' => [],
     ];
 
@@ -85,6 +120,25 @@ final class PortableConfig
     public function setKeyPrefix(string $prefix): self
     {
         $this->schema['options']['keyPrefix'] = $prefix;
+        return $this;
+    }
+
+    public function enableOwaspDiagnosticsHeader(bool $enabled = true): self
+    {
+        $this->schema['options']['owaspDiagnosticsHeader'] = $enabled;
+        return $this;
+    }
+
+    /**
+     * Control the fail-open / fail-closed policy of the resulting Config.
+     *
+     * Mirrors {@see Config::setFailOpen()}; the default (true) is only emitted
+     * into the schema when explicitly set so existing serialized configs keep
+     * their shape.
+     */
+    public function setFailOpen(bool $failOpen): self
+    {
+        $this->schema['options']['failOpen'] = $failOpen;
         return $this;
     }
 
@@ -121,6 +175,109 @@ final class PortableConfig
     }
 
     /**
+     * Match requests whose path starts with the given prefix.
+     *
+     * @return FilterPathPrefix
+     */
+    public static function filterPathPrefix(string $prefix): array
+    {
+        return ['type' => 'path_prefix', 'prefix' => $prefix];
+    }
+
+    /**
+     * Match requests whose path matches the given PCRE pattern (delimiters included, e.g. `#^/admin#`).
+     *
+     * @return FilterPathRegex
+     */
+    public static function filterPathRegex(string $pattern): array
+    {
+        return ['type' => 'path_regex', 'pattern' => $pattern];
+    }
+
+    /**
+     * Match requests whose method is one of the given methods (case-insensitive).
+     *
+     * @param list<string> $methods
+     * @return FilterMethodIn
+     */
+    public static function filterMethodIn(array $methods): array
+    {
+        $methods = self::requireNonEmptyStringList($methods, 'filterMethodIn()');
+        return ['type' => 'method_in', 'methods' => array_values(array_map(static fn(string $method): string => strtoupper($method), $methods))];
+    }
+
+    /**
+     * Match requests that carry the given header (any non-empty value).
+     *
+     * @return FilterHeaderPresent
+     */
+    public static function filterHeaderPresent(string $name): array
+    {
+        return ['type' => 'header_present', 'name' => $name];
+    }
+
+    /**
+     * Match requests whose named header value matches the given PCRE pattern.
+     *
+     * @return FilterHeaderRegex
+     */
+    public static function filterHeaderRegex(string $name, string $pattern): array
+    {
+        return ['type' => 'header_regex', 'name' => $name, 'pattern' => $pattern];
+    }
+
+    /**
+     * Match requests whose client IP is in the given list of IPs and/or CIDR ranges.
+     *
+     * Backed by {@see IpMatcher}; resolves the client IP from REMOTE_ADDR.
+     *
+     * @param list<string> $ipsOrCidrs
+     * @return FilterIp
+     */
+    public static function filterIp(array $ipsOrCidrs): array
+    {
+        return ['type' => 'ip', 'ips' => self::requireNonEmptyStringList($ipsOrCidrs, 'filterIp()')];
+    }
+
+    /**
+     * Match requests whose User-Agent matches a known scanner / attack tool.
+     *
+     * Backed by {@see KnownScannerMatcher}. Pass null (default) to use the
+     * curated default pattern list; pass an explicit list to override it.
+     *
+     * @param list<string>|null $patterns
+     * @return FilterKnownScanners
+     */
+    public static function filterKnownScanners(?array $patterns = null): array
+    {
+        $filter = ['type' => 'known_scanners'];
+        if ($patterns !== null) {
+            $filter['patterns'] = self::requireNonEmptyStringList($patterns, 'filterKnownScanners()');
+        }
+
+        return $filter;
+    }
+
+    /**
+     * Match requests missing standard browser headers.
+     *
+     * Backed by {@see SuspiciousHeadersMatcher}. Pass null (default) to require
+     * the default header set; pass an explicit list to override it.
+     *
+     * @param list<string>|null $requiredHeaders
+     * @return FilterSuspiciousHeaders
+     */
+    public static function filterSuspiciousHeaders(?array $requiredHeaders = null): array
+    {
+        $filter = ['type' => 'suspicious_headers'];
+        if ($requiredHeaders !== null) {
+            $filter['headers'] = self::requireNonEmptyStringList($requiredHeaders, 'filterSuspiciousHeaders()');
+        }
+
+        return $filter;
+    }
+
+    /**
      * @return array{type: 'ip'}
      */
     public static function keyIp(): array
@@ -153,6 +310,53 @@ final class PortableConfig
     }
 
     /**
+     * Key on a sha256 fingerprint of the named header rather than its raw value.
+     *
+     * Backed by {@see KeyExtractors::hashedHeader()}; preferred for
+     * credential-bearing headers (`Authorization`, `Cookie`, `X-Api-Key`).
+     *
+     * @return array{type: 'hashed_header', name: string}
+     */
+    public static function keyHashedHeader(string $name): array
+    {
+        return ['type' => 'hashed_header', 'name' => $name];
+    }
+
+    /**
+     * Build a single pattern-backend entry (a portable {@see PatternEntry}).
+     *
+     * @param array<string, scalar> $metadata
+     * @return PatternEntryArray
+     */
+    public static function patternEntry(
+        PatternKind $patternKind,
+        string $value,
+        ?string $target = null,
+        ?int $expiresAt = null,
+        ?int $addedAt = null,
+        array $metadata = [],
+    ): array {
+        $entry = ['kind' => $patternKind->value, 'value' => $value];
+        if ($target !== null) {
+            $entry['target'] = $target;
+        }
+
+        if ($expiresAt !== null) {
+            $entry['expiresAt'] = $expiresAt;
+        }
+
+        if ($addedAt !== null) {
+            $entry['addedAt'] = $addedAt;
+        }
+
+        if ($metadata !== []) {
+            $entry['metadata'] = $metadata;
+        }
+
+        return $entry;
+    }
+
+    /**
      * @param FilterTypeGeneric $filter
      */
     public function safelist(string $name, array $filter): self
@@ -176,10 +380,15 @@ final class PortableConfig
     /**
      * @param Key $key
      */
-    public function throttle(string $name, int $limit, int $period, array $key): self
+    public function throttle(string $name, int $limit, int $period, array $key, bool $sliding = false): self
     {
         $this->assertValidKey($key);
-        $this->schema['throttles'][] = ['name' => $name, 'limit' => $limit, 'period' => $period, 'key' => $key];
+        $entry = ['name' => $name, 'limit' => $limit, 'period' => $period, 'key' => $key];
+        if ($sliding) {
+            $entry['sliding'] = true;
+        }
+
+        $this->schema['throttles'][] = $entry;
         return $this;
     }
 
@@ -197,6 +406,27 @@ final class PortableConfig
             'period' => $period,
             'ban' => $ban,
             'filter' => $filter,
+            'key' => $key,
+        ];
+        return $this;
+    }
+
+    /**
+     * Add an allow2ban rule: count every request for the extracted key and ban
+     * once the threshold is reached within the period.
+     *
+     * Unlike fail2ban there is no filter — allow2ban is a hard volume cap.
+     *
+     * @param Key $key
+     */
+    public function allow2ban(string $name, int $threshold, int $period, int $ban, array $key): self
+    {
+        $this->assertValidKey($key);
+        $this->schema['allow2bans'][] = [
+            'name' => $name,
+            'threshold' => $threshold,
+            'period' => $period,
+            'ban' => $ban,
             'key' => $key,
         ];
         return $this;
@@ -231,6 +461,57 @@ final class PortableConfig
     }
 
     /**
+     * Register a named in-memory pattern backend from a list of portable
+     * pattern entries (build them with {@see patternEntry()}).
+     *
+     * A backend is a reusable catalogue of block patterns (IP, CIDR, path,
+     * header, regex). Reference it from a blocklist with
+     * {@see blocklistFromBackend()}, or use {@see patternBlocklist()} to do
+     * both in one call.
+     *
+     * @param list<PatternEntryArray> $entries
+     */
+    public function addPatternBackend(string $name, array $entries): self
+    {
+        if ($name === '') {
+            throw new \InvalidArgumentException('Pattern backend name must not be empty.');
+        }
+
+        foreach ($entries as $entry) {
+            $this->assertValidPatternEntry(self::requireArray($entry, 'Invalid pattern backend entry'));
+        }
+
+        $this->schema['patternBackends'][] = ['name' => $name, 'entries' => array_values($entries)];
+        return $this;
+    }
+
+    /**
+     * Add a blocklist rule that matches against a previously registered
+     * pattern backend (see {@see addPatternBackend()}).
+     */
+    public function blocklistFromBackend(string $name, string $backendName): self
+    {
+        if ($name === '' || $backendName === '') {
+            throw new \InvalidArgumentException('Blocklist name and backend name must not be empty.');
+        }
+
+        $this->schema['patternBlocklists'][] = ['name' => $name, 'backend' => $backendName];
+        return $this;
+    }
+
+    /**
+     * Convenience: register a pattern backend and a blocklist that consumes it,
+     * both under the same name.
+     *
+     * @param list<PatternEntryArray> $entries
+     */
+    public function patternBlocklist(string $name, array $entries): self
+    {
+        $this->addPatternBackend($name, $entries);
+        return $this->blocklistFromBackend($name, $name);
+    }
+
+    /**
      * Export the portable schema as an array (JSON-serializable).
      * @return Schema
      */
@@ -258,39 +539,97 @@ final class PortableConfig
         $self->schema['blocklists'] = array_values((array)($data['blocklists'] ?? []));
         $self->schema['throttles'] = array_values((array)($data['throttles'] ?? []));
         $self->schema['fail2bans'] = array_values((array)($data['fail2bans'] ?? []));
+        $self->schema['allow2bans'] = array_values((array)($data['allow2bans'] ?? []));
         $self->schema['tracks'] = array_values((array)($data['tracks'] ?? []));
-        $self->schema['options'] = (array)($data['options'] ?? []);
-        // Validate content
-        foreach ($self->schema['safelists'] as $s) {
-            if (!is_array($s)) {
-                continue;
+        $self->schema['patternBackends'] = array_values((array)($data['patternBackends'] ?? []));
+        $self->schema['patternBlocklists'] = array_values((array)($data['patternBlocklists'] ?? []));
+        $options = (array)($data['options'] ?? []);
+        // `failOpen` is forwarded to the strictly-typed Config::setFailOpen(bool);
+        // a non-bool from decoded JSON (e.g. "failOpen": "false") would otherwise
+        // surface as a TypeError inside toConfig() rather than a transport-level
+        // validation error. Silently ignoring it is worse: a mistyped value would
+        // fall back to the fail-open default, weakening the policy unnoticed.
+        if (array_key_exists('failOpen', $options) && !is_bool($options['failOpen'])) {
+            throw new \InvalidArgumentException('PortableConfig option "failOpen" must be a boolean.');
+        }
+
+        $self->schema['options'] = $options;
+        // Validate content. Every section entry must be a JSON object; a scalar
+        // (or other non-array) from decoded JSON is a malformed transport payload
+        // and must surface as the documented InvalidArgumentException rather than
+        // a raw TypeError from offset access.
+        foreach ($self->schema['safelists'] as $safelist) {
+            $safelist = self::requireArray($safelist, 'Invalid safelist entry');
+            $filter = self::requireArray($safelist['filter'] ?? null, 'Invalid safelist filter');
+            $self->assertValidFilter($filter);
+            $self->assertValidSafelistFilter($filter);
+        }
+
+        foreach ($self->schema['blocklists'] as $blocklist) {
+            $blocklist = self::requireArray($blocklist, 'Invalid blocklist entry');
+            $self->assertValidFilter(self::requireArray($blocklist['filter'] ?? null, 'Invalid blocklist filter'));
+        }
+
+        foreach ($self->schema['throttles'] as $throttle) {
+            $throttle = self::requireArray($throttle, 'Invalid throttle entry');
+            $self->assertValidKey(self::requireArray($throttle['key'] ?? null, 'Invalid throttle key'));
+        }
+
+        foreach ($self->schema['fail2bans'] as $fail2ban) {
+            $fail2ban = self::requireArray($fail2ban, 'Invalid fail2ban entry');
+            $self->assertValidFilter(self::requireArray($fail2ban['filter'] ?? null, 'Invalid fail2ban filter'));
+            $self->assertValidKey(self::requireArray($fail2ban['key'] ?? null, 'Invalid fail2ban key'));
+        }
+
+        foreach ($self->schema['allow2bans'] as $allow2ban) {
+            $allow2ban = self::requireArray($allow2ban, 'Invalid allow2ban entry');
+            $self->assertValidKey(self::requireArray($allow2ban['key'] ?? null, 'Invalid allow2ban key'));
+        }
+
+        foreach ($self->schema['tracks'] as $track) {
+            $track = self::requireArray($track, 'Invalid track entry');
+            $self->assertValidFilter(self::requireArray($track['filter'] ?? null, 'Invalid track filter'));
+            $self->assertValidKey(self::requireArray($track['key'] ?? null, 'Invalid track key'));
+        }
+
+        $knownBackendNames = [];
+        foreach ($self->schema['patternBackends'] as $backend) {
+            $backend = self::requireArray($backend, 'Invalid pattern backend entry');
+            if (!is_string($backend['name'] ?? null) || $backend['name'] === '') {
+                throw new \InvalidArgumentException('Pattern backend requires a non-empty "name".');
             }
 
-            $filter = $s['filter'] ?? null;
-            if (!is_array($filter)) {
-                throw new \InvalidArgumentException('Invalid safelist filter');
+            $entries = $backend['entries'] ?? null;
+            if (!is_array($entries)) {
+                throw new \InvalidArgumentException('Pattern backend "entries" must be a list.');
             }
 
-            $self->assertValidFilter($s['filter']);
-            $self->assertValidSafelistFilter($s['filter']);
+            foreach ($entries as $entry) {
+                $self->assertValidPatternEntry(self::requireArray($entry, 'Invalid pattern backend entry'));
+            }
+
+            $knownBackendNames[$backend['name']] = true;
         }
 
-        foreach ($self->schema['blocklists'] as $b) {
-            $self->assertValidFilter($b['filter']);
-        }
+        foreach ($self->schema['patternBlocklists'] as $patternBlocklist) {
+            $patternBlocklist = self::requireArray($patternBlocklist, 'Invalid pattern blocklist entry');
+            if (!is_string($patternBlocklist['name'] ?? null) || $patternBlocklist['name'] === '') {
+                throw new \InvalidArgumentException('Pattern blocklist requires a non-empty "name".');
+            }
 
-        foreach ($self->schema['throttles'] as $t) {
-            $self->assertValidKey($t['key']);
-        }
+            if (!is_string($patternBlocklist['backend'] ?? null) || $patternBlocklist['backend'] === '') {
+                throw new \InvalidArgumentException('Pattern blocklist requires a non-empty "backend" reference.');
+            }
 
-        foreach ($self->schema['fail2bans'] as $f) {
-            $self->assertValidFilter($f['filter']);
-            $self->assertValidKey($f['key']);
-        }
-
-        foreach ($self->schema['tracks'] as $t) {
-            $self->assertValidFilter($t['filter']);
-            $self->assertValidKey($t['key']);
+            // Cross-check the reference now so a dangling backend fails at load
+            // time rather than later inside toConfig().
+            if (!isset($knownBackendNames[$patternBlocklist['backend']])) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Pattern blocklist "%s" references unknown pattern backend "%s".',
+                    $patternBlocklist['name'],
+                    $patternBlocklist['backend'],
+                ));
+            }
         }
 
         return $self;
@@ -436,7 +775,13 @@ final class PortableConfig
     }
 
     /**
-     * Build a Config instance with closures derived from the portable schema.
+     * Build a Config instance from the portable schema.
+     *
+     * Rules are registered through the section API
+     * ({@see Config::$safelists}, {@see Config::$blocklists}, …) rather than
+     * the deprecated forwarding methods, and dedicated matchers
+     * ({@see IpMatcher}, {@see KnownScannerMatcher}, …) are used where a filter
+     * maps onto one.
      */
     public function toConfig(CacheInterface $cache, ?EventDispatcherInterface $eventDispatcher = null): Config
     {
@@ -450,58 +795,90 @@ final class PortableConfig
             $config->enableResponseHeaders(true);
         }
 
+        if (isset($options['owaspDiagnosticsHeader']) && $options['owaspDiagnosticsHeader']) {
+            $config->enableOwaspDiagnosticsHeader(true);
+        }
+
+        if (isset($options['failOpen'])) {
+            $config->setFailOpen($options['failOpen']);
+        }
+
         if (isset($options['keyPrefix']) && is_string($options['keyPrefix'])) {
             $config->setKeyPrefix($options['keyPrefix']);
         }
 
         // Safelists
         foreach ($this->schema['safelists'] as $s) {
-            $config->addSafelist(new \Flowd\Phirewall\Config\Rule\SafelistRule(
+            $config->safelists->addRule(new SafelistRule(
                 $s['name'],
-                new \Flowd\Phirewall\Config\ClosureRequestMatcher($this->compileFilter($s['filter']))
+                $this->compileFilterMatcher($s['filter']),
             ));
         }
 
         // Blocklists
         foreach ($this->schema['blocklists'] as $b) {
-            $config->addBlocklist(new \Flowd\Phirewall\Config\Rule\BlocklistRule(
+            $config->blocklists->addRule(new BlocklistRule(
                 $b['name'],
-                new \Flowd\Phirewall\Config\ClosureRequestMatcher($this->compileFilter($b['filter']))
+                $this->compileFilterMatcher($b['filter']),
             ));
         }
 
         // Throttles
         foreach ($this->schema['throttles'] as $t) {
-            $config->addThrottle(new \Flowd\Phirewall\Config\Rule\ThrottleRule(
+            $config->throttles->addRule(new ThrottleRule(
                 $t['name'],
                 (int)$t['limit'],
                 (int)$t['period'],
-                new \Flowd\Phirewall\Config\ClosureKeyExtractor($this->compileKey($t['key']))
+                new ClosureKeyExtractor($this->compileKey($t['key'])),
+                ($t['sliding'] ?? false) === true,
             ));
         }
 
         // Fail2Ban
         foreach ($this->schema['fail2bans'] as $f) {
-            $config->addFail2Ban(new \Flowd\Phirewall\Config\Rule\Fail2BanRule(
+            $config->fail2ban->addRule(new Fail2BanRule(
                 $f['name'],
                 (int)$f['threshold'],
                 (int)$f['period'],
                 (int)$f['ban'],
-                new \Flowd\Phirewall\Config\ClosureRequestMatcher($this->compileFilter($f['filter'])),
-                new \Flowd\Phirewall\Config\ClosureKeyExtractor($this->compileKey($f['key']))
+                $this->compileFilterMatcher($f['filter']),
+                new ClosureKeyExtractor($this->compileKey($f['key'])),
+            ));
+        }
+
+        // Allow2Ban
+        foreach ($this->schema['allow2bans'] as $a) {
+            $config->allow2ban->addRule(new Allow2BanRule(
+                $a['name'],
+                (int)$a['threshold'],
+                (int)$a['period'],
+                (int)$a['ban'],
+                new ClosureKeyExtractor($this->compileKey($a['key'])),
             ));
         }
 
         // Tracks
         foreach ($this->schema['tracks'] as $t) {
             $trackLimit = isset($t['limit']) ? (int) $t['limit'] : null;
-            $config->addTrack(new \Flowd\Phirewall\Config\Rule\TrackRule(
+            $config->tracks->addRule(new TrackRule(
                 $t['name'],
                 (int)$t['period'],
-                new \Flowd\Phirewall\Config\ClosureRequestMatcher($this->compileFilter($t['filter'])),
-                new \Flowd\Phirewall\Config\ClosureKeyExtractor($this->compileKey($t['key'])),
+                $this->compileFilterMatcher($t['filter']),
+                new ClosureKeyExtractor($this->compileKey($t['key'])),
                 $trackLimit,
             ));
+        }
+
+        // Pattern backends + blocklists that consume them
+        foreach ($this->schema['patternBackends'] as $backend) {
+            $config->blocklists->addPatternBackend(
+                $backend['name'],
+                new InMemoryPatternBackend($this->compilePatternEntries($backend['entries'])),
+            );
+        }
+
+        foreach ($this->schema['patternBlocklists'] as $patternBlocklist) {
+            $config->blocklists->fromBackend($patternBlocklist['name'], $patternBlocklist['backend']);
         }
 
         return $config;
@@ -510,24 +887,62 @@ final class PortableConfig
     /**
      * @param Filter $filter
      */
-    private function compileFilter(array $filter): \Closure
+    private function compileFilterMatcher(array $filter): RequestMatcherInterface
     {
         $type = (string)($filter['type'] ?? '');
         return match ($type) {
-            'path_equals' => static function (\Psr\Http\Message\ServerRequestInterface $serverRequest) use ($filter): bool {
+            'ip' => new IpMatcher(self::toStringList($filter['ips'] ?? [])),
+            'known_scanners' => new KnownScannerMatcher(isset($filter['patterns']) ? self::toStringList($filter['patterns']) : null),
+            'suspicious_headers' => new SuspiciousHeadersMatcher(isset($filter['headers']) ? self::toStringList($filter['headers']) : []),
+            default => new ClosureRequestMatcher($this->compileFilterClosure($filter)),
+        };
+    }
+
+    /**
+     * Compile the request-predicate filter types into a closure.
+     *
+     * @param Filter $filter
+     * @return \Closure(ServerRequestInterface): bool
+     */
+    private function compileFilterClosure(array $filter): \Closure
+    {
+        $type = (string)($filter['type'] ?? '');
+        return match ($type) {
+            'path_equals' => static function (ServerRequestInterface $serverRequest) use ($filter): bool {
                 $path = (string)($filter['path'] ?? '/');
                 return $serverRequest->getUri()->getPath() === $path;
             },
-            'method_equals' => static function (\Psr\Http\Message\ServerRequestInterface $serverRequest) use ($filter): bool {
+            'path_prefix' => static function (ServerRequestInterface $serverRequest) use ($filter): bool {
+                $prefix = (string)($filter['prefix'] ?? '');
+                return $prefix !== '' && str_starts_with($serverRequest->getUri()->getPath(), $prefix);
+            },
+            'path_regex' => (static function () use ($filter): \Closure {
+                $pattern = RegexMatcher::compile((string)($filter['pattern'] ?? ''));
+                return static fn(ServerRequestInterface $serverRequest): bool => RegexMatcher::matches($pattern, $serverRequest->getUri()->getPath());
+            })(),
+            'method_equals' => static function (ServerRequestInterface $serverRequest) use ($filter): bool {
                 $method = strtoupper((string)($filter['method'] ?? ''));
                 return strtoupper($serverRequest->getMethod()) === $method;
             },
-            'header_equals' => static function (\Psr\Http\Message\ServerRequestInterface $serverRequest) use ($filter): bool {
+            'method_in' => (static function () use ($filter): \Closure {
+                $methods = array_map(static fn(string $method): string => strtoupper($method), self::toStringList($filter['methods'] ?? []));
+                return static fn(ServerRequestInterface $serverRequest): bool => in_array(strtoupper($serverRequest->getMethod()), $methods, true);
+            })(),
+            'header_equals' => static function (ServerRequestInterface $serverRequest) use ($filter): bool {
                 $name = (string)($filter['name'] ?? '');
                 $value = (string)($filter['value'] ?? '');
                 return $name !== '' && hash_equals($value, $serverRequest->getHeaderLine($name));
             },
-            'all' => static fn(): bool => true,
+            'header_present' => static function (ServerRequestInterface $serverRequest) use ($filter): bool {
+                $name = (string)($filter['name'] ?? '');
+                return $name !== '' && $serverRequest->getHeaderLine($name) !== '';
+            },
+            'header_regex' => (static function () use ($filter): \Closure {
+                $name = (string)($filter['name'] ?? '');
+                $pattern = RegexMatcher::compile((string)($filter['pattern'] ?? ''));
+                return static fn(ServerRequestInterface $serverRequest): bool => $name !== '' && RegexMatcher::matches($pattern, $serverRequest->getHeaderLine($name));
+            })(),
+            'all' => static fn(ServerRequestInterface $serverRequest): bool => true,
             default => throw new \InvalidArgumentException('Unsupported filter type: ' . $type),
         };
     }
@@ -541,15 +956,117 @@ final class PortableConfig
             'method' => KeyExtractors::method(),
             'path' => KeyExtractors::path(),
             'header' => (static fn(string $name): \Closure => KeyExtractors::header($name))((string)($key['name'] ?? '')),
+            'hashed_header' => (static fn(string $name): \Closure => KeyExtractors::hashedHeader($name))((string)($key['name'] ?? '')),
             default => throw new \InvalidArgumentException('Unsupported key extractor type: ' . $type),
         };
+    }
+
+    /**
+     * @param list<PatternEntryArray> $entries
+     * @return list<PatternEntry>
+     */
+    private function compilePatternEntries(array $entries): array
+    {
+        $compiled = [];
+        foreach ($entries as $entry) {
+            $metadata = $entry['metadata'] ?? [];
+            $compiled[] = new PatternEntry(
+                kind: PatternKind::from($entry['kind']),
+                value: $entry['value'],
+                target: $entry['target'] ?? null,
+                expiresAt: $entry['expiresAt'] ?? null,
+                addedAt: $entry['addedAt'] ?? null,
+                metadata: $metadata,
+            );
+        }
+
+        return $compiled;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function toStringList(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $strings = [];
+        foreach ($value as $item) {
+            if (is_string($item)) {
+                $strings[] = $item;
+            }
+        }
+
+        return $strings;
+    }
+
+    /**
+     * Narrow a decoded-schema value to an array or fail with a transport-level
+     * validation error. Decoded JSON can place a scalar where the schema expects
+     * an object; without this guard the later offset access would raise a raw
+     * TypeError instead of the documented InvalidArgumentException.
+     *
+     * @return array<string, mixed>
+     */
+    private static function requireArray(mixed $value, string $message): array
+    {
+        if (!is_array($value)) {
+            throw new \InvalidArgumentException($message);
+        }
+
+        /** @var array<string, mixed> $value */
+        return $value;
+    }
+
+    /**
+     * Validate a builder-supplied list so the static filter builders can never
+     * emit a schema that {@see fromArray()} would later reject (empty lists) or
+     * that would silently compile into a no-op matcher. Keeps the builder output
+     * consistent with the transport validator and the toArray()/fromArray()
+     * round-trip.
+     *
+     * @param array<array-key, mixed> $values
+     * @return list<string>
+     */
+    private static function requireNonEmptyStringList(array $values, string $context): array
+    {
+        if ($values === []) {
+            throw new \InvalidArgumentException($context . ' requires a non-empty list of values.');
+        }
+
+        $list = [];
+        foreach ($values as $value) {
+            if (!is_string($value) || trim($value) === '') {
+                throw new \InvalidArgumentException($context . ' requires non-empty string values.');
+            }
+
+            $list[] = $value;
+        }
+
+        return $list;
     }
 
     /** @param array<string,mixed> $filter */
     private function assertValidFilter(array $filter): void
     {
         $type = $filter['type'] ?? null;
-        if (!in_array($type, ['path_equals', 'method_equals', 'header_equals', 'all'], true)) {
+        $known = [
+            'all',
+            'path_equals',
+            'path_prefix',
+            'path_regex',
+            'method_equals',
+            'method_in',
+            'header_equals',
+            'header_present',
+            'header_regex',
+            'ip',
+            'known_scanners',
+            'suspicious_headers',
+        ];
+        if (!in_array($type, $known, true)) {
             throw new \InvalidArgumentException('Invalid filter type');
         }
 
@@ -557,32 +1074,71 @@ final class PortableConfig
             throw new \InvalidArgumentException('path_equals requires path');
         }
 
+        if ($type === 'path_prefix' && !is_string($filter['prefix'] ?? null)) {
+            throw new \InvalidArgumentException('path_prefix requires prefix');
+        }
+
         if ($type === 'method_equals' && !is_string($filter['method'] ?? null)) {
             throw new \InvalidArgumentException('method_equals requires method');
         }
 
+        if ($type === 'method_in' && !$this->isStringList($filter['methods'] ?? null)) {
+            throw new \InvalidArgumentException('method_in requires a non-empty list of method strings');
+        }
+
         if ($type === 'header_equals' && (!is_string($filter['name'] ?? null) || !is_string($filter['value'] ?? null))) {
             throw new \InvalidArgumentException('header_equals requires name and value');
+        }
+
+        if ($type === 'header_present' && !is_string($filter['name'] ?? null)) {
+            throw new \InvalidArgumentException('header_present requires name');
+        }
+
+        if (($type === 'path_regex' || $type === 'header_regex')) {
+            if ($type === 'header_regex' && !is_string($filter['name'] ?? null)) {
+                throw new \InvalidArgumentException('header_regex requires name');
+            }
+
+            $pattern = $filter['pattern'] ?? null;
+            if (!is_string($pattern) || RegexMatcher::compile($pattern) === null) {
+                throw new \InvalidArgumentException($type . ' requires a valid PCRE pattern (delimiters included)');
+            }
+        }
+
+        if ($type === 'ip' && !$this->isStringList($filter['ips'] ?? null)) {
+            throw new \InvalidArgumentException('ip filter requires a non-empty list of IP/CIDR strings');
+        }
+
+        if ($type === 'known_scanners' && isset($filter['patterns']) && !$this->isStringList($filter['patterns'])) {
+            throw new \InvalidArgumentException('known_scanners patterns must be a list of strings');
+        }
+
+        if ($type === 'suspicious_headers' && isset($filter['headers']) && !$this->isStringList($filter['headers'])) {
+            throw new \InvalidArgumentException('suspicious_headers headers must be a list of strings');
         }
     }
 
     /**
      * Additional safelist-only checks.
      *
-     * `header_equals` is not permitted in safelists: a safelist with a static
-     * header value is a bypass token (anyone presenting the header skips
-     * every downstream rule), and the value sits in the rules file in
-     * plaintext. The `header` key extractor on throttle / fail2ban / track
-     * rules is still allowed because those rules apply restrictions rather
-     * than bypassing them.
+     * Header-based filters (`header_equals`, `header_present`, `header_regex`)
+     * are not permitted in safelists: the header value is client-controlled,
+     * so a safelist keyed on it is a forgeable bypass token (anyone presenting
+     * the header skips every downstream rule), and any literal value sits in
+     * the rules file in plaintext. The `header` key extractor on throttle /
+     * fail2ban / track rules is still allowed because those rules apply
+     * restrictions rather than bypassing them.
      *
      * @param array<string,mixed> $filter
      */
     private function assertValidSafelistFilter(array $filter): void
     {
-        if (($filter['type'] ?? null) === 'header_equals') {
+        $type = $filter['type'] ?? null;
+        if (is_string($type) && str_starts_with($type, 'header_')) {
             throw new \InvalidArgumentException(
-                'header_equals filter is not allowed for safelists. Use an authenticated principal or an IP-based filter instead.'
+                'header_equals, header_present and header_regex filters are not allowed for safelists: '
+                . 'the header value is client-controlled and can be forged to bypass every downstream rule. '
+                . 'Use an authenticated principal or an IP-based filter instead.'
             );
         }
     }
@@ -591,13 +1147,79 @@ final class PortableConfig
     private function assertValidKey(array $key): void
     {
         $type = $key['type'] ?? null;
-        if (!in_array($type, ['ip', 'method', 'path', 'header'], true)) {
+        if (!in_array($type, ['ip', 'method', 'path', 'header', 'hashed_header'], true)) {
             throw new \InvalidArgumentException('Invalid key extractor type');
         }
 
-        if ($type === 'header' && !is_string($key['name'] ?? null)) {
-            throw new \InvalidArgumentException('header key extractor requires name');
+        if (($type === 'header' || $type === 'hashed_header') && (!is_string($key['name'] ?? null) || $key['name'] === '')) {
+            throw new \InvalidArgumentException($type . ' key extractor requires a non-empty name');
         }
+    }
+
+    /** @param array<string,mixed> $entry */
+    private function assertValidPatternEntry(array $entry): void
+    {
+        $kind = $entry['kind'] ?? null;
+        if (!is_string($kind) || !(PatternKind::tryFrom($kind) instanceof PatternKind)) {
+            throw new \InvalidArgumentException('Invalid pattern entry kind: ' . (is_string($kind) ? $kind : gettype($kind)));
+        }
+
+        $value = $entry['value'] ?? null;
+        if (!is_string($value) || $value === '') {
+            throw new \InvalidArgumentException(sprintf('Pattern entry "%s" requires a non-empty string value.', $kind));
+        }
+
+        $target = $entry['target'] ?? null;
+        if ($target !== null && !is_string($target)) {
+            throw new \InvalidArgumentException(sprintf('Pattern entry "%s" target must be a string or null.', $kind));
+        }
+
+        if (($kind === PatternKind::HEADER_EXACT->value || $kind === PatternKind::HEADER_REGEX->value)
+            && (!is_string($target) || $target === '')
+        ) {
+            throw new \InvalidArgumentException(sprintf('Pattern entry "%s" requires a non-empty target (header name).', $kind));
+        }
+
+        foreach (['expiresAt', 'addedAt'] as $timestampField) {
+            if (isset($entry[$timestampField]) && !is_int($entry[$timestampField])) {
+                throw new \InvalidArgumentException(sprintf('Pattern entry "%s" %s must be an integer timestamp.', $kind, $timestampField));
+            }
+        }
+
+        $metadata = $entry['metadata'] ?? [];
+        if (!is_array($metadata)) {
+            throw new \InvalidArgumentException(sprintf('Pattern entry "%s" metadata must be an array of scalars.', $kind));
+        }
+
+        foreach ($metadata as $metadataValue) {
+            if (!is_scalar($metadataValue)) {
+                throw new \InvalidArgumentException(sprintf('Pattern entry "%s" metadata values must be scalar.', $kind));
+            }
+        }
+
+        if (in_array($kind, [PatternKind::PATH_REGEX->value, PatternKind::HEADER_REGEX->value, PatternKind::REQUEST_REGEX->value], true)
+            && RegexMatcher::compile($value) === null
+        ) {
+            throw new \InvalidArgumentException(sprintf('Pattern entry "%s" requires a valid PCRE pattern (delimiters included).', $kind));
+        }
+    }
+
+    /**
+     * @phpstan-assert-if-true non-empty-list<string> $value
+     */
+    private function isStringList(mixed $value): bool
+    {
+        if (!is_array($value) || $value === [] || !array_is_list($value)) {
+            return false;
+        }
+
+        foreach ($value as $item) {
+            if (!is_string($item) || trim($item) === '') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function base64UrlEncode(string $raw): string
