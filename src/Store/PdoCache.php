@@ -23,6 +23,8 @@ use Psr\SimpleCache\CacheInterface;
  */
 final class PdoCache implements CacheInterface, CounterStoreInterface
 {
+    use KeyValidationTrait;
+
     private const SUPPORTED_DRIVERS = ['sqlite', 'mysql', 'pgsql'];
 
     private bool $tableCreated = false;
@@ -66,6 +68,7 @@ final class PdoCache implements CacheInterface, CounterStoreInterface
 
     public function get(string $key, mixed $default = null): mixed
     {
+        $this->validateKey($key);
         $this->ensureTable();
         $this->maybePruneExpired();
 
@@ -94,6 +97,7 @@ final class PdoCache implements CacheInterface, CounterStoreInterface
 
     public function set(string $key, mixed $value, null|int|DateInterval $ttl = null): bool
     {
+        $this->validateKey($key);
         $this->ensureTable();
 
         $expiresAt = $this->computeExpiresAt($ttl);
@@ -109,6 +113,7 @@ final class PdoCache implements CacheInterface, CounterStoreInterface
 
     public function delete(string $key): bool
     {
+        $this->validateKey($key);
         $this->ensureTable();
 
         $stmt = $this->stmt(
@@ -130,17 +135,15 @@ final class PdoCache implements CacheInterface, CounterStoreInterface
 
     public function getMultiple(iterable $keys, mixed $default = null): iterable
     {
-        $this->ensureTable();
-        $this->maybePruneExpired();
+        $keyList = $this->validateKeyList($keys);
 
-        $keyList = [];
-        foreach ($keys as $key) {
-            $keyList[] = (string) $key;
-        }
-
+        // Nothing to fetch — skip the table/prune round-trips for an empty call.
         if ($keyList === []) {
             return [];
         }
+
+        $this->ensureTable();
+        $this->maybePruneExpired();
 
         $placeholders = implode(', ', array_fill(0, count($keyList), '?'));
         $stmt = $this->pdo->prepare(
@@ -178,12 +181,12 @@ final class PdoCache implements CacheInterface, CounterStoreInterface
     }
 
     /**
-     * @param iterable<string|int, mixed> $values
+     * @param iterable<mixed, mixed> $values
      */
     public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
     {
-        foreach ($values as $key => $value) {
-            $this->set((string) $key, $value, $ttl);
+        foreach ($this->validateKeyedValues($values) as $key => $value) {
+            $this->set($key, $value, $ttl);
         }
 
         return true;
@@ -191,16 +194,14 @@ final class PdoCache implements CacheInterface, CounterStoreInterface
 
     public function deleteMultiple(iterable $keys): bool
     {
-        $this->ensureTable();
+        $keyList = $this->validateKeyList($keys);
 
-        $keyList = [];
-        foreach ($keys as $key) {
-            $keyList[] = (string) $key;
-        }
-
+        // Nothing to delete — skip creating/touching the table for a no-op call.
         if ($keyList === []) {
             return true;
         }
+
+        $this->ensureTable();
 
         $placeholders = implode(', ', array_fill(0, count($keyList), '?'));
         $stmt = $this->pdo->prepare(
@@ -213,6 +214,7 @@ final class PdoCache implements CacheInterface, CounterStoreInterface
 
     public function has(string $key): bool
     {
+        $this->validateKey($key);
         $this->ensureTable();
         $this->maybePruneExpired();
 
@@ -252,6 +254,7 @@ final class PdoCache implements CacheInterface, CounterStoreInterface
      */
     public function increment(string $key, int $period): int
     {
+        $this->validateKey($key);
         if ($period < 1) {
             throw new \InvalidArgumentException(
                 sprintf('Period must be at least 1, got %d.', $period),
@@ -274,6 +277,7 @@ final class PdoCache implements CacheInterface, CounterStoreInterface
 
     public function ttlRemaining(string $key): int
     {
+        $this->validateKey($key);
         $this->ensureTable();
 
         $stmt = $this->stmt(

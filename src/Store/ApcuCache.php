@@ -17,6 +17,8 @@ use Psr\SimpleCache\CacheInterface;
  */
 final class ApcuCache implements CacheInterface, CounterStoreInterface
 {
+    use KeyValidationTrait;
+
     private const EXP_SUFFIX = '::exp';
 
     public function __construct()
@@ -28,6 +30,7 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
 
     public function get(string $key, mixed $default = null): mixed
     {
+        $this->validateKey($key);
         $success = false;
         $value = apcu_fetch($key, $success);
         if (!$success) {
@@ -39,6 +42,7 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
 
     public function set(string $key, mixed $value, null|int|DateInterval $ttl = null): bool
     {
+        $this->validateKey($key);
         $ttl = $this->ttlToSeconds($ttl);
         if ($ttl !== null && $ttl < 0) {
             // Expired
@@ -51,6 +55,7 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
 
     public function delete(string $key): bool
     {
+        $this->validateKey($key);
         apcu_delete($key);
         apcu_delete($key . self::EXP_SUFFIX);
         return true;
@@ -65,20 +70,20 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
     public function getMultiple(iterable $keys, mixed $default = null): iterable
     {
         $result = [];
-        foreach ($keys as $key) {
-            $result[$key] = $this->get((string)$key, $default);
+        foreach ($this->validateKeyList($keys) as $key) {
+            $result[$key] = $this->get($key, $default);
         }
 
         return $result;
     }
 
     /**
-     * @param iterable<string|int, mixed> $values
+     * @param iterable<mixed, mixed> $values
      */
     public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
     {
-        foreach ($values as $key => $value) {
-            $this->set((string)$key, $value, $ttl);
+        foreach ($this->validateKeyedValues($values) as $key => $value) {
+            $this->set($key, $value, $ttl);
         }
 
         return true;
@@ -86,8 +91,8 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
 
     public function deleteMultiple(iterable $keys): bool
     {
-        foreach ($keys as $key) {
-            $this->delete((string)$key);
+        foreach ($this->validateKeyList($keys) as $key) {
+            $this->delete($key);
         }
 
         return true;
@@ -95,6 +100,7 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
 
     public function has(string $key): bool
     {
+        $this->validateKey($key);
         return apcu_exists($key);
     }
 
@@ -104,6 +110,7 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
      */
     public function increment(string $key, int $period): int
     {
+        $this->validateKey($key);
         $now = time();
         $windowStart = intdiv($now, $period) * $period;
         $windowEnd = $windowStart + $period; // epoch seconds
@@ -128,6 +135,7 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
 
     public function ttlRemaining(string $key): int
     {
+        $this->validateKey($key);
         $success = false;
         $expiry = apcu_fetch($key . self::EXP_SUFFIX, $success);
         if (!$success || !is_int($expiry)) {
