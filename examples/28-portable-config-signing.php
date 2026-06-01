@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Portable\PortableConfig;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -49,7 +50,7 @@ echo "2. Signature verified — config loaded.\n";
 echo '   Round-trip identical: ' . ($restored->toArray() === $portableConfig->toArray() ? 'yes' : 'no') . "\n\n";
 
 // The restored config behaves exactly like the original.
-$firewall = new Firewall($restored->toConfig(new InMemoryCache()));
+$firewall = new Firewall((new Config(new InMemoryCache()))->combine($restored));
 $blocked = $firewall->decide(new ServerRequest('GET', '/admin'));
 echo '   /admin is blocked by the restored ruleset: ' . ($blocked->isBlocked() ? 'yes' : 'no') . "\n\n";
 

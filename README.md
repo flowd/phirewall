@@ -293,9 +293,10 @@ See [04-sql-injection-blocking.php](examples/04-sql-injection-blocking.php) and 
 
 ## Portable Config
 
-`PortableConfig` expresses a ruleset as plain, JSON-serializable data instead of PHP closures, so a configuration can be stored in a database, shipped through a config service, diffed in git, or shared between processes — then rebuilt into a live `Config` with `toConfig()`.
+`PortableConfig` expresses a ruleset as plain, JSON-serializable data instead of PHP closures, so a configuration can be stored in a database, shipped through a config service, diffed in git, or shared between processes — then rebuilt into a live `Config` with `Config::combine()`.
 
 ```php
+use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Pattern\PatternKind;
 use Flowd\Phirewall\Portable\PortableConfig;
 
@@ -316,10 +317,10 @@ $portable = PortableConfig::create()
 
 // Round-trip as data …
 $array = $portable->toArray();
-$config = PortableConfig::fromArray($array)->toConfig($cache);
+$config = (new Config($cache))->combine(PortableConfig::fromArray($array));
 ```
 
-**Supported rule types:** safelists, blocklists, throttles (incl. `sliding`), fail2ban, allow2ban, tracks, and pattern backends. **Filters:** `all`, `path_equals`, `path_prefix`, `path_regex`, `method_equals`, `method_in`, `header_equals`, `header_present`, `header_regex`, plus the matcher-backed `ip`, `known_scanners`, and `suspicious_headers`. **Key extractors:** `ip`, `method`, `path`, `header`, `hashed_header`.
+**Supported rule types:** safelists, blocklists, throttles (incl. `sliding` and an optional `scope` filter that restricts which requests the throttle counts — e.g. `filterPathPrefix('/api')`), fail2ban, allow2ban, tracks, and pattern backends. **Filters:** `all`, `none`, `path_equals`, `path_prefix`, `path_regex`, `method_equals`, `method_in`, `header_equals`, `header_present`, `header_regex`, plus the matcher-backed `ip`, `known_scanners`, and `suspicious_headers`. **Key extractors:** `ip`, `method`, `path`, `header`, `hashed_header`.
 
 ### Signed transport
 
@@ -343,14 +344,16 @@ Real deployments rarely have a single source of firewall rules. A vendor ships a
 ```php
 use Flowd\Phirewall\Config;
 
-// Each layer is built independently — frequently rebuilt from a PortableConfig.
-$vendorBaseline    = $vendorPortable->toConfig($cache);   // shared product defaults
-$environmentLayer  = $envPortable->toConfig($cache);      // staging vs. production
-$tenantLayer       = $tenantPortable->toConfig($cache);   // per-customer policy
-$deploymentTweak   = (new Config($cache))->setFailOpen(false);
+// Each layer is data — frequently a PortableConfig — combined onto one base Config.
+$layered = (new Config($cache))->combine(
+    $vendorPortable,    // shared product defaults
+    $envPortable,       // staging vs. production
+    $tenantPortable,    // per-customer policy
+);
+$deploymentTweak = (new Config($cache))->setFailOpen(false);
 
-// Later layers win. Equivalent: Config::compose($vendorBaseline, $environmentLayer, …).
-$effective = $vendorBaseline->mergedWith($environmentLayer, $tenantLayer, $deploymentTweak);
+// Later layers win. Equivalent: Config::compose($layered, $deploymentTweak).
+$effective = $layered->mergedWith($deploymentTweak);
 ```
 
 Merge semantics (overlays applied left to right, so **later sources win**):
@@ -362,6 +365,44 @@ Merge semantics (overlays applied left to right, so **later sources win**):
 - **Infrastructure** — the PSR-16 cache, PSR-14 event dispatcher, and clock — is inherited from the base layer.
 
 See [30-config-composition.php](examples/30-config-composition.php) for a full vendor → environment → tenant → deployment walkthrough.
+
+## Presets
+
+Presets are ready-to-use rule bundles for recurring scenarios, so you don't have to hand-write the same rules each time. Each preset is a [`PortableConfig`](#portable-config) — plain, inspectable, serializable data — returned directly (to serialize, diff, sign, or layer) and materialized onto a `Config` with `Config::combine()`.
+
+```php
+use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Preset\Presets;
+
+// A preset on its own (a Config requires a PSR-16 cache):
+$config = (new Config($cache))->combine(Presets::apiRateLimiting());
+
+// Inspect / serialize the underlying portable schema:
+$schema = Presets::apiRateLimiting()->toArray();
+
+// Because presets ARE PortableConfigs, they combine onto your own base Config (later wins by name):
+$config = (new Config($cache))->combine(Presets::loginProtection())->mergedWith($myConfig);
+$config = (new Config($cache))->combine(
+    Presets::scannerBlocking(),
+    Presets::sensitivePathBlocking(),
+    Presets::apiRateLimiting(),
+)->mergedWith($myConfig); // your overrides win
+```
+
+| Preset | Rules (all namespaced `preset.<area>.*`) |
+|--------|------------------------------------------|
+| `apiRateLimiting()` | Per-client sliding-window throttles on the `/api` prefix: `preset.api.burst` (20 req/s) and `preset.api.sustained` (300 req/60s), keyed on client IP. |
+| `loginProtection()` | `preset.login.throttle` (10 attempts/60s per IP on `/login`) + `preset.login.bruteforce` fail2ban (ban the IP for 15 min after 5 failures in 15 min). |
+| `scannerBlocking()` | `preset.scanner.known-tools` (known scanner/exploit User-Agents) + `preset.scanner.suspicious-headers` (missing standard browser `Accept-*` headers). |
+| `sensitivePathBlocking()` | `preset.sensitive-path.probes` — pattern blocklist for `/.git`, `/.svn`, `/.hg`, `/.env*`, `/.aws/credentials`, `/.htpasswd`, `/.htaccess`, `/.DS_Store`. |
+
+**Conventions & overrides.** `apiRateLimiting()` scopes to `/api` and `loginProtection()` to `/login`; the login fail2ban counts a failure **only** when your handler calls `$context->recordFailure(Presets::LOGIN_FAILURE_RULE)` after a failed authentication. The rule uses a never-match filter on purpose — counting failures from a spoofable marker header would let an attacker forge it to ban an arbitrary IP (and behind a shared proxy/CDN, ban the proxy itself and lock out everyone). Because every rule is namespaced, you override any of them by composing the preset with your own `Config` that redefines the rule by the same name. IP-keyed rules use `REMOTE_ADDR`; behind a proxy/CDN, layer your own throttle keyed on a trusted client IP (see [Client IP Behind Proxies](#client-ip-behind-proxies)).
+
+> **Note:** `scannerBlocking()`'s `suspicious-headers` rule is aggressive — some legitimate API clients and privacy tools also omit `Accept-*` headers. Drop or override it by name if your traffic includes non-browser clients.
+
+**Versioning & update checks.** `Presets::VERSION` identifies the bundled rule catalogue. To surface "a newer ruleset is available", implement the `PresetUpdateChecker` interface against a source you trust (Packagist, an internal config service, a versioned JSON document, …) and compare against `Presets::VERSION`. Phirewall hardcodes no endpoint and performs **no network I/O**: the shipped `NullPresetUpdateChecker` never reports an update, and wiring a real source is the integrator's job.
+
+See [31-presets.php](examples/31-presets.php) for standalone use, portable inspection, composition with override-by-name, and the update-check seam.
 
 ## Real-World Recipes
 

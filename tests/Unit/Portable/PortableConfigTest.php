@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Tests\Portable;
 
+use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Pattern\PatternKind;
@@ -20,7 +21,7 @@ final class PortableConfigTest extends TestCase
             ->enableResponseHeaders()
             ->blocklist('admin', PortableConfig::filterPathEquals('/admin')); // block /admin
 
-        $config = $portableConfig->toConfig(new InMemoryCache());
+        $config = (new Config(new InMemoryCache()))->combine($portableConfig);
 
         $firewall = new Firewall($config);
 
@@ -39,7 +40,7 @@ final class PortableConfigTest extends TestCase
             ->enableRateLimitHeaders()
             ->throttle('ip', 1, 30, PortableConfig::keyIp());
 
-        $config = $portableConfig->toConfig(new InMemoryCache());
+        $config = (new Config(new InMemoryCache()))->combine($portableConfig);
         $firewall = new Firewall($config);
 
         $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.5']);
@@ -55,6 +56,69 @@ final class PortableConfigTest extends TestCase
         $this->assertGreaterThanOrEqual(1, (int)($throttled->headers['X-RateLimit-Reset'] ?? '0'));
     }
 
+    public function testThrottleScopeOnlyCountsMatchingRequests(): void
+    {
+        $portableConfig = PortableConfig::create()
+            ->throttle(
+                'api',
+                limit: 1,
+                period: 30,
+                key: PortableConfig::keyIp(),
+                scope: PortableConfig::filterPathPrefix('/api'),
+            );
+
+        $config = (new Config(new InMemoryCache()))->combine($portableConfig);
+        $firewall = new Firewall($config);
+
+        $apiRequest = new ServerRequest('GET', '/api/users', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.9']);
+        $this->assertTrue($firewall->decide($apiRequest)->isPass());
+        // Second request on the scoped path exceeds the limit of 1.
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($apiRequest)->outcome);
+
+        // Requests outside the scope are never counted, no matter how many.
+        $otherRequest = new ServerRequest('GET', '/public', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.9']);
+        for ($i = 0; $i < 5; ++$i) {
+            $this->assertTrue($firewall->decide($otherRequest)->isPass());
+        }
+    }
+
+    public function testThrottleScopeSurvivesRoundTrip(): void
+    {
+        $portableConfig = PortableConfig::create()
+            ->throttle(
+                'api',
+                limit: 1,
+                period: 30,
+                key: PortableConfig::keyIp(),
+                sliding: true,
+                scope: PortableConfig::filterPathPrefix('/api'),
+            );
+
+        $schema = $portableConfig->toArray();
+        $this->assertSame(['type' => 'path_prefix', 'prefix' => '/api'], $schema['throttles'][0]['scope'] ?? null);
+
+        $json = json_encode($schema, JSON_THROW_ON_ERROR);
+        $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        $this->assertIsArray($data);
+
+        $firewall = new Firewall((new Config(new InMemoryCache()))->combine(PortableConfig::fromArray($data)));
+        $apiRequest = new ServerRequest('GET', '/api/items', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.7']);
+        $this->assertTrue($firewall->decide($apiRequest)->isPass());
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($apiRequest)->outcome);
+    }
+
+    public function testThrottleScopeRejectsInvalidFilter(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        PortableConfig::create()->throttle(
+            'api',
+            limit: 1,
+            period: 30,
+            key: PortableConfig::keyIp(),
+            scope: ['type' => 'not-a-real-filter'],
+        );
+    }
+
     public function testFail2BanWithHeaderFilterAndIpKey(): void
     {
         $portableConfig = PortableConfig::create()
@@ -68,7 +132,7 @@ final class PortableConfigTest extends TestCase
                 key: PortableConfig::keyIp()
             );
 
-        $config = $portableConfig->toConfig(new InMemoryCache());
+        $config = (new Config(new InMemoryCache()))->combine($portableConfig);
 
         $firewall = new Firewall($config);
 
@@ -173,7 +237,7 @@ final class PortableConfigTest extends TestCase
 
         $portableConfig2 = PortableConfig::fromArray($data);
 
-        $config = $portableConfig2->toConfig(new InMemoryCache());
+        $config = (new Config(new InMemoryCache()))->combine($portableConfig2);
 
         $firewall = new Firewall($config);
 
@@ -378,7 +442,7 @@ final class PortableConfigTest extends TestCase
                 ->allow2ban('volume-cap', threshold: 2, period: 60, ban: 300, key: PortableConfig::keyIp())
         );
 
-        $firewall = new Firewall($portableConfig->toConfig(new InMemoryCache()));
+        $firewall = new Firewall((new Config(new InMemoryCache()))->combine($portableConfig));
         $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.9']);
 
         // threshold=2 (>= semantics): 1st request passes, 2nd reaches the cap and is banned.
@@ -399,7 +463,7 @@ final class PortableConfigTest extends TestCase
         $this->assertTrue($schema['throttles'][0]['sliding'] ?? false);
         $this->assertArrayNotHasKey('sliding', $schema['throttles'][1]);
 
-        $config = $this->roundTrip($portableConfig)->toConfig(new InMemoryCache());
+        $config = (new Config(new InMemoryCache()))->combine($this->roundTrip($portableConfig));
         $rules = $config->throttles->rules();
         $this->assertTrue($rules['sliding-ip']->isSliding());
         $this->assertFalse($rules['fixed-ip']->isSliding());
@@ -423,6 +487,22 @@ final class PortableConfigTest extends TestCase
 
         $this->assertTrue($firewall->decide(new ServerRequest('GET', '/index.html'))->isPass());
         $this->assertSame(Outcome::BLOCKED, $firewall->decide(new ServerRequest('GET', '/shell.php'))->outcome);
+    }
+
+    public function testNoneFilterNeverMatches(): void
+    {
+        $portable = PortableConfig::create()->blocklist('never', PortableConfig::filterNone());
+        $firewall = $this->firewallFrom($portable);
+
+        // A never-match filter blocks nothing, regardless of the request.
+        $this->assertTrue($firewall->decide(new ServerRequest('GET', '/'))->isPass());
+        $this->assertTrue($firewall->decide(new ServerRequest('POST', '/admin', ['X-Anything' => 'yes']))->isPass());
+
+        // It is a first-class portable filter and survives a round trip.
+        $this->assertSame(
+            [['name' => 'never', 'filter' => ['type' => 'none']]],
+            PortableConfig::fromArray($portable->toArray())->toArray()['blocklists'],
+        );
     }
 
     public function testMethodInFilterBlocks(): void
@@ -510,7 +590,7 @@ final class PortableConfigTest extends TestCase
         $portableConfig = $this->roundTrip(
             PortableConfig::create()->throttle('per-api-key', 1, 60, PortableConfig::keyHashedHeader('X-Api-Key'))
         );
-        $firewall = new Firewall($portableConfig->toConfig(new InMemoryCache()));
+        $firewall = new Firewall((new Config(new InMemoryCache()))->combine($portableConfig));
 
         $request = (new ServerRequest('GET', '/'))->withHeader('X-Api-Key', 'secret-token');
         $this->assertTrue($firewall->decide($request)->isPass());
@@ -555,7 +635,7 @@ final class PortableConfigTest extends TestCase
                 ->blocklistFromBackend('block-b', 'shared')
         );
 
-        $config = $portableConfig->toConfig(new InMemoryCache());
+        $config = (new Config(new InMemoryCache()))->combine($portableConfig);
         $this->assertArrayHasKey('block-a', $config->blocklists->rules());
         $this->assertArrayHasKey('block-b', $config->blocklists->rules());
 
@@ -576,7 +656,7 @@ final class PortableConfigTest extends TestCase
         $this->assertFalse($schema['options']['failOpen'] ?? true);
         $this->assertTrue($schema['options']['owaspDiagnosticsHeader'] ?? false);
 
-        $config = $portableConfig->toConfig(new InMemoryCache());
+        $config = (new Config(new InMemoryCache()))->combine($portableConfig);
         $this->assertFalse($config->isFailOpen());
         $this->assertTrue($config->owaspDiagnosticsHeaderEnabled());
     }
@@ -633,8 +713,8 @@ final class PortableConfigTest extends TestCase
     public function testFromArrayRejectsNonBooleanFailOpen(): void
     {
         // A JSON-decoded "failOpen": "false" arrives as a string; it must be
-        // rejected at the transport boundary rather than crashing later inside
-        // toConfig()'s strictly-typed Config::setFailOpen(bool) call.
+        // rejected at the transport boundary rather than crashing later during
+        // Config::combine()'s strictly-typed Config::setFailOpen(bool) call.
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/failOpen.*boolean/');
         PortableConfig::fromArray(['options' => ['failOpen' => 'false']]);
@@ -644,9 +724,22 @@ final class PortableConfigTest extends TestCase
     {
         $portableConfig = PortableConfig::fromArray(['options' => ['failOpen' => false]]);
 
-        $config = $portableConfig->toConfig(new InMemoryCache());
+        $config = (new Config(new InMemoryCache()))->combine($portableConfig);
 
         $this->assertFalse($config->isFailOpen());
+    }
+
+    public function testFromArrayRejectsNullThrottleScope(): void
+    {
+        // A present-but-null throttle "scope" is rejected at the boundary
+        // (mirroring the failOpen guard): when the key is present it must be an
+        // array filter, so a malformed config-generation path is caught early
+        // rather than silently dropped to "no scope".
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/Invalid throttle scope/');
+        PortableConfig::fromArray([
+            'throttles' => [['name' => 't', 'limit' => 1, 'period' => 60, 'key' => ['type' => 'ip'], 'scope' => null]],
+        ]);
     }
 
     public function testFilterMethodInRejectsEmptyList(): void
@@ -756,7 +849,7 @@ final class PortableConfigTest extends TestCase
             ->allow2ban('a', threshold: 2, period: 60, ban: 300, key: PortableConfig::keyMethod())
             ->track('tr', 60, PortableConfig::filterPathPrefix('/api'), PortableConfig::keyPath(), 5);
 
-        $config = $this->roundTrip($portableConfig)->toConfig(new InMemoryCache());
+        $config = (new Config(new InMemoryCache()))->combine($this->roundTrip($portableConfig));
 
         $this->assertCount(2, $config->safelists->rules());
         $this->assertCount(10, $config->blocklists->rules());
@@ -791,7 +884,7 @@ final class PortableConfigTest extends TestCase
             PortableConfig::create()->enableResponseHeaders()->patternBlocklist('feed', [$entry])
         );
 
-        $firewall = new Firewall($portableConfig->toConfig(new InMemoryCache()));
+        $firewall = new Firewall((new Config(new InMemoryCache()))->combine($portableConfig));
         $hit = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '192.0.2.99']);
         $this->assertSame(Outcome::BLOCKED, $firewall->decide($hit)->outcome);
     }
@@ -820,7 +913,7 @@ final class PortableConfigTest extends TestCase
     public function testFromArrayRejectsDanglingPatternBackendReference(): void
     {
         // A pattern blocklist referencing a backend that is not registered must
-        // fail at load time, not later inside toConfig().
+        // fail at load time, not later during Config::combine().
         $schema = [
             'safelists' => [],
             'blocklists' => [],
@@ -858,6 +951,6 @@ final class PortableConfigTest extends TestCase
 
     private function firewallFrom(PortableConfig $portableConfig): Firewall
     {
-        return new Firewall($this->roundTrip($portableConfig)->toConfig(new InMemoryCache()));
+        return new Firewall((new Config(new InMemoryCache()))->combine($this->roundTrip($portableConfig)));
     }
 }

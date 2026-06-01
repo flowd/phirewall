@@ -24,7 +24,8 @@ declare(strict_types=1);
  *   - The base layer provides the infrastructure (cache, dispatcher, clock).
  *
  * The first three layers are loaded from PortableConfig (the way you would ship
- * rules as data); the last is a plain hand-built Config.
+ * rules as data) and materialized with Config::combine(); the last is a plain
+ * hand-built Config.
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -43,7 +44,7 @@ $cache = new InMemoryCache();
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 1 — vendor baseline (shipped as portable data).
 // ─────────────────────────────────────────────────────────────────────────
-$vendorBaseline = PortableConfig::create()
+$vendorBaseline = (new Config($cache))->combine(PortableConfig::create()
     ->setKeyPrefix('vendor')
     ->safelist('health', PortableConfig::filterPathEquals('/health'))
     ->blocklist('scanners', PortableConfig::filterKnownScanners()) // curated default list incl. sqlmap, nikto…
@@ -52,25 +53,22 @@ $vendorBaseline = PortableConfig::create()
     ->patternBlocklist('threats', [
         PortableConfig::patternEntry(PatternKind::PATH_EXACT, '/.env'),
         PortableConfig::patternEntry(PatternKind::PATH_REGEX, '#/\.git(/|$)#'),
-    ])
-    ->toConfig($cache);
+    ]));
 
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 2 — environment overlay (e.g. production): adds rules, turns on headers.
 // ─────────────────────────────────────────────────────────────────────────
-$environmentOverlay = PortableConfig::create()
+$environmentOverlay = (new Config($cache))->combine(PortableConfig::create()
     ->enableResponseHeaders()
-    ->blocklist('admin-probe', PortableConfig::filterPathPrefix('/wp-admin'))
-    ->toConfig($cache);
+    ->blocklist('admin-probe', PortableConfig::filterPathPrefix('/wp-admin')));
 
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 3 — tenant overlay: OVERRIDES "scanners" by name + adds a volume cap.
 // ─────────────────────────────────────────────────────────────────────────
-$tenantOverlay = PortableConfig::create()
+$tenantOverlay = (new Config($cache))->combine(PortableConfig::create()
     ->setKeyPrefix('tenant-acme')
     ->blocklist('scanners', PortableConfig::filterKnownScanners(['evilcorp-bot'])) // replaces the vendor list
-    ->allow2ban('volume-cap', threshold: 1_000, period: 60, ban: 300, key: PortableConfig::keyIp())
-    ->toConfig($cache);
+    ->allow2ban('volume-cap', threshold: 1_000, period: 60, ban: 300, key: PortableConfig::keyIp()));
 
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 4 — per-deployment tweak (a plain Config, not portable): final key

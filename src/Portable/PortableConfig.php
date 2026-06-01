@@ -22,9 +22,7 @@ use Flowd\Phirewall\Matchers\SuspiciousHeadersMatcher;
 use Flowd\Phirewall\Pattern\InMemoryPatternBackend;
 use Flowd\Phirewall\Pattern\PatternEntry;
 use Flowd\Phirewall\Pattern\PatternKind;
-use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Psr\SimpleCache\CacheInterface;
 
 /**
  * A portable representation of firewall rules that can be exported/imported as arrays (or JSON).
@@ -35,6 +33,7 @@ use Psr\SimpleCache\CacheInterface;
 /**
  * @phpstan-type FilterTypeGeneric array{type: string}
  * @phpstan-type FilterTypeAll array{type: 'all'}
+ * @phpstan-type FilterTypeNone array{type: 'none'}
  * @phpstan-type FilterMethodEquals FilterTypeGeneric&array{type: 'method_equals', method: string}
  * @phpstan-type FilterMethodIn FilterTypeGeneric&array{type: 'method_in', methods: list<string>}
  * @phpstan-type FilterPathEquals FilterTypeGeneric&array{type: 'path_equals', path: string}
@@ -46,12 +45,12 @@ use Psr\SimpleCache\CacheInterface;
  * @phpstan-type FilterIp FilterTypeGeneric&array{type: 'ip', ips: list<string>}
  * @phpstan-type FilterKnownScanners FilterTypeGeneric&array{type: 'known_scanners', patterns?: list<string>}
  * @phpstan-type FilterSuspiciousHeaders FilterTypeGeneric&array{type: 'suspicious_headers', headers?: list<string>}
- * @phpstan-type Filter FilterMethodEquals|FilterMethodIn|FilterPathEquals|FilterPathPrefix|FilterPathRegex|FilterHeaderEquals|FilterHeaderPresent|FilterHeaderRegex|FilterIp|FilterKnownScanners|FilterSuspiciousHeaders|FilterTypeGeneric|FilterTypeAll
+ * @phpstan-type Filter FilterMethodEquals|FilterMethodIn|FilterPathEquals|FilterPathPrefix|FilterPathRegex|FilterHeaderEquals|FilterHeaderPresent|FilterHeaderRegex|FilterIp|FilterKnownScanners|FilterSuspiciousHeaders|FilterTypeGeneric|FilterTypeAll|FilterTypeNone
  * @phpstan-type Key array{type: 'ip'}|array{type: 'method'}|array{type: 'path'}|array{type: 'header', name: string}|array{type: 'hashed_header', name: string}
  * @phpstan-type PatternEntryArray array{kind: string, value: string, target?: string|null, expiresAt?: int|null, addedAt?: int|null, metadata?: array<string, scalar>}
  * @phpstan-type SchemaSafelists list<array{name: string, filter: Filter}>
  * @phpstan-type SchemaBlocklists list<array{name: string, filter: Filter}>
- * @phpstan-type SchemaThrottles list<array{name: string, limit: int, period: int, key: Key, sliding?: bool}>
+ * @phpstan-type SchemaThrottles list<array{name: string, limit: int, period: int, key: Key, sliding?: bool, scope?: Filter}>
  * @phpstan-type SchemaFail2Bans list<array{name: string, threshold: int, period: int, ban: int, filter: Filter, key: Key}>
  * @phpstan-type SchemaAllow2Bans list<array{name: string, threshold: int, period: int, ban: int, key: Key}>
  * @phpstan-type SchemaTracks list<array{name: string, period: int, filter: Filter, key: Key, limit?: int}>
@@ -172,6 +171,22 @@ final class PortableConfig
     public static function filterAll(): array
     {
         return ['type' => 'all'];
+    }
+
+    /**
+     * A filter that never matches any request.
+     *
+     * The portable counterpart of `fn() => false`. Use it for a fail2ban rule
+     * that must not be tripped by any inspectable, client-controlled request
+     * property (e.g. a spoofable marker header) and is instead driven solely by
+     * a trusted post-handler signal via `RequestContext::recordFailure()`, which
+     * bypasses the filter.
+     *
+     * @return FilterTypeNone
+     */
+    public static function filterNone(): array
+    {
+        return ['type' => 'none'];
     }
 
     /**
@@ -378,14 +393,30 @@ final class PortableConfig
     }
 
     /**
+     * Add a throttle rule.
+     *
+     * The optional `$scope` filter restricts which requests the throttle counts:
+     * when given, the throttle is only applied to requests the filter matches
+     * (e.g. {@see filterPathPrefix()} for `/api`), and all other requests pass
+     * through untouched by this rule. This keeps a per-client throttle from
+     * accidentally rate-limiting unrelated traffic and is the building block
+     * behind the path-scoped throttles shipped by
+     * {@see \Flowd\Phirewall\Preset\Presets}.
+     *
      * @param Key $key
+     * @param Filter|null $scope Optional request filter limiting which requests are throttled.
      */
-    public function throttle(string $name, int $limit, int $period, array $key, bool $sliding = false): self
+    public function throttle(string $name, int $limit, int $period, array $key, bool $sliding = false, ?array $scope = null): self
     {
         $this->assertValidKey($key);
         $entry = ['name' => $name, 'limit' => $limit, 'period' => $period, 'key' => $key];
         if ($sliding) {
             $entry['sliding'] = true;
+        }
+
+        if ($scope !== null) {
+            $this->assertValidFilter($scope);
+            $entry['scope'] = $scope;
         }
 
         $this->schema['throttles'][] = $entry;
@@ -546,7 +577,7 @@ final class PortableConfig
         $options = (array)($data['options'] ?? []);
         // `failOpen` is forwarded to the strictly-typed Config::setFailOpen(bool);
         // a non-bool from decoded JSON (e.g. "failOpen": "false") would otherwise
-        // surface as a TypeError inside toConfig() rather than a transport-level
+        // surface as a TypeError when the Config is materialized rather than a transport-level
         // validation error. Silently ignoring it is worse: a mistyped value would
         // fall back to the fail-open default, weakening the policy unnoticed.
         if (array_key_exists('failOpen', $options) && !is_bool($options['failOpen'])) {
@@ -573,6 +604,9 @@ final class PortableConfig
         foreach ($self->schema['throttles'] as $throttle) {
             $throttle = self::requireArray($throttle, 'Invalid throttle entry');
             $self->assertValidKey(self::requireArray($throttle['key'] ?? null, 'Invalid throttle key'));
+            if (array_key_exists('scope', $throttle)) {
+                $self->assertValidFilter(self::requireArray($throttle['scope'] ?? null, 'Invalid throttle scope'));
+            }
         }
 
         foreach ($self->schema['fail2bans'] as $fail2ban) {
@@ -622,7 +656,7 @@ final class PortableConfig
             }
 
             // Cross-check the reference now so a dangling backend fails at load
-            // time rather than later inside toConfig().
+            // time rather than later when the Config is materialized.
             if (!isset($knownBackendNames[$patternBlocklist['backend']])) {
                 throw new \InvalidArgumentException(sprintf(
                     'Pattern blocklist "%s" references unknown pattern backend "%s".',
@@ -775,17 +809,19 @@ final class PortableConfig
     }
 
     /**
-     * Build a Config instance from the portable schema.
+     * Apply this schema's rules and options to the given Config and return it.
      *
      * Rules are registered through the section API
-     * ({@see Config::$safelists}, {@see Config::$blocklists}, …) rather than
-     * the deprecated forwarding methods, and dedicated matchers
-     * ({@see IpMatcher}, {@see KnownScannerMatcher}, …) are used where a filter
-     * maps onto one.
+     * ({@see Config::$safelists}, {@see Config::$blocklists}, …) rather than the
+     * deprecated forwarding methods, and dedicated matchers ({@see IpMatcher},
+     * {@see KnownScannerMatcher}, …) are used where a filter maps onto one.
+     *
+     * @internal Materialize a PortableConfig through {@see Config::combine()},
+     *           which supplies the Config (and therefore the cache) — the
+     *           portable/preset layer never receives a cache itself.
      */
-    public function toConfig(CacheInterface $cache, ?EventDispatcherInterface $eventDispatcher = null): Config
+    public function applyTo(Config $config): Config
     {
-        $config = new Config($cache, $eventDispatcher);
         $options = $this->schema['options'];
         if (isset($options['rateLimitHeaders']) && $options['rateLimitHeaders']) {
             $config->enableRateLimitHeaders(true);
@@ -799,7 +835,7 @@ final class PortableConfig
             $config->enableOwaspDiagnosticsHeader(true);
         }
 
-        if (isset($options['failOpen'])) {
+        if (array_key_exists('failOpen', $options)) {
             $config->setFailOpen($options['failOpen']);
         }
 
@@ -825,11 +861,16 @@ final class PortableConfig
 
         // Throttles
         foreach ($this->schema['throttles'] as $t) {
+            $keyExtractor = $this->compileKey($t['key']);
+            if (isset($t['scope'])) {
+                $keyExtractor = $this->scopeKeyExtractor($keyExtractor, $this->compileFilterMatcher($t['scope']));
+            }
+
             $config->throttles->addRule(new ThrottleRule(
                 $t['name'],
                 (int)$t['limit'],
                 (int)$t['period'],
-                new ClosureKeyExtractor($this->compileKey($t['key'])),
+                new ClosureKeyExtractor($keyExtractor),
                 ($t['sliding'] ?? false) === true,
             ));
         }
@@ -943,6 +984,7 @@ final class PortableConfig
                 return static fn(ServerRequestInterface $serverRequest): bool => $name !== '' && RegexMatcher::matches($pattern, $serverRequest->getHeaderLine($name));
             })(),
             'all' => static fn(ServerRequestInterface $serverRequest): bool => true,
+            'none' => static fn(ServerRequestInterface $serverRequest): bool => false,
             default => throw new \InvalidArgumentException('Unsupported filter type: ' . $type),
         };
     }
@@ -958,6 +1000,25 @@ final class PortableConfig
             'header' => (static fn(string $name): \Closure => KeyExtractors::header($name))((string)($key['name'] ?? '')),
             'hashed_header' => (static fn(string $name): \Closure => KeyExtractors::hashedHeader($name))((string)($key['name'] ?? '')),
             default => throw new \InvalidArgumentException('Unsupported key extractor type: ' . $type),
+        };
+    }
+
+    /**
+     * Wrap a key extractor so it only yields a discriminator when the request
+     * matches the scope filter. When the filter does not match, the extractor
+     * returns null and the throttle evaluator skips the rule for that request.
+     *
+     * @param \Closure(ServerRequestInterface): ?string $keyExtractor
+     * @return \Closure(ServerRequestInterface): ?string
+     */
+    private function scopeKeyExtractor(\Closure $keyExtractor, RequestMatcherInterface $requestMatcher): \Closure
+    {
+        return static function (ServerRequestInterface $serverRequest) use ($keyExtractor, $requestMatcher): ?string {
+            if (!$requestMatcher->match($serverRequest)->isMatch()) {
+                return null;
+            }
+
+            return $keyExtractor($serverRequest);
         };
     }
 
@@ -1054,6 +1115,7 @@ final class PortableConfig
         $type = $filter['type'] ?? null;
         $known = [
             'all',
+            'none',
             'path_equals',
             'path_prefix',
             'path_regex',
