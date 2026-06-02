@@ -157,4 +157,31 @@ Rule_WRAP;
         $this->assertTrue($rule->actions['deny'] ?? false, 'block should map to deny');
         $this->assertSame('PHP Injection Attack: PHP Open Tag Found', $rule->actions['msg'] ?? null);
     }
+
+    public function testUnterminatedQuoteInActionsSwallowsRemainderWithoutSplittingOnCommas(): void
+    {
+        // An unbalanced quote in the actions part (e.g. an apostrophe in a message) must swallow the
+        // remainder verbatim (commas included) rather than spawning spurious actions from the
+        // trailing comma-separated fragments.
+        $secRuleParser = new SecRuleParser();
+        $line = 'SecRule REQUEST_URI "@rx admin" "id:100,deny,msg:\'oops,extra"';
+        $rule = $secRuleParser->parseLine($line);
+
+        $this->assertNotNull($rule);
+        $this->assertSame(100, $rule->id);
+        $this->assertTrue($rule->actions['deny'] ?? false);
+        $this->assertArrayNotHasKey('extra', $rule->actions, 'A comma inside an unterminated quote must not create a new action');
+    }
+
+    public function testDoubleCommaInActionsProducesNoEmptyAction(): void
+    {
+        $secRuleParser = new SecRuleParser();
+        $line = 'SecRule REQUEST_URI "@rx admin" "id:200,,deny"';
+        $rule = $secRuleParser->parseLine($line);
+
+        $this->assertNotNull($rule);
+        $this->assertSame(200, $rule->id);
+        $this->assertTrue($rule->actions['deny'] ?? false);
+        $this->assertArrayNotHasKey('', $rule->actions, 'A double comma must not create an empty action key');
+    }
 }
