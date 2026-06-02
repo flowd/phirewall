@@ -33,7 +33,7 @@ final class KeyPrefixTest extends TestCase
 
         // First request on A passes, second throttles
         $this->assertTrue($fwA->decide($serverRequest)->isPass());
-        $this->assertSame(OUTCOME::THROTTLED, $fwA->decide($serverRequest)->outcome);
+        $this->assertSame(Outcome::THROTTLED, $fwA->decide($serverRequest)->outcome);
 
         // First request on B should also pass (isolation ensured by prefix)
         $this->assertTrue($fwB->decide($serverRequest)->isPass());

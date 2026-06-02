@@ -101,7 +101,7 @@ final class EventsTest extends TestCase
         $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
         $this->assertTrue($firewall->decide($request)->isPass());
         $firewallResult = $firewall->decide($request);
-        $this->assertSame(OUTCOME::THROTTLED, $firewallResult->outcome);
+        $this->assertSame(Outcome::THROTTLED, $firewallResult->outcome);
         $this->assertNotEmpty($dispatcher->events);
         $foundThrottle = false;
         foreach ($dispatcher->events as $event) {

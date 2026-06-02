@@ -166,7 +166,7 @@ final class TrustedBotMatcher implements RequestMatcherInterface
         $normalizedIp = (string) @inet_ntop($ipBinary);
         $cacheKey = self::CACHE_PREFIX . hash('sha256', $normalizedIp . '|' . $expectedHostnameSuffix);
 
-        if ($this->cache instanceof \Psr\SimpleCache\CacheInterface) {
+        if ($this->cache instanceof CacheInterface) {
             $cached = $this->cache->get($cacheKey);
             if (is_bool($cached)) {
                 return $cached;
@@ -175,7 +175,7 @@ final class TrustedBotMatcher implements RequestMatcherInterface
 
         $result = $this->verifyRdns($normalizedIp, $expectedHostnameSuffix);
 
-        if ($this->cache instanceof \Psr\SimpleCache\CacheInterface) {
+        if ($this->cache instanceof CacheInterface) {
             // Positive results cached for full TTL; negative results cached briefly
             // to allow quick recovery from transient DNS failures
             $ttl = $result ? $this->cacheTtl : self::NEGATIVE_CACHE_TTL;

@@ -311,7 +311,7 @@ final class FilePatternBackend implements PatternBackendInterface
             }
 
             $entry = $this->parseLine($trimmed);
-            if (!$entry instanceof \Flowd\Phirewall\Pattern\PatternEntry) {
+            if (!$entry instanceof PatternEntry) {
                 continue;
             }
 
@@ -352,7 +352,7 @@ final class FilePatternBackend implements PatternBackendInterface
         }
 
         $patternKind = PatternKind::tryFrom($kind);
-        if (!$patternKind instanceof \Flowd\Phirewall\Pattern\PatternKind) {
+        if (!$patternKind instanceof PatternKind) {
             return null;
         }
 

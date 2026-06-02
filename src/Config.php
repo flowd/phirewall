@@ -94,7 +94,7 @@ final class Config
      *
      * The typical use case is stacking a vendor baseline + an environment overlay
      * + a tenant overlay + a per-deployment tweak (each often rebuilt from a
-     * {@see \Flowd\Phirewall\Portable\PortableConfig}). The inputs are never
+     * {@see PortableConfig}). The inputs are never
      * mutated; a fresh composed Config is returned.
      *
      * Merge semantics (overlays are applied left to right, so **later sources
@@ -129,12 +129,12 @@ final class Config
      *    clock) is inherited from the base layer; overlays do not override it.
      *
      * Rules are shared by reference, which is safe because rule objects are
-     * immutable value objects ({@see \Flowd\Phirewall\Config\Rule\RuleInterface}).
+     * immutable value objects ({@see Config\Rule\RuleInterface}).
      * The one exception is a pattern-backed blocklist rule whose backend a later
      * layer overrides by name: it is rebuilt as a new (equally immutable) rule
      * re-pointed at the winning backend, so that rule is not shared by reference.
      * Pattern backends are ALSO shared live by reference but are not necessarily
-     * immutable (e.g. {@see \Flowd\Phirewall\Pattern\InMemoryPatternBackend} can
+     * immutable (e.g. {@see Pattern\InMemoryPatternBackend} can
      * be appended to or cleared): mutating an input layer's backend after
      * composition therefore also affects the composed Config.
      */
@@ -505,7 +505,7 @@ final class Config
      * names the offending character at the call site that introduced it.
      *
      * Mirrors the reserved-character set enforced by the cache backends'
-     * {@see \Flowd\Phirewall\Store\KeyValidationTrait}.
+     * {@see Store\KeyValidationTrait}.
      */
     private function assertKeyPrefixIsCacheSafe(string $prefix): void
     {

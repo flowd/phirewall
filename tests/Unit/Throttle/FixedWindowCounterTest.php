@@ -12,7 +12,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Psr\SimpleCache\CacheInterface;
 
-#[CoversClass(\Flowd\Phirewall\Throttle\FixedWindowCounter::class)]
+#[CoversClass(FixedWindowCounter::class)]
 final class FixedWindowCounterTest extends TestCase
 {
     /**
