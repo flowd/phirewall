@@ -934,7 +934,7 @@ final class PortableConfig
         return match ($type) {
             'ip' => new IpMatcher(self::toStringList($filter['ips'] ?? [])),
             'known_scanners' => new KnownScannerMatcher(isset($filter['patterns']) ? self::toStringList($filter['patterns']) : null),
-            'suspicious_headers' => new SuspiciousHeadersMatcher(isset($filter['headers']) ? self::toStringList($filter['headers']) : []),
+            'suspicious_headers' => new SuspiciousHeadersMatcher(isset($filter['headers']) ? self::toStringList($filter['headers']) : null),
             default => new ClosureRequestMatcher($this->compileFilterClosure($filter)),
         };
     }
