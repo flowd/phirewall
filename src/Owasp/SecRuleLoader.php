@@ -111,7 +111,7 @@ final class SecRuleLoader
         return $lines;
     }
 
-    public static function fromString(string $rulesText, ?string $contextFolder = null): CoreRuleSet
+    public static function fromString(string $rulesText, ?string $contextFolder = null, ?int $maxValuesPerCrsVariable = null): CoreRuleSet
     {
         $secRuleParser = new SecRuleParser();
         $rules = [];
@@ -124,14 +124,14 @@ final class SecRuleLoader
             }
         }
 
-        return new CoreRuleSet($rules);
+        return new CoreRuleSet($rules, $maxValuesPerCrsVariable);
     }
 
     /**
      * Returns a tuple: [rules => CoreRuleSet, parsed => int, skipped => int]
      * @return array{rules: CoreRuleSet, parsed: int, skipped: int}
      */
-    public static function fromStringWithReport(string $rulesText): array
+    public static function fromStringWithReport(string $rulesText, ?int $maxValuesPerCrsVariable = null): array
     {
         $secRuleParser = new SecRuleParser();
         $rules = [];
@@ -150,13 +150,13 @@ final class SecRuleLoader
         }
 
         return [
-            'rules' => new CoreRuleSet($rules),
+            'rules' => new CoreRuleSet($rules, $maxValuesPerCrsVariable),
             'parsed' => $parsed,
             'skipped' => $skipped,
         ];
     }
 
-    public static function fromFile(string $filePath): CoreRuleSet
+    public static function fromFile(string $filePath, ?int $maxValuesPerCrsVariable = null): CoreRuleSet
     {
         if (!is_file($filePath)) {
             throw new \InvalidArgumentException('Rules file not found: ' . $filePath);
@@ -169,7 +169,7 @@ final class SecRuleLoader
         $contextFolder = dirname($resolvedPath !== false ? $resolvedPath : $filePath);
 
         $content = (string)file_get_contents($filePath);
-        return self::fromString($content, $contextFolder);
+        return self::fromString($content, $contextFolder, $maxValuesPerCrsVariable);
     }
 
     /**
@@ -177,7 +177,7 @@ final class SecRuleLoader
      * Files that do not exist will trigger an exception.
      * @param list<string> $paths
      */
-    public static function fromFiles(array $paths): CoreRuleSet
+    public static function fromFiles(array $paths, ?int $maxValuesPerCrsVariable = null): CoreRuleSet
     {
         $buffer = '';
         $directoryOfFirstFile = null;
@@ -200,14 +200,14 @@ final class SecRuleLoader
             $buffer .= file_get_contents($path) . "\n";
         }
 
-        return self::fromString($buffer, $directoryOfFirstFile);
+        return self::fromString($buffer, $directoryOfFirstFile, $maxValuesPerCrsVariable);
     }
 
     /**
      * Load all files from a directory, optionally filtered. Files are processed in sorted order.
      * @param callable(string):bool|null $filter
      */
-    public static function fromDirectory(string $dir, ?callable $filter = null): CoreRuleSet
+    public static function fromDirectory(string $dir, ?callable $filter = null, ?int $maxValuesPerCrsVariable = null): CoreRuleSet
     {
         // Ensure path is absolute
         $dir = realpath($dir);
@@ -238,6 +238,6 @@ final class SecRuleLoader
         }
 
         sort($files, SORT_STRING);
-        return self::fromFiles($files);
+        return self::fromFiles($files, $maxValuesPerCrsVariable);
     }
 }

@@ -6,8 +6,7 @@ namespace Flowd\Phirewall\Owasp;
 
 use Flowd\Phirewall\Owasp\Operator\OperatorEvaluatorFactory;
 use Flowd\Phirewall\Owasp\Operator\OperatorEvaluatorInterface;
-use Flowd\Phirewall\Owasp\Variable\VariableCollectorFactory;
-use Flowd\Phirewall\Owasp\Variable\VariableCollectorInterface;
+use Flowd\Phirewall\Owasp\Variable\RequestVariableValues;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -19,9 +18,6 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final readonly class CoreRule
 {
-    /** @var list<VariableCollectorInterface> Resolved variable collectors for this rule. */
-    private array $variableCollectors;
-
     /** Resolved operator evaluator for this rule. */
     private OperatorEvaluatorInterface $operatorEvaluator;
 
@@ -37,7 +33,6 @@ final readonly class CoreRule
         public array $actions, // parsed action map (e.g., ['phase' => '2', 'deny' => true, 'msg' => '...'])
         public ?string $contextFolder = null, // folder path for context (e.g., for @pmFromFile)
     ) {
-        $this->variableCollectors = VariableCollectorFactory::createCollectors($this->variables);
         $this->operatorEvaluator = OperatorEvaluatorFactory::create(
             $this->operator,
             $this->operatorArgument,
@@ -45,14 +40,32 @@ final readonly class CoreRule
         );
     }
 
-    public function matches(ServerRequestInterface $serverRequest): bool
+    /**
+     * Evaluate the rule against the request.
+     *
+     * When evaluating many rules for the same request, pass a shared {@see RequestVariableValues}
+     * memo so each distinct variable is collected only once across all rules.
+     */
+    public function matches(ServerRequestInterface $serverRequest, ?RequestVariableValues $requestVariableValues = null): bool
     {
         // Only evaluate when rule is a blocking (deny) rule. Non-deny rules are ignored here.
         if (($this->actions['deny'] ?? false) !== true) {
             return false;
         }
 
-        $values = $this->collectVariableValues($serverRequest);
+        $requestVariableValues ??= new RequestVariableValues($serverRequest);
+
+        $values = $this->collectVariableValues($requestVariableValues);
+
+        // Fail closed: if a variable this rule inspects was truncated at the per-variable
+        // cap, the dropped portion is un-inspectable, so treat the oversized request as a
+        // match rather than letting a payload padded past the cap slip through unevaluated.
+        foreach ($this->variables as $variable) {
+            if ($requestVariableValues->wasCapped($variable)) {
+                return true;
+            }
+        }
+
         if ($values === []) {
             return false;
         }
@@ -61,18 +74,29 @@ final readonly class CoreRule
     }
 
     /**
-     * Collect target values from the request using all resolved variable collectors.
+     * Assemble this rule's target values from the shared per-request memo.
+     *
+     * Empty values are dropped. Each targeted variable's values are independently
+     * capped by {@see RequestVariableValues::valuesFor()}; there is deliberately NO
+     * aggregate cap across variables here, so a high-volume earlier variable cannot
+     * short-circuit evaluation of a later one. A variable truncated at its cap is
+     * surfaced via {@see RequestVariableValues::wasCapped()} and handled (fail-closed)
+     * in {@see matches()}, not here.
      *
      * @return list<string>
      */
-    private function collectVariableValues(ServerRequestInterface $serverRequest): array
+    private function collectVariableValues(RequestVariableValues $requestVariableValues): array
     {
         /** @var list<string> $collected */
         $collected = [];
-        foreach ($this->variableCollectors as $variableCollector) {
-            array_push($collected, ...$variableCollector->collect($serverRequest));
+        foreach ($this->variables as $variable) {
+            foreach ($requestVariableValues->valuesFor($variable) as $value) {
+                if ($value !== '') {
+                    $collected[] = $value;
+                }
+            }
         }
 
-        return array_values(array_filter($collected, fn(string $item): bool => $item !== ''));
+        return $collected;
     }
 }

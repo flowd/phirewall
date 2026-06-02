@@ -83,6 +83,25 @@ final class VariableCollectorTest extends TestCase
         $this->assertContains('nested', $result);
     }
 
+    public function testArgsCollectorCollectsValueAndNameForEveryParameterWithoutTruncating(): void
+    {
+        $collector = new ArgsCollector();
+
+        // The collector no longer caps: it returns a value AND a name for every parameter.
+        // Bounding the value count (and failing closed when exceeded) is applied centrally
+        // by RequestVariableValues, so a parameter is never half-collected here.
+        $queryParams = [];
+        for ($index = 0; $index < 50; ++$index) {
+            $queryParams['k' . $index] = 'v' . $index;
+        }
+
+        $request = (new ServerRequest('GET', '/'))->withQueryParams($queryParams);
+
+        $result = $collector->collect($request);
+
+        $this->assertCount(100, $result, 'Every parameter contributes its value and its name, untruncated');
+    }
+
     public function testArgsNamesCollectorCollectsKeysOnly(): void
     {
         $collector = new ArgsNamesCollector();
@@ -171,41 +190,22 @@ final class VariableCollectorTest extends TestCase
 
     public function testFactoryResolvesKnownVariables(): void
     {
-        $collectors = VariableCollectorFactory::createCollectors([
-            'REQUEST_URI',
-            'REQUEST_METHOD',
-            'QUERY_STRING',
-            'ARGS',
-            'ARGS_NAMES',
-            'REQUEST_COOKIES',
-            'REQUEST_COOKIES_NAMES',
-            'REQUEST_HEADERS',
-            'REQUEST_HEADERS_NAMES',
-            'REQUEST_FILENAME',
-        ]);
-
-        $this->assertCount(10, $collectors);
-        $this->assertInstanceOf(RequestUriCollector::class, $collectors[0]);
-        $this->assertInstanceOf(RequestMethodCollector::class, $collectors[1]);
-        $this->assertInstanceOf(QueryStringCollector::class, $collectors[2]);
-        $this->assertInstanceOf(ArgsCollector::class, $collectors[3]);
-        $this->assertInstanceOf(ArgsNamesCollector::class, $collectors[4]);
-        $this->assertInstanceOf(RequestCookiesCollector::class, $collectors[5]);
-        $this->assertInstanceOf(RequestCookiesNamesCollector::class, $collectors[6]);
-        $this->assertInstanceOf(RequestHeadersCollector::class, $collectors[7]);
-        $this->assertInstanceOf(RequestHeadersNamesCollector::class, $collectors[8]);
-        $this->assertInstanceOf(RequestFilenameCollector::class, $collectors[9]);
+        $this->assertInstanceOf(RequestUriCollector::class, VariableCollectorFactory::create('REQUEST_URI'));
+        $this->assertInstanceOf(RequestMethodCollector::class, VariableCollectorFactory::create('REQUEST_METHOD'));
+        $this->assertInstanceOf(QueryStringCollector::class, VariableCollectorFactory::create('QUERY_STRING'));
+        $this->assertInstanceOf(ArgsCollector::class, VariableCollectorFactory::create('ARGS'));
+        $this->assertInstanceOf(ArgsNamesCollector::class, VariableCollectorFactory::create('ARGS_NAMES'));
+        $this->assertInstanceOf(RequestCookiesCollector::class, VariableCollectorFactory::create('REQUEST_COOKIES'));
+        $this->assertInstanceOf(RequestCookiesNamesCollector::class, VariableCollectorFactory::create('REQUEST_COOKIES_NAMES'));
+        $this->assertInstanceOf(RequestHeadersCollector::class, VariableCollectorFactory::create('REQUEST_HEADERS'));
+        $this->assertInstanceOf(RequestHeadersNamesCollector::class, VariableCollectorFactory::create('REQUEST_HEADERS_NAMES'));
+        $this->assertInstanceOf(RequestFilenameCollector::class, VariableCollectorFactory::create('REQUEST_FILENAME'));
     }
 
-    public function testFactorySkipsUnknownVariables(): void
+    public function testFactoryReturnsNullForUnknownVariables(): void
     {
-        $collectors = VariableCollectorFactory::createCollectors([
-            'REQUEST_URI',
-            'XML:/*',
-            'UNKNOWN_VAR',
-        ]);
-
-        $this->assertCount(1, $collectors);
-        $this->assertInstanceOf(RequestUriCollector::class, $collectors[0]);
+        $this->assertInstanceOf(RequestUriCollector::class, VariableCollectorFactory::create('REQUEST_URI'));
+        $this->assertNull(VariableCollectorFactory::create('XML:/*'));
+        $this->assertNull(VariableCollectorFactory::create('UNKNOWN_VAR'));
     }
 }

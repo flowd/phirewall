@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Owasp;
 
+use Flowd\Phirewall\Owasp\Variable\RequestVariableValues;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -19,9 +20,21 @@ final class CoreRuleSet
 
     /**
      * @param iterable<CoreRule> $rules
+     * @param int|null $maxValuesPerCrsVariable Per-variable value cap applied while evaluating a
+     *                                          request; null (default) derives it from PHP's `max_input_vars`
+     *                                          (see {@see RequestVariableValues::defaultMaxValuesPerCrsVariable()}).
+     *
+     * @throws \InvalidArgumentException When an explicit $maxValuesPerCrsVariable is not positive
+     *                                   (a non-positive cap fails every deny rule closed, silently blocking all traffic).
      */
-    public function __construct(iterable $rules = [])
+    public function __construct(iterable $rules = [], private readonly ?int $maxValuesPerCrsVariable = null)
     {
+        if ($maxValuesPerCrsVariable !== null && $maxValuesPerCrsVariable < 1) {
+            throw new \InvalidArgumentException(
+                sprintf('$maxValuesPerCrsVariable must be a positive integer, %d given.', $maxValuesPerCrsVariable),
+            );
+        }
+
         foreach ($rules as $rule) {
             $this->add($rule);
         }
@@ -65,12 +78,15 @@ final class CoreRuleSet
      */
     public function match(ServerRequestInterface $serverRequest): ?int
     {
+        // Collect each distinct variable once and share it across every rule for this request.
+        $requestVariableValues = new RequestVariableValues($serverRequest, $this->maxValuesPerCrsVariable);
+
         foreach ($this->rulesById as $id => $rule) {
             if (($this->enabled[$id] ?? false) === false) {
                 continue;
             }
 
-            if ($rule->matches($serverRequest)) {
+            if ($rule->matches($serverRequest, $requestVariableValues)) {
                 return $rule->id;
             }
         }
@@ -83,6 +99,6 @@ final class CoreRuleSet
      */
     public function ids(): array
     {
-        return array_values(array_map(static fn($k): int => $k, array_keys($this->rulesById)));
+        return array_keys($this->rulesById);
     }
 }
