@@ -4,13 +4,11 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Http\Evaluator;
 
-use Flowd\Phirewall\Config\Rule\ThrottleRule;
 use Flowd\Phirewall\Events\ThrottleExceeded;
 use Flowd\Phirewall\Http\DecisionPath;
 use Flowd\Phirewall\Http\FirewallResult;
-use Flowd\Phirewall\Throttle\FixedWindowStrategy;
+use Flowd\Phirewall\Throttle\FixedWindowCounter;
 use Flowd\Phirewall\Throttle\SlidingWindowStrategy;
-use Flowd\Phirewall\Throttle\ThrottleStrategyInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -22,7 +20,7 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final class ThrottleEvaluator implements EvaluatorInterface
 {
-    private ?FixedWindowStrategy $fixedStrategy = null;
+    private ?FixedWindowCounter $fixedWindowCounter = null;
 
     private ?SlidingWindowStrategy $slidingStrategy = null;
 
@@ -38,18 +36,28 @@ final class ThrottleEvaluator implements EvaluatorInterface
             $normalizedKey = ($evaluationContext->normalize)((string) $key);
             $limit = $throttleRule->resolveLimit($serverRequest);
             $period = $throttleRule->resolvePeriod($serverRequest);
-            $strategy = $this->resolveStrategy($throttleRule, $evaluationContext);
 
             // When period is dynamic, include the resolved period in the cache key so
             // different periods for the same discriminator get independent counters.
             $effectiveRuleName = $throttleRule->hasDynamicPeriod()
                 ? $name . ':p' . $period
                 : $name;
-            $throttleIncrement = $strategy->increment($effectiveRuleName, $normalizedKey, $period);
 
-            // ceil() rounds up the floating-point sliding window estimate for a conservative safety margin
-            $count = (int) ceil($throttleIncrement->count);
-            $retryAfter = $throttleIncrement->retryAfter;
+            if ($throttleRule->isSliding()) {
+                $throttleIncrement = $this->slidingStrategy($evaluationContext)
+                    ->increment($effectiveRuleName, $normalizedKey, $period);
+                // ceil() rounds up the floating-point sliding window estimate for a conservative safety margin
+                $count = (int) ceil($throttleIncrement->count);
+                $retryAfter = $throttleIncrement->retryAfter;
+            } else {
+                $counterKey = $evaluationContext->config->cacheKeyGenerator()
+                    ->throttleKey($effectiveRuleName, $normalizedKey);
+                $fixedWindowResult = $this->fixedWindowCounter($evaluationContext)
+                    ->increment($counterKey, $period);
+                $count = $fixedWindowResult->count;
+                $retryAfter = $fixedWindowResult->retryAfter;
+            }
+
             $remaining = max(0, $limit - $count);
 
             if ($count > $limit) {
@@ -91,19 +99,17 @@ final class ThrottleEvaluator implements EvaluatorInterface
         return null;
     }
 
-    private function resolveStrategy(ThrottleRule $throttleRule, EvaluationContext $evaluationContext): ThrottleStrategyInterface
+    private function fixedWindowCounter(EvaluationContext $evaluationContext): FixedWindowCounter
     {
-        if ($throttleRule->isSliding()) {
-            return $this->slidingStrategy ??= new SlidingWindowStrategy(
-                $evaluationContext->config->cache,
-                $evaluationContext->config->cacheKeyGenerator(),
-                $evaluationContext->config->now(...),
-            );
-        }
+        return $this->fixedWindowCounter ??= new FixedWindowCounter($evaluationContext->config->cache);
+    }
 
-        return $this->fixedStrategy ??= new FixedWindowStrategy(
+    private function slidingStrategy(EvaluationContext $evaluationContext): SlidingWindowStrategy
+    {
+        return $this->slidingStrategy ??= new SlidingWindowStrategy(
             $evaluationContext->config->cache,
             $evaluationContext->config->cacheKeyGenerator(),
+            $evaluationContext->config->now(...),
         );
     }
 }

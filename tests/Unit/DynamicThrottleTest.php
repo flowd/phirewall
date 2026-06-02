@@ -130,6 +130,44 @@ final class DynamicThrottleTest extends TestCase
     }
 
     /**
+     * Different resolved periods for the same discriminator get independent
+     * fixed-window counters because the resolved period is folded into the
+     * cache key (the ":p<period>" suffix). Exhausting the limit under one
+     * resolved period must not throttle requests resolving to a different
+     * period.
+     */
+    public function testDynamicPeriodCountersAreIsolatedPerResolvedPeriod(): void
+    {
+        $config = $this->createConfig();
+
+        $dynamicPeriod = fn(ServerRequestInterface $serverRequest): int =>
+            $serverRequest->getHeaderLine('X-Tier') === 'premium' ? 10 : 60;
+
+        $config->throttles->add(
+            'tier-isolation',
+            2,
+            $dynamicPeriod,
+            fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1'
+        );
+
+        $firewall = new Firewall($config);
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+
+        // Exhaust the limit while resolving to the 10s (premium) period.
+        $premiumRequest = $serverRequest->withHeader('X-Tier', 'premium');
+        $this->assertTrue($firewall->decide($premiumRequest)->isPass());
+        $this->assertTrue($firewall->decide($premiumRequest)->isPass());
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($premiumRequest)->outcome);
+
+        // The same IP resolving to the 60s period uses a separate counter,
+        // so its first two requests still pass.
+        $standardRequest = $serverRequest->withHeader('X-Tier', 'standard');
+        $this->assertTrue($firewall->decide($standardRequest)->isPass());
+        $this->assertTrue($firewall->decide($standardRequest)->isPass());
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($standardRequest)->outcome);
+    }
+
+    /**
      * The deprecated $config->throttle() method also accepts closure-based limits.
      */
     public function testDeprecatedThrottleAcceptsDynamicLimit(): void
