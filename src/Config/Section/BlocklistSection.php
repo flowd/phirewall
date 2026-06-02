@@ -74,9 +74,9 @@ final class BlocklistSection
     /**
      * Block requests missing standard HTTP headers that real browsers typically send.
      *
-     * @param list<string> $requiredHeaders Headers that must be present. Empty = defaults (Accept, Accept-Language, Accept-Encoding).
+     * @param list<string>|null $requiredHeaders Headers that must be present. Defaults to SuspiciousHeadersMatcher::DEFAULT_REQUIRED_HEADERS.
      */
-    public function suspiciousHeaders(string $name = 'suspicious-headers', array $requiredHeaders = []): self
+    public function suspiciousHeaders(string $name = 'suspicious-headers', ?array $requiredHeaders = null): self
     {
         return $this->addRule(new BlocklistRule($name, new SuspiciousHeadersMatcher($requiredHeaders)));
     }

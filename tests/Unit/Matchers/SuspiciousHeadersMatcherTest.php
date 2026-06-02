@@ -75,6 +75,39 @@ final class SuspiciousHeadersMatcherTest extends TestCase
         $this->assertFalse($suspiciousHeadersMatcher->match($serverRequest)->isMatch());
     }
 
+    public function testNullUsesDefaultRequiredHeaders(): void
+    {
+        // null is the "use curated defaults" sentinel, equivalent to the no-arg form.
+        $suspiciousHeadersMatcher = new SuspiciousHeadersMatcher(null);
+        $serverRequest = new ServerRequest('GET', '/');
+
+        $matchResult = $suspiciousHeadersMatcher->match($serverRequest);
+        $this->assertTrue($matchResult->isMatch());
+        $this->assertSame('Accept', $matchResult->metadata()['missing']);
+    }
+
+    public function testExplicitEmptyListRequiresNoHeaders(): void
+    {
+        // An explicit empty list overrides the defaults with no required headers,
+        // mirroring KnownScannerMatcher([]) — it never matches.
+        $suspiciousHeadersMatcher = new SuspiciousHeadersMatcher([]);
+        $serverRequest = new ServerRequest('GET', '/');
+
+        $this->assertFalse($suspiciousHeadersMatcher->match($serverRequest)->isMatch());
+    }
+
+    public function testEmptyHeaderThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new SuspiciousHeadersMatcher(['Accept', '', 'Accept-Encoding']);
+    }
+
+    public function testWhitespaceOnlyHeaderThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new SuspiciousHeadersMatcher(['  ']);
+    }
+
     public function testFirstMissingHeaderIsReported(): void
     {
         $suspiciousHeadersMatcher = new SuspiciousHeadersMatcher();

@@ -844,68 +844,68 @@ final class PortableConfig
         }
 
         // Safelists
-        foreach ($this->schema['safelists'] as $s) {
+        foreach ($this->schema['safelists'] as $safelist) {
             $config->safelists->addRule(new SafelistRule(
-                $s['name'],
-                $this->compileFilterMatcher($s['filter']),
+                $safelist['name'],
+                $this->compileFilterMatcher($safelist['filter']),
             ));
         }
 
         // Blocklists
-        foreach ($this->schema['blocklists'] as $b) {
+        foreach ($this->schema['blocklists'] as $blocklist) {
             $config->blocklists->addRule(new BlocklistRule(
-                $b['name'],
-                $this->compileFilterMatcher($b['filter']),
+                $blocklist['name'],
+                $this->compileFilterMatcher($blocklist['filter']),
             ));
         }
 
         // Throttles
-        foreach ($this->schema['throttles'] as $t) {
-            $keyExtractor = $this->compileKey($t['key']);
-            if (isset($t['scope'])) {
-                $keyExtractor = $this->scopeKeyExtractor($keyExtractor, $this->compileFilterMatcher($t['scope']));
+        foreach ($this->schema['throttles'] as $throttle) {
+            $keyExtractor = $this->compileKey($throttle['key']);
+            if (isset($throttle['scope'])) {
+                $keyExtractor = $this->scopeKeyExtractor($keyExtractor, $this->compileFilterMatcher($throttle['scope']));
             }
 
             $config->throttles->addRule(new ThrottleRule(
-                $t['name'],
-                (int)$t['limit'],
-                (int)$t['period'],
+                $throttle['name'],
+                (int)$throttle['limit'],
+                (int)$throttle['period'],
                 new ClosureKeyExtractor($keyExtractor),
-                ($t['sliding'] ?? false) === true,
+                ($throttle['sliding'] ?? false) === true,
             ));
         }
 
         // Fail2Ban
-        foreach ($this->schema['fail2bans'] as $f) {
+        foreach ($this->schema['fail2bans'] as $fail2ban) {
             $config->fail2ban->addRule(new Fail2BanRule(
-                $f['name'],
-                (int)$f['threshold'],
-                (int)$f['period'],
-                (int)$f['ban'],
-                $this->compileFilterMatcher($f['filter']),
-                new ClosureKeyExtractor($this->compileKey($f['key'])),
+                $fail2ban['name'],
+                (int)$fail2ban['threshold'],
+                (int)$fail2ban['period'],
+                (int)$fail2ban['ban'],
+                $this->compileFilterMatcher($fail2ban['filter']),
+                new ClosureKeyExtractor($this->compileKey($fail2ban['key'])),
             ));
         }
 
         // Allow2Ban
-        foreach ($this->schema['allow2bans'] as $a) {
+        foreach ($this->schema['allow2bans'] as $allow2ban) {
             $config->allow2ban->addRule(new Allow2BanRule(
-                $a['name'],
-                (int)$a['threshold'],
-                (int)$a['period'],
-                (int)$a['ban'],
-                new ClosureKeyExtractor($this->compileKey($a['key'])),
+                $allow2ban['name'],
+                (int)$allow2ban['threshold'],
+                (int)$allow2ban['period'],
+                (int)$allow2ban['ban'],
+                new ClosureKeyExtractor($this->compileKey($allow2ban['key'])),
             ));
         }
 
         // Tracks
-        foreach ($this->schema['tracks'] as $t) {
-            $trackLimit = isset($t['limit']) ? (int) $t['limit'] : null;
+        foreach ($this->schema['tracks'] as $track) {
+            $trackLimit = isset($track['limit']) ? (int) $track['limit'] : null;
             $config->tracks->addRule(new TrackRule(
-                $t['name'],
-                (int)$t['period'],
-                $this->compileFilterMatcher($t['filter']),
-                new ClosureKeyExtractor($this->compileKey($t['key'])),
+                $track['name'],
+                (int)$track['period'],
+                $this->compileFilterMatcher($track['filter']),
+                new ClosureKeyExtractor($this->compileKey($track['key'])),
                 $trackLimit,
             ));
         }
@@ -934,7 +934,7 @@ final class PortableConfig
         return match ($type) {
             'ip' => new IpMatcher(self::toStringList($filter['ips'] ?? [])),
             'known_scanners' => new KnownScannerMatcher(isset($filter['patterns']) ? self::toStringList($filter['patterns']) : null),
-            'suspicious_headers' => new SuspiciousHeadersMatcher(isset($filter['headers']) ? self::toStringList($filter['headers']) : []),
+            'suspicious_headers' => new SuspiciousHeadersMatcher(isset($filter['headers']) ? self::toStringList($filter['headers']) : null),
             default => new ClosureRequestMatcher($this->compileFilterClosure($filter)),
         };
     }

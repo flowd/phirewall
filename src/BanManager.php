@@ -41,8 +41,13 @@ final readonly class BanManager
 
     /**
      * Check if a specific key is currently banned for a rule.
+     *
+     * The ban category is required: an allow2ban and a fail2ban entry for the
+     * same rule name and key live under distinct cache keys, so an implicit
+     * default would silently look up the wrong category and return a wrong
+     * answer in a security API.
      */
-    public function isBanned(string $ruleName, string $key, BanType $banType = BanType::Allow2Ban): bool
+    public function isBanned(string $ruleName, string $key, BanType $banType): bool
     {
         $cache = $this->config->cache;
         $banKey = $this->buildBanCacheKey($banType, $ruleName, $key);

@@ -66,11 +66,11 @@ final class ResetHelpersTest extends TestCase
 
         $result = $firewall->decide($request);
         $this->assertTrue($result->isBlocked());
-        $this->assertTrue($firewall->isBanned('login', '5.6.7.8'));
+        $this->assertTrue($firewall->isBanned('login', '5.6.7.8', BanType::Fail2Ban));
 
         // Reset and verify the key is unbanned
         $firewall->resetFail2Ban('login', '5.6.7.8');
-        $this->assertFalse($firewall->isBanned('login', '5.6.7.8'));
+        $this->assertFalse($firewall->isBanned('login', '5.6.7.8', BanType::Fail2Ban));
         $result = $firewall->decide($request);
         $this->assertTrue($result->isPass());
     }
@@ -89,7 +89,7 @@ final class ResetHelpersTest extends TestCase
         );
 
         $firewall = new Firewall($config);
-        $this->assertFalse($firewall->isBanned('brute', '10.0.0.1'));
+        $this->assertFalse($firewall->isBanned('brute', '10.0.0.1', BanType::Fail2Ban));
     }
 
     public function testIsBannedSupportsBanTypeParameter(): void
@@ -146,7 +146,7 @@ final class ResetHelpersTest extends TestCase
             ->withHeader('X-Login-Failed', '1');
         $firewall->decide($banRequest);
         $firewall->decide($banRequest);
-        $this->assertTrue($firewall->isBanned('login', '5.6.7.8'));
+        $this->assertTrue($firewall->isBanned('login', '5.6.7.8', BanType::Fail2Ban));
 
         // Reset everything
         $firewall->resetAll();
@@ -156,7 +156,7 @@ final class ResetHelpersTest extends TestCase
         $this->assertTrue($result->isPass());
 
         // Ban should be cleared
-        $this->assertFalse($firewall->isBanned('login', '5.6.7.8'));
+        $this->assertFalse($firewall->isBanned('login', '5.6.7.8', BanType::Fail2Ban));
     }
 
     public function testResetThrottleOnlyAffectsSpecificKey(): void
@@ -287,11 +287,11 @@ final class ResetHelpersTest extends TestCase
         $firewall->decide($failedRequest);
         $firewall->decide($failedRequest);
 
-        $this->assertTrue($firewall->isBanned('login', 'USER_A'));
+        $this->assertTrue($firewall->isBanned('login', 'USER_A', BanType::Fail2Ban));
 
         // Reset using mixed-case variant -- should normalize internally
         $firewall->resetFail2Ban('login', 'User_A');
-        $this->assertFalse($firewall->isBanned('login', 'user_a'));
+        $this->assertFalse($firewall->isBanned('login', 'user_a', BanType::Fail2Ban));
 
         // Verify requests pass after reset
         $cleanRequest = (new ServerRequest('POST', '/login'))
@@ -326,13 +326,13 @@ final class ResetHelpersTest extends TestCase
 
         // Check with uppercase -- should normalize and find the ban
         $this->assertTrue(
-            $firewall->isBanned('login', 'USER_A'),
+            $firewall->isBanned('login', 'USER_A', BanType::Fail2Ban),
             'isBanned should find bans using normalized key regardless of input casing'
         );
 
         // Check with mixed-case
         $this->assertTrue(
-            $firewall->isBanned('login', 'User_A'),
+            $firewall->isBanned('login', 'User_A', BanType::Fail2Ban),
             'isBanned should find bans using normalized key regardless of input casing'
         );
     }

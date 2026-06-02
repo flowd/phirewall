@@ -12,8 +12,16 @@ use Psr\Http\Message\ServerRequestInterface;
  *
  * Security model:
  * - Only consults proxy headers when the direct peer (REMOTE_ADDR) is trusted.
- * - Walks X-Forwarded-For (or Forwarded) from right to left, skipping trusted proxy hops.
+ * - Flattens every received instance of X-Forwarded-For (or Forwarded) into one
+ *   chain, then walks it from right to left, skipping trusted proxy hops.
  * - Returns the first untrusted address in the chain; falls back to REMOTE_ADDR when uncertain.
+ * - The security boundary is the trusted-hop walk, not the number or ordering of
+ *   header instances: whether intermediaries fold the field-lines into one
+ *   comma-separated value (RFC 7230 §3.2.2, the nginx default) or keep them as
+ *   separate instances, the flattened chain and right-to-left walk behave
+ *   identically. An attacker who prepends spoofed entries lands them to the left
+ *   of the trusted-proxy-appended hops, so the walk reaches them only after the
+ *   first untrusted hop — at which point it has already stopped.
  *
  * Notes:
  * - IPv4 and IPv6 CIDR ranges are supported (e.g., 10.0.0.0/8, 2001:db8::/32).
@@ -170,12 +178,15 @@ final readonly class TrustedProxyResolver
      */
     private function extractFromXForwardedFor(ServerRequestInterface $serverRequest): array
     {
-        // Read only the last received `X-Forwarded-For` header instance rather
-        // than flattening every instance with getHeaderLine(). PSR-7 stacks
-        // preserve receive order, so the last instance is the one the
-        // closest-to-us (trusted) proxy appended; an attacker who prepends a
-        // duplicate header line lands in an earlier instance and is ignored.
-        $header = $this->lastNonEmptyHeaderValue($serverRequest->getHeader('X-Forwarded-For'));
+        // Flatten every received `X-Forwarded-For` header instance into one
+        // comma-separated chain. RFC 7230 §3.2.2 lets intermediaries fold
+        // repeated field-lines into a single comma-separated value (the nginx
+        // default, and what many $_SERVER-derived PSR-7 factories produce), so a
+        // folded single instance and an unfolded multi-instance form must be
+        // treated identically. The security boundary is the right-to-left walk
+        // in resolve() that skips trusted hops and stops at the first untrusted
+        // hop — not the separation between header instances.
+        $header = $this->flattenHeaderInstances($serverRequest->getHeader('X-Forwarded-For'));
         if ($header === null) {
             return [];
         }
@@ -193,10 +204,13 @@ final readonly class TrustedProxyResolver
      */
     private function extractFromForwarded(ServerRequestInterface $serverRequest): array
     {
-        // As with X-Forwarded-For, consult only the last received `Forwarded`
-        // header instance so a prepended duplicate header line cannot inject a
-        // spoofed `for=` value ahead of the proxy-appended chain.
-        $header = $this->lastNonEmptyHeaderValue($serverRequest->getHeader('Forwarded'));
+        // As with X-Forwarded-For, flatten every received `Forwarded` header
+        // instance into one chain so folded (RFC 7230 §3.2.2) and unfolded forms
+        // behave identically. A prepended spoofed `for=` value cannot win because
+        // the right-to-left walk below stops at the first untrusted `for=` hop —
+        // the spoof sits to the left of the proxy-appended hops and is never
+        // reached.
+        $header = $this->flattenHeaderInstances($serverRequest->getHeader('Forwarded'));
         if ($header === null) {
             return [];
         }
@@ -234,25 +248,32 @@ final readonly class TrustedProxyResolver
     }
 
     /**
-     * Return the last non-empty value from a PSR-7 getHeader() array, or null
-     * if every value is empty / the array is empty. Used so a duplicate header
-     * instance appended by the closest-to-us proxy is preferred over earlier
-     * instances, which may have been forwarded verbatim from the inbound
-     * request and are therefore attacker-controlled.
+     * Flatten a PSR-7 getHeader() array into one comma-separated chain in
+     * receive order, dropping empty instances. Returns null if every instance is
+     * empty / the array is empty.
+     *
+     * Folding all instances back together — rather than picking a single
+     * instance — makes the resolver agnostic to whether intermediaries kept the
+     * field-lines separate or folded them into one comma-separated value per
+     * RFC 7230 §3.2.2. The trust decision is delegated entirely to the
+     * right-to-left walk over the flattened chain, which stops at the first
+     * untrusted hop, so a prepended attacker-controlled instance (always to the
+     * left of the proxy-appended hops) is never reached.
      *
      * @param array<string> $values
      */
-    private function lastNonEmptyHeaderValue(array $values): ?string
+    private function flattenHeaderInstances(array $values): ?string
     {
-        $list = array_values($values);
-        for ($index = count($list) - 1; $index >= 0; --$index) {
-            $value = trim($list[$index]);
-            if ($value !== '') {
-                return $value;
-            }
+        $nonEmpty = array_values(array_filter(
+            array_map('trim', $values),
+            static fn(string $value): bool => $value !== '',
+        ));
+
+        if ($nonEmpty === []) {
+            return null;
         }
 
-        return null;
+        return implode(',', $nonEmpty);
     }
 
     private function isTrusted(string $ip): bool

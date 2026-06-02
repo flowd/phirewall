@@ -14,6 +14,20 @@ use Psr\Http\Message\ServerRequestInterface;
  * Many attack tools and scrapers omit headers like Accept, Accept-Language,
  * or Accept-Encoding. Note that some privacy tools, embedded browsers, and
  * API clients may also omit these headers legitimately.
+ *
+ * Ships with a curated default header set. Passing your own list to the
+ * constructor replaces the defaults; to extend or reduce them, explicitly merge
+ * with DEFAULT_REQUIRED_HEADERS.
+ *
+ * Usage:
+ *   // Use defaults
+ *   $config->blocklists->suspiciousHeaders();
+ *
+ *   // Add custom headers on top of defaults by merging with DEFAULT_REQUIRED_HEADERS
+ *   $config->blocklists->suspiciousHeaders('headers', [...SuspiciousHeadersMatcher::DEFAULT_REQUIRED_HEADERS, 'X-Request-ID']);
+ *
+ *   // Require only your own list (no defaults)
+ *   new SuspiciousHeadersMatcher(['X-Custom-Auth', 'X-Request-ID']);
  */
 final readonly class SuspiciousHeadersMatcher implements RequestMatcherInterface
 {
@@ -23,11 +37,13 @@ final readonly class SuspiciousHeadersMatcher implements RequestMatcherInterface
     private array $requiredHeaders;
 
     /**
-     * @param list<string> $requiredHeaders Headers that must be present. Defaults to Accept, Accept-Language, Accept-Encoding.
+     * @param list<string>|null $requiredHeaders Headers that must be present. Defaults to DEFAULT_REQUIRED_HEADERS
+     *                                           (Accept, Accept-Language, Accept-Encoding) when null. A non-empty list
+     *                                           overrides the defaults; an explicit empty list requires no headers.
      */
-    public function __construct(array $requiredHeaders = [])
+    public function __construct(?array $requiredHeaders = null)
     {
-        $headers = $requiredHeaders !== [] ? $requiredHeaders : self::DEFAULT_REQUIRED_HEADERS;
+        $headers = $requiredHeaders ?? self::DEFAULT_REQUIRED_HEADERS;
         foreach ($headers as $header) {
             if (!is_string($header) || trim($header) === '') {
                 throw new \InvalidArgumentException('Required headers must be non-empty strings.');

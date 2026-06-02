@@ -26,7 +26,7 @@ use Flowd\Phirewall\Pattern\PatternEntry;
  * All methods delegate to the corresponding section object.
  * Use the section API directly instead: $config->safelists->add(), $config->blocklists->owasp(), etc.
  *
- * @deprecated Will be removed in >= 0.5.
+ * @deprecated Will be removed in 1.0.
  */
 trait DeprecatedConfigMethods
 {

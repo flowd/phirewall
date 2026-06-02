@@ -19,6 +19,22 @@ use Flowd\Phirewall\Http\Evaluator\TrackEvaluator;
 use Flowd\Phirewall\Throttle\FixedWindowCounter;
 use Psr\Http\Message\ServerRequestInterface;
 
+/**
+ * The supported runtime-management entry point for a Phirewall deployment.
+ *
+ * Despite living under the Http namespace, this class is part of the public API
+ * and is the documented place to inspect and manage live firewall state. Besides
+ * driving request evaluation via {@see decide()}, it exposes the operational
+ * helpers an admin surface needs: {@see isBanned()}, {@see resetThrottle()},
+ * {@see resetFail2Ban()} and {@see resetAll()}.
+ *
+ * Constructing `new Firewall($config)` directly is fully supported. Firewall is
+ * stateless beyond its Config: all persistent state (counters, bans, tracking)
+ * lives in the Config's PSR-16 cache, so every Firewall instance built over the
+ * same Config (and therefore the same cache) shares that state. An admin tool
+ * can construct its own Firewall over the same Config the {@see \Flowd\Phirewall\Middleware}
+ * uses and will see — and mutate — exactly the same bans and counters.
+ */
 final readonly class Firewall
 {
     /**
@@ -95,8 +111,12 @@ final readonly class Firewall
      * Convenience method that delegates to BanManager.
      * The key is normalized through the discriminator normalizer (if configured) to
      * ensure ban lookups match regardless of input casing.
+     *
+     * The ban category must be passed explicitly: allow2ban and fail2ban store
+     * bans under distinct cache keys, so an implicit default would silently
+     * answer for the wrong category.
      */
-    public function isBanned(string $ruleName, string $key, BanType $banType = BanType::Fail2Ban): bool
+    public function isBanned(string $ruleName, string $key, BanType $banType): bool
     {
         $normalizedKey = $this->normalizeDiscriminator($key);
         return $this->config->banManager()->isBanned($ruleName, $normalizedKey, $banType);

@@ -26,6 +26,14 @@ use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\SimpleCache\CacheInterface;
 
+/**
+ * Central, mutable configuration for a Phirewall deployment.
+ *
+ * For runtime management of live firewall state (inspecting bans, resetting
+ * throttle/fail2ban counters) construct a {@see \Flowd\Phirewall\Http\Firewall}
+ * over this Config — it is the supported runtime-management entry point and
+ * shares all cached state with the {@see \Flowd\Phirewall\Middleware}.
+ */
 final class Config
 {
     use DeprecatedConfigMethods;

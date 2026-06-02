@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
+use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\KeyExtractors;
@@ -69,7 +70,7 @@ $result = $firewall->decide($request);
 echo sprintf("  After reset: %s\n", $result->isPass() ? 'PASS' : 'THROTTLED');
 
 echo "\nChecking ban status for 10.0.0.2...\n";
-echo sprintf("  isBanned: %s\n", $firewall->isBanned('login', '10.0.0.2') ? 'YES' : 'no');
+echo sprintf("  isBanned: %s\n", $firewall->isBanned('login', '10.0.0.2', BanType::Fail2Ban) ? 'YES' : 'no');
 
 // --- Connection examples (not executed, for reference) ---
 
