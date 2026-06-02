@@ -114,7 +114,7 @@ final class BanManagerTest extends TestCase
         [, , $banManager] = $this->setupAllow2Ban($inMemoryCache);
 
         $this->assertFalse(
-            $banManager->isBanned('test-rule', '1.2.3.4'),
+            $banManager->isBanned('test-rule', '1.2.3.4', BanType::Allow2Ban),
             'A key that has never been seen should not be reported as banned',
         );
     }
@@ -134,7 +134,7 @@ final class BanManagerTest extends TestCase
 
         // BanManager should report the same
         $this->assertTrue(
-            $banManager->isBanned('test-rule', '1.2.3.4'),
+            $banManager->isBanned('test-rule', '1.2.3.4', BanType::Allow2Ban),
             'isBanned should return true for a banned allow2ban key',
         );
     }
@@ -170,7 +170,7 @@ final class BanManagerTest extends TestCase
         $this->triggerAllow2Ban($firewall, '1.2.3.4', 3);
 
         // Verify banned
-        $this->assertTrue($banManager->isBanned('test-rule', '1.2.3.4'));
+        $this->assertTrue($banManager->isBanned('test-rule', '1.2.3.4', BanType::Allow2Ban));
         $this->assertTrue(
             $firewall->decide($this->makeRequest('1.2.3.4'))->isBlocked(),
             'Should be blocked before unban',
@@ -182,7 +182,7 @@ final class BanManagerTest extends TestCase
 
         // Verify no longer banned
         $this->assertFalse(
-            $banManager->isBanned('test-rule', '1.2.3.4'),
+            $banManager->isBanned('test-rule', '1.2.3.4', BanType::Allow2Ban),
             'isBanned should return false after unban',
         );
 
@@ -323,7 +323,7 @@ final class BanManagerTest extends TestCase
 
         // Verify all are banned
         foreach ($ips as $ip) {
-            $this->assertTrue($banManager->isBanned('test-rule', $ip), sprintf('IP %s should be banned', $ip));
+            $this->assertTrue($banManager->isBanned('test-rule', $ip, BanType::Allow2Ban), sprintf('IP %s should be banned', $ip));
         }
 
         // Clear all bans
@@ -333,7 +333,7 @@ final class BanManagerTest extends TestCase
         // Verify all IPs can request again
         foreach ($ips as $ip) {
             $this->assertFalse(
-                $banManager->isBanned('test-rule', $ip),
+                $banManager->isBanned('test-rule', $ip, BanType::Allow2Ban),
                 sprintf('IP %s should not be banned after clearBans', $ip),
             );
             $this->assertTrue(
@@ -416,15 +416,15 @@ final class BanManagerTest extends TestCase
         $this->triggerAllow2Ban($firewall, '10.0.0.2', 3);
 
         // Verify both are banned
-        $this->assertTrue($banManager->isBanned('test-rule', '10.0.0.1'));
-        $this->assertTrue($banManager->isBanned('test-rule', '10.0.0.2'));
+        $this->assertTrue($banManager->isBanned('test-rule', '10.0.0.1', BanType::Allow2Ban));
+        $this->assertTrue($banManager->isBanned('test-rule', '10.0.0.2', BanType::Allow2Ban));
 
         // Unban only the first IP
         $banManager->unban('test-rule', '10.0.0.1');
 
         // First IP should no longer be banned
         $this->assertFalse(
-            $banManager->isBanned('test-rule', '10.0.0.1'),
+            $banManager->isBanned('test-rule', '10.0.0.1', BanType::Allow2Ban),
             'Unbanned IP should not be reported as banned',
         );
         $this->assertTrue(
@@ -434,7 +434,7 @@ final class BanManagerTest extends TestCase
 
         // Second IP should still be banned
         $this->assertTrue(
-            $banManager->isBanned('test-rule', '10.0.0.2'),
+            $banManager->isBanned('test-rule', '10.0.0.2', BanType::Allow2Ban),
             'Other IP should remain banned',
         );
         $this->assertTrue(
@@ -466,6 +466,31 @@ final class BanManagerTest extends TestCase
         $this->assertTrue(
             $firewall->decide($this->makeRequest('5.6.7.8'))->isPass(),
             'Requests should pass after fail2ban unban',
+        );
+    }
+
+    // ── isBanned is scoped to the requested ban category ────────────────
+
+    public function testIsBannedDistinguishesBanCategoriesForSameRuleAndKey(): void
+    {
+        // The two categories share a rule name and key on purpose: a ban must
+        // only be visible under the category it was created in. This is the
+        // regression guard for the removed implicit BanType default, where
+        // querying the wrong category would have silently returned a wrong
+        // answer in a security API.
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
+        $banManager = $config->banManager();
+
+        $banManager->ban('shared-name', '1.2.3.4', 3600, BanType::Allow2Ban);
+
+        $this->assertTrue(
+            $banManager->isBanned('shared-name', '1.2.3.4', BanType::Allow2Ban),
+            'Allow2Ban entry must be visible under the Allow2Ban category',
+        );
+        $this->assertFalse(
+            $banManager->isBanned('shared-name', '1.2.3.4', BanType::Fail2Ban),
+            'Allow2Ban entry must NOT be visible under the Fail2Ban category',
         );
     }
 
