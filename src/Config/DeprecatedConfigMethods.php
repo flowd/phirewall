@@ -106,7 +106,7 @@ trait DeprecatedConfigMethods
     /**
      * @deprecated Use $config->throttles->add() instead.
      */
-    public function throttle(string $name, int|\Closure $limit, int|\Closure $period, Closure $key): static
+    public function throttle(string $name, int|Closure $limit, int|Closure $period, Closure $key): static
     {
         $this->throttles->add($name, $limit, $period, $key);
         return $this;

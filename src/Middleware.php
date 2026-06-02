@@ -112,7 +112,7 @@ final readonly class Middleware implements MiddlewareInterface
         if ($firewallResult->outcome === Http\Outcome::THROTTLED) {
             $retryAfter = $firewallResult->retryAfter ?? 1;
             $throttledFactory = $this->config->throttledResponseFactory;
-            if ($throttledFactory instanceof \Flowd\Phirewall\Config\Response\ThrottledResponseFactoryInterface) {
+            if ($throttledFactory instanceof Config\Response\ThrottledResponseFactoryInterface) {
                 $response = $throttledFactory->create($firewallResult->rule ?? 'unknown', $retryAfter, $serverRequest);
             } else {
                 $response = $this->responseFactory->createResponse(429)->withHeader('Content-Type', 'text/plain');
@@ -124,7 +124,7 @@ final readonly class Middleware implements MiddlewareInterface
             }
         } else {
             $blocklistedFactory = $this->config->blocklistedResponseFactory;
-            if ($blocklistedFactory instanceof \Flowd\Phirewall\Config\Response\BlocklistedResponseFactoryInterface) {
+            if ($blocklistedFactory instanceof Config\Response\BlocklistedResponseFactoryInterface) {
                 $response = $blocklistedFactory->create($firewallResult->rule ?? 'unknown', $firewallResult->blockType ?? 'blocklist', $serverRequest);
             } else {
                 $response = $this->responseFactory->createResponse(403)->withHeader('Content-Type', 'text/plain');

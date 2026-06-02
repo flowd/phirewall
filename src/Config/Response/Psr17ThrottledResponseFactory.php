@@ -21,7 +21,7 @@ final readonly class Psr17ThrottledResponseFactory implements ThrottledResponseF
             ->withHeader('Content-Type', 'text/plain')
             ->withHeader('Retry-After', (string) max(1, $retryAfter));
 
-        if ($this->streamFactory instanceof \Psr\Http\Message\StreamFactoryInterface) {
+        if ($this->streamFactory instanceof StreamFactoryInterface) {
             $body = $this->streamFactory->createStream($this->bodyText);
             $response = $response->withBody($body);
         }

@@ -20,7 +20,7 @@ final readonly class Psr17BlocklistedResponseFactory implements BlocklistedRespo
         $response = $this->responseFactory->createResponse(403)
             ->withHeader('Content-Type', 'text/plain');
 
-        if ($this->streamFactory instanceof \Psr\Http\Message\StreamFactoryInterface) {
+        if ($this->streamFactory instanceof StreamFactoryInterface) {
             $body = $this->streamFactory->createStream($this->bodyText);
             $response = $response->withBody($body);
         }

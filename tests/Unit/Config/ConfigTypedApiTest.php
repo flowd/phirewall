@@ -39,8 +39,8 @@ final class ConfigTypedApiTest extends TestCase
     public function testResponseFactorySettersAndGetters(): void
     {
         $config = new Config(new InMemoryCache());
-        $blockFactory = new ClosureBlocklistedResponseFactory(static fn(string $r, string $t, $req): \Nyholm\Psr7\Response => new Response(418));
-        $throttleFactory = new ClosureThrottledResponseFactory(static fn(string $r, int $ra, $req): \Nyholm\Psr7\Response => new Response(420));
+        $blockFactory = new ClosureBlocklistedResponseFactory(static fn(string $r, string $t, $req): Response => new Response(418));
+        $throttleFactory = new ClosureThrottledResponseFactory(static fn(string $r, int $ra, $req): Response => new Response(420));
         $config->setBlocklistedResponseFactory($blockFactory);
         $config->setThrottledResponseFactory($throttleFactory);
         $this->assertSame($blockFactory, $config->getBlocklistedResponseFactory());
@@ -132,7 +132,7 @@ final class ConfigTypedApiTest extends TestCase
 
     public function testDiagnosticsCountersLifecycle(): void
     {
-        $diagnosticsCounters = new \Flowd\Phirewall\Config\DiagnosticsCounters();
+        $diagnosticsCounters = new Config\DiagnosticsCounters();
         $this->assertSame([], $diagnosticsCounters->all());
 
         $diagnosticsCounters->increment('throttle_exceeded');
@@ -153,7 +153,7 @@ final class ConfigTypedApiTest extends TestCase
 
     public function testDiagnosticsCountersCapPerRuleEntries(): void
     {
-        $diagnosticsCounters = new \Flowd\Phirewall\Config\DiagnosticsCounters();
+        $diagnosticsCounters = new Config\DiagnosticsCounters();
 
         for ($i = 0; $i < 150; ++$i) {
             $diagnosticsCounters->increment('throttle_exceeded', 'rule-' . $i);

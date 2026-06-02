@@ -493,7 +493,7 @@ final class PortableConfig
 
     /**
      * Register a named in-memory pattern backend from a list of portable
-     * pattern entries (build them with {@see patternEntry()}).
+     * pattern entries (build them with {@see PatternEntry()}).
      *
      * A backend is a reusable catalogue of block patterns (IP, CIDR, path,
      * header, regex). Reference it from a blocklist with

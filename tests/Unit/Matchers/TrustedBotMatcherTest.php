@@ -25,7 +25,7 @@ final class TrustedBotMatcherTest extends TestCase
             reverseResolve: fn(string $ip): string => 'crawl-66-249-66-1.googlebot.com',
             forwardResolve: fn(string $host): array => ['66.249.66.1'],
         );
-        $config->safelists->addRule(new \Flowd\Phirewall\Config\Rule\SafelistRule('bots-test', $trustedBotMatcher));
+        $config->safelists->addRule(new Config\Rule\SafelistRule('bots-test', $trustedBotMatcher));
 
         $firewall = new Firewall($config);
         $serverRequest = new ServerRequest('GET', '/', [

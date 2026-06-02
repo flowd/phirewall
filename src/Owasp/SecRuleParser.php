@@ -7,8 +7,8 @@ namespace Flowd\Phirewall\Owasp;
 /**
  * Very small SecRule parser to support a pragmatic subset of CRS.
  *
- * The set of supported variables is defined by {@see \Flowd\Phirewall\Owasp\Variable\VariableCollectorFactory}
- * and the set of supported operators by {@see \Flowd\Phirewall\Owasp\Operator\OperatorEvaluatorFactory};
+ * The set of supported variables is defined by {@see Variable\VariableCollectorFactory}
+ * and the set of supported operators by {@see Operator\OperatorEvaluatorFactory};
  * those factories are the source of truth. Actions: id (required), phase (ignored),
  * deny/block (boolean), msg (optional).
  */
