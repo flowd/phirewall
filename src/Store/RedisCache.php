@@ -13,6 +13,22 @@ use Psr\SimpleCache\CacheInterface;
  * Redis-backed PSR-16 cache with helpers for Phirewall fixed-window counters.
  *
  * Requires a Predis ClientInterface (pure PHP, no server extension required).
+ *
+ * Serialization contract — read this before storing arbitrary values:
+ *
+ * This backend is used by Phirewall only for integer counters (via
+ * {@see increment()}) and JSON-encodable structures. Values are stored as plain
+ * Redis strings: int, float and string values are written verbatim, null as the
+ * literal `'null'`, and booleans, arrays and objects are JSON encoded
+ * ({@see serializeValue()}). There is no type tag in the stored payload, so
+ * {@see unserializeValue()} reconstructs the type by sniffing the string on
+ * read — `'null'` becomes null, a numeric string becomes int/float, a string
+ * that parses as JSON (e.g. `'true'`, `'[1,2]'`) becomes the decoded value, and
+ * anything else stays a string. This is lossy for string values that happen to look like another
+ * type: storing the literal strings `"null"`, `"123"` or `"[1,2]"` reads back as
+ * null, 123 or [1, 2] respectively. That mismatch never occurs for Phirewall's
+ * own usage (integer counters and JSON documents), so the format is intentional
+ * and must not be changed without introducing a typed envelope.
  */
 final readonly class RedisCache implements CacheInterface, CounterStoreInterface
 {
@@ -199,9 +215,15 @@ LUA;
         return $dateTime->add($ttl)->getTimestamp() - $dateTime->getTimestamp();
     }
 
+    /**
+     * Encode a value for storage. int/float/string values are written verbatim,
+     * null as the literal `'null'`, and booleans, arrays and objects as JSON. See
+     * the class-level serialization contract: the encoding is untagged and only
+     * round-trips losslessly for Phirewall's integer counters and JSON structures.
+     */
     private function serializeValue(mixed $value): string
     {
-        // Scalars are stored as strings; everything else JSON-encoded for portability
+        // int/float/string verbatim; null, booleans, arrays and objects fall through below.
         if (is_int($value) || is_float($value) || is_string($value)) {
             return (string)$value;
         }
@@ -213,6 +235,12 @@ LUA;
         return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     }
 
+    /**
+     * Reconstruct a value from its stored string by type-sniffing (see the
+     * class-level serialization contract). Re-typing numeric/JSON/'null'-looking
+     * strings is intentional and safe for Phirewall's integer counters and
+     * JSON structures; it is lossy for string values that mimic those forms.
+     */
     private function unserializeValue(string $raw): mixed
     {
         // Try to detect JSON objects/arrays/null, otherwise return string/int

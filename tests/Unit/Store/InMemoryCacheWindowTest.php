@@ -40,6 +40,39 @@ final class InMemoryCacheWindowTest extends TestCase
         $this->assertLessThanOrEqual($period, $ttlAfterRollover);
     }
 
+    public function testSetWithTtlExpiresAccordingToTheClock(): void
+    {
+        $fakeClock = new FakeClock();
+        $inMemoryCache = new InMemoryCache($fakeClock);
+
+        $inMemoryCache->set('session', 'value', 10);
+        $this->assertTrue($inMemoryCache->has('session'));
+        $this->assertSame('value', $inMemoryCache->get('session'));
+
+        // Still inside the TTL window.
+        $fakeClock->advance(9.0);
+        $this->assertTrue($inMemoryCache->has('session'));
+        $this->assertSame('value', $inMemoryCache->get('session'));
+
+        // Crossing the TTL boundary must drop the entry on read.
+        $fakeClock->advance(2.0);
+        $this->assertFalse($inMemoryCache->has('session'));
+        $this->assertSame('missing', $inMemoryCache->get('session', 'missing'));
+    }
+
+    public function testFallsBackToWallClockWhenNoClockInjected(): void
+    {
+        // Without an injected clock, now() falls back to microtime(true); a
+        // freshly set value with a generous TTL must round-trip immediately.
+        $inMemoryCache = new InMemoryCache();
+
+        $inMemoryCache->set('key', 'value', 60);
+
+        $this->assertTrue($inMemoryCache->has('key'));
+        $this->assertSame('value', $inMemoryCache->get('key'));
+        $this->assertGreaterThan(0, $inMemoryCache->ttlRemaining('key'));
+    }
+
     public function testTtlRemainingDecreasesOverTimeAndNeverNegative(): void
     {
         $fakeClock = new FakeClock();

@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Cache backend internals tidied** — The trivial PSR-16 bulk methods (`getMultiple`/`setMultiple`/`deleteMultiple`) shared verbatim by the in-memory and APCu backends now live in a single `BulkCacheOperationsTrait` (backends with genuinely batched implementations — `PdoCache`, `RedisCache` — keep their overrides). `CacheKeyGenerator`'s key-truncation budget uses named constants (`MAX_NAME_LENGTH`, `HASH_SUFFIX_LENGTH`) instead of interrelated magic numbers, `InMemoryCache` routes its clock fallback through a single `now()` helper, the redundant `FixedWindowStrategy` pass-through was removed (`ThrottleEvaluator` uses `FixedWindowCounter` directly for fixed windows), and `RedisCache`'s value-encoding contract is documented. No behavior or public-API change.
 - **`TrustedProxyResolver` resolves bracketed IPv6+port forms in `X-Forwarded-For` and `Forwarded`** — Entries like `[2001:db8::1]:443` (the form RFC 7239 mandates for IPv6 in `Forwarded for=`, and one some proxies emit in XFF) were silently dropped: bracket-stripping left `2001:db8::1]:443`, which failed `FILTER_VALIDATE_IP`, and the resolver fell back to `REMOTE_ADDR`. `normalizeIp()` now extracts the address from `[…](:port)?` before validating, and the `Forwarded for=` regex no longer over-captures the trailing `]`.
 
 ## 0.4.0 - 2026-05-19

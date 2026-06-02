@@ -18,6 +18,7 @@ use Psr\SimpleCache\CacheInterface;
 final class ApcuCache implements CacheInterface, CounterStoreInterface
 {
     use KeyValidationTrait;
+    use BulkCacheOperationsTrait;
 
     private const EXP_SUFFIX = '::exp';
 
@@ -64,37 +65,6 @@ final class ApcuCache implements CacheInterface, CounterStoreInterface
     public function clear(): bool
     {
         apcu_clear_cache();
-        return true;
-    }
-
-    public function getMultiple(iterable $keys, mixed $default = null): iterable
-    {
-        $result = [];
-        foreach ($this->validateKeyList($keys) as $key) {
-            $result[$key] = $this->get($key, $default);
-        }
-
-        return $result;
-    }
-
-    /**
-     * @param iterable<mixed, mixed> $values
-     */
-    public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
-    {
-        foreach ($this->validateKeyedValues($values) as $key => $value) {
-            $this->set($key, $value, $ttl);
-        }
-
-        return true;
-    }
-
-    public function deleteMultiple(iterable $keys): bool
-    {
-        foreach ($this->validateKeyList($keys) as $key) {
-            $this->delete($key);
-        }
-
         return true;
     }
 

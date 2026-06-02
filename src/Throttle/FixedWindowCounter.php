@@ -10,9 +10,9 @@ use Psr\SimpleCache\CacheInterface;
 /**
  * Encapsulates the fixed-window counter logic shared across the firewall.
  *
- * Used by Firewall (fail2ban, allow2ban, track counters) and FixedWindowStrategy
- * (throttle counters). When the cache implements CounterStoreInterface, the
- * native atomic increment is used as a fast path.
+ * Used by Firewall (fail2ban, allow2ban, track counters) and ThrottleEvaluator
+ * (fixed-window throttle counters). When the cache implements
+ * CounterStoreInterface, the native atomic increment is used as a fast path.
  *
  * NOTE: The get→increment→set fallback is not atomic (TOCTOU). Under high
  * concurrency the counter may be briefly undercounted or over-admit a small

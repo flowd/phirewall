@@ -24,6 +24,7 @@ use Psr\SimpleCache\CacheInterface;
 final class PdoCache implements CacheInterface, CounterStoreInterface
 {
     use KeyValidationTrait;
+    use BulkCacheOperationsTrait;
 
     private const SUPPORTED_DRIVERS = ['sqlite', 'mysql', 'pgsql'];
 
@@ -180,17 +181,9 @@ final class PdoCache implements CacheInterface, CounterStoreInterface
         return $result;
     }
 
-    /**
-     * @param iterable<mixed, mixed> $values
-     */
-    public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
-    {
-        foreach ($this->validateKeyedValues($values) as $key => $value) {
-            $this->set($key, $value, $ttl);
-        }
-
-        return true;
-    }
+    // setMultiple() delegates to set() per key and is inherited from
+    // BulkCacheOperationsTrait; getMultiple()/deleteMultiple() below keep their
+    // own batched IN (...) implementations.
 
     public function deleteMultiple(iterable $keys): bool
     {
