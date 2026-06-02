@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Owasp;
 
 /**
- * Very small SecRule parser to support a pragmatic subset of CRS:
- * - Variables: REQUEST_URI, ARGS, REQUEST_HEADERS, REQUEST_HEADERS_NAMES
- * - Operator: @rx with argument (PCRE)
- * - Actions: id (required), phase (ignored), deny (boolean), msg (optional)
+ * Very small SecRule parser to support a pragmatic subset of CRS.
+ *
+ * The set of supported variables is defined by {@see \Flowd\Phirewall\Owasp\Variable\VariableCollectorFactory}
+ * and the set of supported operators by {@see \Flowd\Phirewall\Owasp\Operator\OperatorEvaluatorFactory};
+ * those factories are the source of truth. Actions: id (required), phase (ignored),
+ * deny/block (boolean), msg (optional).
  */
 final class SecRuleParser
 {
@@ -71,58 +73,88 @@ final class SecRuleParser
 
     /**
      * Split a SecRule line into parts: ["SecRule <vars>", "<op arg>", "<actions>"]
-     * We find quoted segments while respecting escaped quotes.
+     * Quoted segments act as the delimiters; unquoted runs between them form their own segments.
      *
      * @return list<string>
      */
     private function splitTopLevel(string $line): array
     {
         $segments = [];
+        foreach ($this->scanSpans($line) as $span) {
+            if ($span['quoted']) {
+                // A quoted span is its own segment, surrounding quotes retained.
+                $segments[] = $span['text'];
+                continue;
+            }
+
+            // Unquoted runs are emitted as-is (trimmed) when they carry content.
+            $trimmed = trim($span['text']);
+            if ($trimmed !== '') {
+                $segments[] = $trimmed;
+            }
+        }
+
+        return $segments;
+    }
+
+    /**
+     * Walk a string honoring quote state (single or double) and backslash-escapes inside quotes,
+     * yielding alternating unquoted and quoted spans. Quoted spans retain their surrounding quote
+     * characters and any escape sequences verbatim, exactly as the source text contained them.
+     *
+     * This is the single low-level scanner shared by {@see splitTopLevel()} and {@see parseActions()};
+     * each method applies its own emission rules on top of the produced spans.
+     *
+     * @return list<array{quoted: bool, text: string}>
+     */
+    private function scanSpans(string $input): array
+    {
+        $spans = [];
         $current = '';
         $inQuote = false;
         $quoteChar = '';
-        $len = strlen($line);
-        for ($i = 0; $i < $len; ++$i) {
-            $ch = $line[$i];
+        $length = strlen($input);
+        for ($index = 0; $index < $length; ++$index) {
+            $character = $input[$index];
             if ($inQuote) {
-                if ($ch === '\\' && $i + 1 < $len) { // escape
-                    $current .= $ch . $line[$i + 1];
-                    ++$i;
+                if ($character === '\\' && $index + 1 < $length) { // escape: keep both characters
+                    $current .= $character . $input[$index + 1];
+                    ++$index;
                     continue;
                 }
 
-                if ($ch === $quoteChar) {
+                if ($character === $quoteChar) {
                     $inQuote = false;
-                    $current .= $ch;
-                    $segments[] = $current;
+                    $current .= $character;
+                    $spans[] = ['quoted' => true, 'text' => $current];
                     $current = '';
                     continue;
                 }
 
-                $current .= $ch;
+                $current .= $character;
                 continue;
             }
 
-            if ($ch === '"' || $ch === "'") {
-                // push current non-quoted chunk if non-empty
-                if (trim($current) !== '') {
-                    $segments[] = trim($current);
+            if ($character === '"' || $character === "'") {
+                if ($current !== '') {
+                    $spans[] = ['quoted' => false, 'text' => $current];
                 }
 
-                $current = $ch;
+                $current = $character;
                 $inQuote = true;
-                $quoteChar = $ch;
+                $quoteChar = $character;
                 continue;
             }
 
-            $current .= $ch;
+            $current .= $character;
         }
 
-        if (trim($current) !== '') {
-            $segments[] = trim($current);
+        if ($current !== '') {
+            // A still-open quote is treated as an unterminated unquoted run, matching prior behavior.
+            $spans[] = ['quoted' => false, 'text' => $current];
         }
 
-        return $segments;
+        return $spans;
     }
 
     /**
@@ -177,50 +209,25 @@ final class SecRuleParser
     private function parseActions(string $actionsPart): array
     {
         $actions = [];
-        $cursor = 0;
-        $len = strlen($actionsPart);
         $buffer = '';
-        $inQuote = false;
-        $quote = '';
         $parts = [];
-        while ($cursor < $len) {
-            $ch = $actionsPart[$cursor];
-            if ($inQuote) {
-                if ($ch === '\\' && $cursor + 1 < $len) {
-                    $buffer .= $ch . $actionsPart[$cursor + 1];
-                    $cursor += 2;
-                    continue;
+        foreach ($this->scanSpans($actionsPart) as $span) {
+            if ($span['quoted']) {
+                // Quoted spans (including any commas within) never split a part.
+                $buffer .= $span['text'];
+                continue;
+            }
+
+            // Unquoted runs split into parts on top-level commas.
+            $fragments = explode(',', $span['text']);
+            $lastIndex = count($fragments) - 1;
+            foreach ($fragments as $fragmentIndex => $fragment) {
+                $buffer .= $fragment;
+                if ($fragmentIndex !== $lastIndex) {
+                    $parts[] = trim($buffer);
+                    $buffer = '';
                 }
-
-                if ($ch === $quote) {
-                    $inQuote = false;
-                    $buffer .= $ch;
-                    ++$cursor;
-                    continue;
-                }
-
-                $buffer .= $ch;
-                ++$cursor;
-                continue;
             }
-
-            if ($ch === '"' || $ch === "'") {
-                $inQuote = true;
-                $quote = $ch;
-                $buffer .= $ch;
-                ++$cursor;
-                continue;
-            }
-
-            if ($ch === ',') {
-                $parts[] = trim($buffer);
-                $buffer = '';
-                ++$cursor;
-                continue;
-            }
-
-            $buffer .= $ch;
-            ++$cursor;
         }
 
         if (trim($buffer) !== '') {

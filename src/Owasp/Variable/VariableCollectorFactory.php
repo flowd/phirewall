@@ -29,7 +29,10 @@ final class VariableCollectorFactory
         return $collectors;
     }
 
-    private static function create(string $variableName): ?VariableCollectorInterface
+    /**
+     * Resolve a single variable name to its collector, or null when the variable is unsupported.
+     */
+    public static function create(string $variableName): ?VariableCollectorInterface
     {
         return match ($variableName) {
             'REQUEST_URI' => new RequestUriCollector(),

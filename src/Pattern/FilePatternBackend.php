@@ -15,6 +15,17 @@ final class FilePatternBackend implements PatternBackendInterface
     /** @var callable():int */
     private $now;
 
+    /**
+     * Last snapshot built by consume(), reused while the file is unchanged so the
+     * read hot path does not reopen and reparse the whole file on every request.
+     */
+    private ?PatternSnapshot $lastSnapshot = null;
+
+    private ?int $lastParsedModificationTime = null;
+
+    /** Earliest expiresAt among the cached entries; gates the reuse path on time. */
+    private ?int $lastEarliestExpiry = null;
+
     public function __construct(private readonly string $filePath, ?callable $now = null)
     {
         $this->now = $now ?? static fn(): int => time();
@@ -26,14 +37,39 @@ final class FilePatternBackend implements PatternBackendInterface
         $this->ensureFileExists();
 
         clearstatcache(false, $this->filePath);
-        $mtime = @filemtime($this->filePath);
-        if ($mtime === false) {
+        $modificationTime = @filemtime($this->filePath);
+        if ($modificationTime === false) {
             throw new \RuntimeException(sprintf('Pattern file "%s" is not readable.', $this->filePath));
         }
 
-        $entries = $this->readEntries();
+        // Cheap path: reuse the cached snapshot when the file has not changed AND no
+        // time-bound entry has expired since it was parsed. Entries may carry an
+        // expiresAt, so the reuse gate must also break at the earliest pending expiry
+        // — otherwise an expired pattern would keep matching on an otherwise-unchanged
+        // file (mirrors FileIpBlocklistMatcher's reload gate, with expiry awareness).
+        if ($this->lastSnapshot instanceof PatternSnapshot
+            && $modificationTime === $this->lastParsedModificationTime
+            && ($this->lastEarliestExpiry === null || ($this->now)() < $this->lastEarliestExpiry)
+        ) {
+            return $this->lastSnapshot;
+        }
 
-        return new PatternSnapshot($entries, $mtime, $this->filePath);
+        $entries = $this->readEntries();
+        $earliestExpiry = $this->earliestExpiry($entries);
+
+        // Fold the earliest pending expiry into the version so consumers that cache by
+        // version (SnapshotBlocklistMatcher compiles patterns once per version) rebuild
+        // when an entry expires on an otherwise-unchanged file.
+        $version = $earliestExpiry === null
+            ? $modificationTime
+            : $modificationTime . ':' . $earliestExpiry;
+
+        $patternSnapshot = new PatternSnapshot($entries, $version, $this->filePath);
+        $this->lastSnapshot = $patternSnapshot;
+        $this->lastParsedModificationTime = $modificationTime;
+        $this->lastEarliestExpiry = $earliestExpiry;
+
+        return $patternSnapshot;
     }
 
     public function append(PatternEntry $patternEntry): void
@@ -105,7 +141,9 @@ final class FilePatternBackend implements PatternBackendInterface
             }
 
             try {
-                [$entries, $order] = $this->readEntriesRaw($handle, $now, pruneExpired: true);
+                // readEntriesRaw() always drops expired entries, so the rewrite
+                // below persists the file without them.
+                [$entries, $order] = $this->readEntriesRaw($handle, $now);
                 $this->atomicWrite($this->formatEntries($entries, $order));
             } finally {
                 fclose($handle);
@@ -147,6 +185,12 @@ final class FilePatternBackend implements PatternBackendInterface
             @unlink($temp);
             throw new \RuntimeException(sprintf('Failed to atomically replace pattern file "%s".', $this->filePath));
         }
+
+        // Invalidate the consume() cache: this instance just changed the file, and
+        // a same-second rewrite could otherwise leave the cached mtime matching
+        // stale content on the next read.
+        $this->lastSnapshot = null;
+        $this->lastParsedModificationTime = null;
     }
 
     /**
@@ -201,6 +245,26 @@ final class FilePatternBackend implements PatternBackendInterface
     /**
      * @return list<PatternEntry>
      */
+    /**
+     * Earliest expiresAt among the parsed entries, or null when none expire.
+     *
+     * @param list<PatternEntry> $entries
+     */
+    private function earliestExpiry(array $entries): ?int
+    {
+        $earliest = null;
+        foreach ($entries as $entry) {
+            if ($entry->expiresAt !== null && ($earliest === null || $entry->expiresAt < $earliest)) {
+                $earliest = $entry->expiresAt;
+            }
+        }
+
+        return $earliest;
+    }
+
+    /**
+     * @return list<PatternEntry>
+     */
     private function readEntries(): array
     {
         $handle = @fopen($this->filePath, 'rb');
@@ -210,7 +274,7 @@ final class FilePatternBackend implements PatternBackendInterface
 
         $now = ($this->now)();
         try {
-            [$entries] = $this->readEntriesRaw($handle, $now, pruneExpired: false);
+            [$entries] = $this->readEntriesRaw($handle, $now);
         } finally {
             fclose($handle);
         }
@@ -226,7 +290,7 @@ final class FilePatternBackend implements PatternBackendInterface
      * @param resource $handle
      * @return array{array<string,PatternEntry>, list<string>}
      */
-    private function readEntriesRaw($handle, int $now, bool $pruneExpired = false): array
+    private function readEntriesRaw($handle, int $now): array
     {
         rewind($handle);
         $contents = stream_get_contents($handle);
@@ -253,12 +317,9 @@ final class FilePatternBackend implements PatternBackendInterface
                 continue;
             }
 
+            // Expired entries are never surfaced; callers that rewrite the file
+            // (append/pruneExpired) thereby drop them from the persisted set too.
             if ($entry->expiresAt !== null && $entry->expiresAt <= $now) {
-                if (!$pruneExpired) {
-                    continue;
-                }
-
-                // Skip to prune
                 continue;
             }
 

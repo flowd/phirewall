@@ -74,6 +74,114 @@ final class FilePatternBackendTest extends TestCase
     }
 
     /**
+     * #1 — when the modification time is unchanged, consume() must reuse the
+     * previously built snapshot instead of reopening and reparsing the file.
+     */
+    public function testConsumeReusesSnapshotWhileModificationTimeUnchanged(): void
+    {
+        $root = vfsStream::setup('patterns', 0700);
+        $file = vfsStream::url('patterns/patterns.txt');
+
+        file_put_contents($file, PatternKind::IP->value . "|203.0.113.10|||1700000000\n");
+        $root->getChild('patterns.txt')->lastModified(1_700_000_000);
+
+        $filePatternBackend = new FilePatternBackend($file, now: static fn(): int => 1_700_000_000);
+
+        $first = $filePatternBackend->consume();
+        $second = $filePatternBackend->consume();
+
+        $this->assertSame($first, $second, 'Unchanged mtime must return the identical cached snapshot');
+    }
+
+    /**
+     * #1 — a later modification time must invalidate the cache so consume()
+     * reparses and reflects the new file content.
+     */
+    public function testConsumeReparsesWhenModificationTimeAdvances(): void
+    {
+        $root = vfsStream::setup('patterns', 0700);
+        $file = vfsStream::url('patterns/patterns.txt');
+
+        file_put_contents($file, PatternKind::IP->value . "|203.0.113.10|||1700000000\n");
+        $root->getChild('patterns.txt')->lastModified(1_700_000_000);
+
+        $filePatternBackend = new FilePatternBackend($file, now: static fn(): int => 1_700_000_000);
+
+        $first = $filePatternBackend->consume();
+        $this->assertCount(1, $first->entries);
+
+        file_put_contents($file, PatternKind::IP->value . "|203.0.113.10|||1700000000\n" . PatternKind::IP->value . "|203.0.113.11|||1700000000\n");
+        $root->getChild('patterns.txt')->lastModified(1_700_000_005);
+
+        $second = $filePatternBackend->consume();
+        $this->assertNotSame($first, $second, 'Advanced mtime must produce a freshly parsed snapshot');
+        $this->assertCount(2, $second->entries);
+        $this->assertSame(1_700_000_005, $second->version);
+    }
+
+    /**
+     * #1 — when an entry expires on an otherwise-unchanged file, the reuse gate
+     * must break at the entry's expiry so the expired pattern stops being surfaced
+     * (and the version changes so version-keyed consumers, e.g. the compiled
+     * matcher, rebuild instead of keeping the stale entry).
+     */
+    public function testConsumeDropsExpiredEntryOnUnchangedFile(): void
+    {
+        $root = vfsStream::setup('patterns', 0700);
+        $file = vfsStream::url('patterns/patterns.txt');
+
+        // kind|value|target|expiresAt|addedAt — expires at 1_700_000_010.
+        file_put_contents($file, PatternKind::IP->value . "|203.0.113.10||1700000010|1700000000\n");
+        $root->getChild('patterns.txt')->lastModified(1_700_000_000);
+
+        $now = 1_700_000_000;
+        $filePatternBackend = new FilePatternBackend($file, now: static function () use (&$now): int {
+            return $now;
+        });
+
+        $beforeExpiry = $filePatternBackend->consume();
+        $this->assertCount(1, $beforeExpiry->entries, 'Entry is live before its expiry');
+
+        // Advance the clock past the entry's expiry WITHOUT touching the file.
+        $now = 1_700_000_011;
+        $afterExpiry = $filePatternBackend->consume();
+
+        $this->assertCount(0, $afterExpiry->entries, 'Expired entry must not be surfaced on an unchanged file');
+        $this->assertNotSame(
+            $beforeExpiry->version,
+            $afterExpiry->version,
+            'Version must change when an entry expires so version-keyed consumers recompile',
+        );
+    }
+
+    /**
+     * #1 — a write performed by the same instance must invalidate the cache even
+     * when the resulting mtime collides with the cached one (whole-second
+     * filesystem granularity), so the next consume() never returns stale content.
+     */
+    public function testConsumeReflectsWriteWithinSameSecond(): void
+    {
+        $root = vfsStream::setup('patterns', 0700);
+        $file = vfsStream::url('patterns/patterns.txt');
+
+        $now = 1_700_000_000;
+        $filePatternBackend = new FilePatternBackend($file, now: static fn(): int => $now);
+
+        $filePatternBackend->append(new PatternEntry(PatternKind::IP, '203.0.113.10', addedAt: $now));
+        $root->getChild('patterns.txt')->lastModified($now);
+
+        $first = $filePatternBackend->consume();
+        $this->assertCount(1, $first->entries);
+
+        // Append again and pin the mtime to the same second to force a collision.
+        $filePatternBackend->append(new PatternEntry(PatternKind::IP, '203.0.113.11', addedAt: $now));
+        $root->getChild('patterns.txt')->lastModified($now);
+
+        $second = $filePatternBackend->consume();
+        $this->assertCount(2, $second->entries, 'A same-second self-write must not be masked by the consume() cache');
+    }
+
+    /**
      * M3 — auto-created parent directories must drop from the legacy world-writable
      * 0777 to an owner-only 0700 so pattern data is not exposed to co-tenants.
      */

@@ -19,16 +19,29 @@ use Psr\SimpleCache\CacheInterface;
  * Processes ALL rules so every counter is incremented, then returns the first block.
  * threshold = N: increment on each request; ban on the Nth request (>= comparison).
  * Retry-After is always included. X-Phirewall headers are conditional on responseHeadersEnabled.
+ *
+ * Unlike Fail2BanEvaluator — which early-returns on its first decision — this evaluator must
+ * keep looping after it has decided to block, so that every rule's hit counter is still
+ * incremented for the request. The first blocking decision is captured in an Allow2BanDecision
+ * and applied once the loop is done.
+ *
+ * The per-rule ban-key existence checks are batched into a SINGLE getMultiple() (an MGET on
+ * Redis, one SELECT on PDO) at the start of evaluation, so the common "nothing banned" path
+ * costs one cache round-trip regardless of the number of allow2ban rules. The Retry-After TTL
+ * lookup is deferred to the at-most-once block construction, so the common path performs no TTL
+ * round-trips at all. Distinct rules always produce distinct ban keys (the rule name is part of
+ * the key), so the upfront batch is behaviour-preserving even though the loop continues.
  */
 final readonly class Allow2BanEvaluator implements EvaluatorInterface
 {
     public function evaluate(ServerRequestInterface $serverRequest, EvaluationContext $evaluationContext): ?FirewallResult
     {
         $cache = $evaluationContext->config->cache;
+        $cacheKeyGenerator = $evaluationContext->config->cacheKeyGenerator();
 
-        /** @var array{path: DecisionPath, rule: string, result: FirewallResult}|null $firstBlock */
-        $firstBlock = null;
-
+        /** @var list<array{rule: Allow2BanRule, name: string, normalizedKey: string, banKey: string}> $candidates */
+        $candidates = [];
+        $banKeys = [];
         foreach ($evaluationContext->config->allow2ban->rules() as $allow2BanRule) {
             $name = $allow2BanRule->name();
             $key = $allow2BanRule->keyExtractor()->extract($serverRequest);
@@ -37,52 +50,91 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
             }
 
             $normalizedKey = ($evaluationContext->normalize)((string) $key);
-            $banKey = $evaluationContext->config->cacheKeyGenerator()->allow2BanBanKey($name, $normalizedKey);
-            if ($cache->has($banKey)) {
-                $banRetryAfter = $this->ttlRemaining($cache, $banKey);
-                if ($banRetryAfter < 1) {
-                    $banRetryAfter = $allow2BanRule->banSeconds();
-                }
+            $banKey = $cacheKeyGenerator->allow2BanBanKey($name, $normalizedKey);
+            $candidates[] = [
+                'rule' => $allow2BanRule,
+                'name' => $name,
+                'normalizedKey' => $normalizedKey,
+                'banKey' => $banKey,
+            ];
+            $banKeys[$banKey] = true;
+        }
 
-                if ($firstBlock === null) {
-                    $blockedHeaders = ['Retry-After' => (string) $banRetryAfter]
-                        + $evaluationContext->responseHeaders('allow2ban', $name);
-                    $firstBlock = [
-                        'path' => DecisionPath::Allow2BanBlocked,
-                        'rule' => $name,
-                        'result' => FirewallResult::blocked($name, 'allow2ban', $blockedHeaders),
-                    ];
-                }
+        if ($candidates === []) {
+            return null;
+        }
+
+        // Single batched existence check across every candidate rule's ban key.
+        $banEntries = $cache->getMultiple(array_keys($banKeys));
+        $bannedByKey = [];
+        foreach ($banEntries as $banKey => $banEntry) {
+            $bannedByKey[$banKey] = $banEntry !== null;
+        }
+
+        $capturedDecision = null;
+        foreach ($candidates as $candidate) {
+            if ($bannedByKey[$candidate['banKey']] ?? false) {
+                $capturedDecision ??= $this->buildBlock(
+                    DecisionPath::Allow2BanBlocked,
+                    $candidate['rule'],
+                    $candidate['banKey'],
+                    $cache,
+                    $evaluationContext,
+                );
 
                 continue;
             }
 
-            if ($this->incrementAndBanIfNeeded($allow2BanRule, $normalizedKey, $serverRequest, $evaluationContext)) {
-                $newBanRetryAfter = $this->ttlRemaining($cache, $banKey);
-                if ($newBanRetryAfter < 1) {
-                    $newBanRetryAfter = $allow2BanRule->banSeconds();
-                }
-
-                if ($firstBlock === null) {
-                    $bannedHeaders = ['Retry-After' => (string) $newBanRetryAfter]
-                        + $evaluationContext->responseHeaders('allow2ban', $name);
-                    $firstBlock = [
-                        'path' => DecisionPath::Allow2BanBanned,
-                        'rule' => $name,
-                        'result' => FirewallResult::blocked($name, 'allow2ban', $bannedHeaders),
-                    ];
-                }
+            if ($this->incrementAndBanIfNeeded($candidate['rule'], $candidate['normalizedKey'], $serverRequest, $evaluationContext)) {
+                $capturedDecision ??= $this->buildBlock(
+                    DecisionPath::Allow2BanBanned,
+                    $candidate['rule'],
+                    $candidate['banKey'],
+                    $cache,
+                    $evaluationContext,
+                );
             }
         }
 
-        if ($firstBlock !== null) {
-            $evaluationContext->decisionPath = $firstBlock['path'];
-            $evaluationContext->decisionRule = $firstBlock['rule'];
+        if ($capturedDecision instanceof \Flowd\Phirewall\Http\Evaluator\Allow2BanDecision) {
+            $evaluationContext->decisionPath = $capturedDecision->decisionPath;
+            $evaluationContext->decisionRule = $capturedDecision->rule;
 
-            return $firstBlock['result'];
+            return $capturedDecision->result;
         }
 
         return null;
+    }
+
+    /**
+     * Build the captured block decision for a rule: resolve Retry-After (the ban
+     * key's remaining TTL, falling back to the rule's configured banSeconds when
+     * the TTL is unavailable), assemble the response headers, and wrap them in a
+     * FirewallResult. Shared by the already-banned and just-banned branches so the
+     * two cannot drift apart.
+     */
+    private function buildBlock(
+        DecisionPath $decisionPath,
+        Allow2BanRule $allow2BanRule,
+        string $banKey,
+        CacheInterface $cache,
+        EvaluationContext $evaluationContext,
+    ): Allow2BanDecision {
+        $name = $allow2BanRule->name();
+
+        $retryAfter = $this->ttlRemaining($cache, $banKey);
+        if ($retryAfter < 1) {
+            $retryAfter = $allow2BanRule->banSeconds();
+        }
+
+        $headers = ['Retry-After' => (string) $retryAfter]
+            + $evaluationContext->responseHeaders('allow2ban', $name);
+
+        return new Allow2BanDecision(
+            $decisionPath,
+            $name,
+            FirewallResult::blocked($name, 'allow2ban', $headers),
+        );
     }
 
     /**

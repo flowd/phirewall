@@ -17,13 +17,25 @@ use Psr\Http\Message\ServerRequestInterface;
  * threshold = N: increment the failure counter on each match; ban on the Nth match.
  * Both pre-handler matches (filter()->match()) and post-handler recorded failures share
  * this single semantic via incrementAndBanIfNeeded().
+ *
+ * The per-rule ban-key existence checks are batched into a SINGLE getMultiple() (an MGET
+ * on Redis, one SELECT on PDO) at the start of evaluation, so the common "nothing banned"
+ * path costs one cache round-trip regardless of the number of fail2ban rules instead of one
+ * per rule. Distinct rules always produce distinct ban keys (the rule name is part of the
+ * key), and this evaluator returns on the FIRST decision, so no later rule's ban-key read can
+ * observe a ban written by an earlier rule in the same request — batching upfront is therefore
+ * behaviour-preserving.
  */
 final readonly class Fail2BanEvaluator implements EvaluatorInterface
 {
     public function evaluate(ServerRequestInterface $serverRequest, EvaluationContext $evaluationContext): ?FirewallResult
     {
         $cache = $evaluationContext->config->cache;
+        $cacheKeyGenerator = $evaluationContext->config->cacheKeyGenerator();
 
+        /** @var list<array{rule: Fail2BanRule, name: string, normalizedKey: string, banKey: string}> $candidates */
+        $candidates = [];
+        $banKeys = [];
         foreach ($evaluationContext->config->fail2ban->rules() as $fail2BanRule) {
             $name = $fail2BanRule->name();
             $key = $fail2BanRule->keyExtractor()->extract($serverRequest);
@@ -32,8 +44,31 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
             }
 
             $normalizedKey = ($evaluationContext->normalize)((string) $key);
-            $banKey = $evaluationContext->config->cacheKeyGenerator()->fail2BanBanKey($name, $normalizedKey);
-            if ($cache->has($banKey)) {
+            $banKey = $cacheKeyGenerator->fail2BanBanKey($name, $normalizedKey);
+            $candidates[] = [
+                'rule' => $fail2BanRule,
+                'name' => $name,
+                'normalizedKey' => $normalizedKey,
+                'banKey' => $banKey,
+            ];
+            $banKeys[$banKey] = true;
+        }
+
+        if ($candidates === []) {
+            return null;
+        }
+
+        // Single batched existence check across every candidate rule's ban key.
+        $banEntries = $cache->getMultiple(array_keys($banKeys));
+        $bannedByKey = [];
+        foreach ($banEntries as $banKey => $banEntry) {
+            $bannedByKey[$banKey] = $banEntry !== null;
+        }
+
+        foreach ($candidates as $candidate) {
+            $name = $candidate['name'];
+
+            if ($bannedByKey[$candidate['banKey']] ?? false) {
                 $evaluationContext->decisionPath = DecisionPath::Fail2BanBlocked;
                 $evaluationContext->decisionRule = $name;
 
@@ -42,8 +77,8 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
 
             // threshold=N: ban on the Nth matching request (>= comparison).
             if (
-                $fail2BanRule->filter()->match($serverRequest)->isMatch()
-                && $this->incrementAndBanIfNeeded($fail2BanRule, $normalizedKey, $serverRequest, $evaluationContext)
+                $candidate['rule']->filter()->match($serverRequest)->isMatch()
+                && $this->incrementAndBanIfNeeded($candidate['rule'], $candidate['normalizedKey'], $serverRequest, $evaluationContext)
             ) {
                 $evaluationContext->decisionPath = DecisionPath::Fail2BanBanned;
                 $evaluationContext->decisionRule = $name;

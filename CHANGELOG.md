@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OWASP CRS hot-path hardening** — Core Rule Set evaluation now collects each request variable once per request (shared across all rules instead of re-deriving `ARGS`/headers per rule) and caps the number of request values evaluated per request (`CoreRule::MAX_VALUES`, mirroring ModSecurity's `SecArgumentsLimit`) so attacker-controlled request size cannot amplify per-request CPU cost. `FilePatternBackend::consume()` reuses its parsed snapshot while the file's modification time is unchanged instead of re-reading and re-parsing on every request, and `SnapshotBlocklistMatcher` resolves header-targeted patterns via the PSR-7 case-insensitive accessor rather than building a full lowercased header map per request.
 - **`TrustedProxyResolver` resolves bracketed IPv6+port forms in `X-Forwarded-For` and `Forwarded`** — Entries like `[2001:db8::1]:443` (the form RFC 7239 mandates for IPv6 in `Forwarded for=`, and one some proxies emit in XFF) were silently dropped: bracket-stripping left `2001:db8::1]:443`, which failed `FILTER_VALIDATE_IP`, and the resolver fell back to `REMOTE_ADDR`. `normalizeIp()` now extracts the address from `[…](:port)?` before validating, and the `Forwarded for=` regex no longer over-captures the trailing `]`.
 
 ## 0.4.0 - 2026-05-19
