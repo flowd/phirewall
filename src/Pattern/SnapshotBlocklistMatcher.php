@@ -11,7 +11,7 @@ use Flowd\Phirewall\Matchers\Support\CidrMatcher;
 use Flowd\Phirewall\Matchers\Support\RegexMatcher;
 use Psr\Http\Message\ServerRequestInterface;
 
-final class SnapshotBlocklistMatcher implements RequestMatcherInterface, PatternFrontendInterface
+final class SnapshotBlocklistMatcher implements RequestMatcherInterface
 {
     private ?PatternSnapshot $patternSnapshot = null;
 
@@ -113,25 +113,27 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
 
                     break;
                 case PatternKind::HEADER_EXACT:
-                    $headers ??= $this->normalizeHeaders($serverRequest->getHeaders());
+                    // PSR-7 getHeader() is case-insensitive, so look up only the
+                    // target header instead of normalizing the whole header map.
                     $headerName = $entry->target ?? '';
-                    if ($headerName !== '' && $this->headerEquals($headers, $headerName, $entry->value)) {
+                    if ($headerName !== '' && $this->headerValuesEqual($serverRequest->getHeader($headerName), $entry->value)) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value, 'target' => $headerName]);
                     }
 
                     break;
                 case PatternKind::HEADER_REGEX:
-                    $headers ??= $this->normalizeHeaders($serverRequest->getHeaders());
                     $headerName = $entry->target ?? '';
                     $headerPattern = is_string($compiled) ? $compiled : null;
-                    if ($headerName !== '' && $this->headerRegex($headers, $headerName, $headerPattern)) {
+                    if ($headerName !== '' && $this->headerValuesMatch($serverRequest->getHeader($headerName), $headerPattern)) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value, 'target' => $headerName]);
                     }
 
                     break;
                 case PatternKind::REQUEST_REGEX:
-                    $headers ??= $this->normalizeHeaders($serverRequest->getHeaders());
-                    $requestSubject ??= $this->buildRequestSubject($path, $query, $headers);
+                    // Only REQUEST_REGEX needs the full normalized header map; build
+                    // it lazily once, and only when such an entry is actually present.
+                    $normalizedHeaders ??= $this->normalizeHeaders($serverRequest->getHeaders());
+                    $requestSubject ??= $this->buildRequestSubject($path, $query, $normalizedHeaders);
                     $requestPattern = is_string($compiled) ? $compiled : null;
                     if (RegexMatcher::matches($requestPattern, $requestSubject)) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
@@ -146,13 +148,15 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
 
     private function loadSnapshot(): PatternSnapshot
     {
-        $patternSnapshot = $this->patternBackend->consume();
-        if (!$this->patternSnapshot instanceof PatternSnapshot || $patternSnapshot->version !== $this->patternSnapshot->version) {
-            $this->patternSnapshot = $patternSnapshot;
-            $this->compiled = $this->compileSnapshot($patternSnapshot);
+        // consume() runs on every request; version equality gates recompilation so
+        // the compiled matchers are only rebuilt when the backend actually changed.
+        $freshSnapshot = $this->patternBackend->consume();
+        if (!$this->patternSnapshot instanceof PatternSnapshot || $freshSnapshot->version !== $this->patternSnapshot->version) {
+            $this->patternSnapshot = $freshSnapshot;
+            $this->compiled = $this->compileSnapshot($freshSnapshot);
         }
 
-        return $patternSnapshot;
+        return $freshSnapshot;
     }
 
     /**
@@ -198,39 +202,23 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, Pattern
     }
 
     /**
-     * @param array<string, array<int,string>> $headers
+     * @param array<string> $values Header values as returned by PSR-7 getHeader().
      */
-    private function headerEquals(array $headers, string $name, string $expected): bool
+    private function headerValuesEqual(array $values, string $expected): bool
     {
-        $normalizedName = strtolower($name);
-        if (!isset($headers[$normalizedName])) {
-            return false;
-        }
-
-        foreach ($headers[$normalizedName] as $value) {
-            if ($value === $expected) {
-                return true;
-            }
-        }
-
-        return false;
+        return in_array($expected, $values, true);
     }
 
     /**
-     * @param array<string, array<int,string>> $headers
+     * @param array<string> $values Header values as returned by PSR-7 getHeader().
      */
-    private function headerRegex(array $headers, string $name, ?string $pattern): bool
+    private function headerValuesMatch(array $values, ?string $pattern): bool
     {
         if ($pattern === null) {
             return false;
         }
 
-        $normalizedName = strtolower($name);
-        if (!isset($headers[$normalizedName])) {
-            return false;
-        }
-
-        foreach ($headers[$normalizedName] as $value) {
+        foreach ($values as $value) {
             if (RegexMatcher::matches($pattern, $value)) {
                 return true;
             }
