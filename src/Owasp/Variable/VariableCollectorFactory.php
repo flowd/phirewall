@@ -10,26 +10,9 @@ namespace Flowd\Phirewall\Owasp\Variable;
 final class VariableCollectorFactory
 {
     /**
-     * Resolve a list of variable names to their corresponding collectors.
-     * Unknown variable names are silently skipped.
-     *
-     * @param list<string> $variableNames
-     * @return list<VariableCollectorInterface>
+     * Resolve a single variable name to its collector, or null when the variable is unsupported.
      */
-    public static function createCollectors(array $variableNames): array
-    {
-        $collectors = [];
-        foreach ($variableNames as $variableName) {
-            $collector = self::create($variableName);
-            if ($collector instanceof VariableCollectorInterface) {
-                $collectors[] = $collector;
-            }
-        }
-
-        return $collectors;
-    }
-
-    private static function create(string $variableName): ?VariableCollectorInterface
+    public static function create(string $variableName): ?VariableCollectorInterface
     {
         return match ($variableName) {
             'REQUEST_URI' => new RequestUriCollector(),
