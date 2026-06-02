@@ -93,6 +93,48 @@ final class SnapshotBlocklistMatcherTest extends TestCase
         $this->assertFalse($snapshotBlocklistMatcher->match($miss)->isMatch());
     }
 
+    /**
+     * #22 — HEADER_EXACT now resolves the target via PSR-7 getHeader(), which is
+     * case-insensitive on the header name. Matching must hold regardless of the
+     * casing used on either side of the lookup.
+     */
+    public function testHeaderExactMatchesCaseInsensitiveHeaderName(): void
+    {
+        $inMemoryPatternBackend = new InMemoryPatternBackend([
+            new PatternEntry(PatternKind::HEADER_EXACT, 'bad-bot', target: 'User-Agent'),
+        ]);
+
+        $snapshotBlocklistMatcher = new SnapshotBlocklistMatcher($inMemoryPatternBackend);
+
+        $matchRequest = new ServerRequest('GET', '/any', ['user-agent' => 'bad-bot'], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertTrue($snapshotBlocklistMatcher->match($matchRequest)->isMatch(), 'Header name lookup must be case-insensitive');
+
+        $missValue = new ServerRequest('GET', '/any', ['User-Agent' => 'good-bot'], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertFalse($snapshotBlocklistMatcher->match($missValue)->isMatch(), 'A differing value must not match');
+
+        $missHeaderAbsent = new ServerRequest('GET', '/any', [], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertFalse($snapshotBlocklistMatcher->match($missHeaderAbsent)->isMatch(), 'An absent header must not match');
+    }
+
+    /**
+     * #22 — HEADER_REGEX likewise resolves the target via getHeader(); confirm the
+     * regex still matches a header supplied under different casing.
+     */
+    public function testHeaderRegexMatchesCaseInsensitiveHeaderName(): void
+    {
+        $inMemoryPatternBackend = new InMemoryPatternBackend([
+            new PatternEntry(PatternKind::HEADER_REGEX, '/curl|bot/i', target: 'User-Agent'),
+        ]);
+
+        $snapshotBlocklistMatcher = new SnapshotBlocklistMatcher($inMemoryPatternBackend);
+
+        $matchRequest = new ServerRequest('GET', '/any', ['USER-AGENT' => 'curl/8.0.0'], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertTrue($snapshotBlocklistMatcher->match($matchRequest)->isMatch(), 'Header regex must match regardless of header-name casing');
+
+        $missRequest = new ServerRequest('GET', '/any', ['User-Agent' => 'Mozilla/5.0'], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertFalse($snapshotBlocklistMatcher->match($missRequest)->isMatch());
+    }
+
     public function testRequestRegexMatchesHeaderOnOwnLine(): void
     {
         $inMemoryPatternBackend = new InMemoryPatternBackend([

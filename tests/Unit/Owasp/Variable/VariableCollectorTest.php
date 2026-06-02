@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Tests\Owasp\Variable;
 
+use Flowd\Phirewall\Owasp\CoreRule;
 use Flowd\Phirewall\Owasp\Variable\ArgsCollector;
 use Flowd\Phirewall\Owasp\Variable\ArgsNamesCollector;
 use Flowd\Phirewall\Owasp\Variable\QueryStringCollector;
@@ -81,6 +82,24 @@ final class VariableCollectorTest extends TestCase
         $this->assertContains('a', $result);
         $this->assertContains('b', $result);
         $this->assertContains('nested', $result);
+    }
+
+    public function testArgsCollectorShortCircuitsAtValueCap(): void
+    {
+        $collector = new ArgsCollector();
+
+        // Each query parameter contributes a value and a name, so the cap is reached
+        // well before all parameters are visited.
+        $queryParams = [];
+        for ($index = 0; $index < CoreRule::MAX_VALUES; ++$index) {
+            $queryParams['k' . $index] = 'v' . $index;
+        }
+
+        $request = (new ServerRequest('GET', '/'))->withQueryParams($queryParams);
+
+        $result = $collector->collect($request);
+
+        $this->assertCount(CoreRule::MAX_VALUES, $result);
     }
 
     public function testArgsNamesCollectorCollectsKeysOnly(): void

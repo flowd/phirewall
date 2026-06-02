@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Owasp;
 
+use Flowd\Phirewall\Owasp\Variable\RequestVariableValues;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -65,12 +66,15 @@ final class CoreRuleSet
      */
     public function match(ServerRequestInterface $serverRequest): ?int
     {
+        // Collect each distinct variable once and share it across every rule for this request.
+        $requestVariableValues = new RequestVariableValues($serverRequest);
+
         foreach ($this->rulesById as $id => $rule) {
             if (($this->enabled[$id] ?? false) === false) {
                 continue;
             }
 
-            if ($rule->matches($serverRequest)) {
+            if ($rule->matches($serverRequest, $requestVariableValues)) {
                 return $rule->id;
             }
         }
@@ -83,6 +87,6 @@ final class CoreRuleSet
      */
     public function ids(): array
     {
-        return array_values(array_map(static fn($k): int => $k, array_keys($this->rulesById)));
+        return array_keys($this->rulesById);
     }
 }
