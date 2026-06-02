@@ -10,6 +10,7 @@ use Flowd\Phirewall\Pattern\PatternEntry;
 use Flowd\Phirewall\Pattern\PatternKind;
 use Flowd\Phirewall\Pattern\SnapshotBlocklistMatcher;
 use Nyholm\Psr7\ServerRequest;
+use org\bovigo\vfs\vfsStream;
 use PHPUnit\Framework\TestCase;
 
 final class SnapshotBlocklistMatcherTest extends TestCase
@@ -93,6 +94,48 @@ final class SnapshotBlocklistMatcherTest extends TestCase
         $this->assertFalse($snapshotBlocklistMatcher->match($miss)->isMatch());
     }
 
+    /**
+     * HEADER_EXACT resolves the target via PSR-7 getHeader(), which is
+     * case-insensitive on the header name. Matching must hold regardless of the
+     * casing used on either side of the lookup.
+     */
+    public function testHeaderExactMatchesCaseInsensitiveHeaderName(): void
+    {
+        $inMemoryPatternBackend = new InMemoryPatternBackend([
+            new PatternEntry(PatternKind::HEADER_EXACT, 'bad-bot', target: 'User-Agent'),
+        ]);
+
+        $snapshotBlocklistMatcher = new SnapshotBlocklistMatcher($inMemoryPatternBackend);
+
+        $matchRequest = new ServerRequest('GET', '/any', ['user-agent' => 'bad-bot'], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertTrue($snapshotBlocklistMatcher->match($matchRequest)->isMatch(), 'Header name lookup must be case-insensitive');
+
+        $missValue = new ServerRequest('GET', '/any', ['User-Agent' => 'good-bot'], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertFalse($snapshotBlocklistMatcher->match($missValue)->isMatch(), 'A differing value must not match');
+
+        $missHeaderAbsent = new ServerRequest('GET', '/any', [], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertFalse($snapshotBlocklistMatcher->match($missHeaderAbsent)->isMatch(), 'An absent header must not match');
+    }
+
+    /**
+     * HEADER_REGEX likewise resolves the target via getHeader(); confirm the
+     * regex still matches a header supplied under different casing.
+     */
+    public function testHeaderRegexMatchesCaseInsensitiveHeaderName(): void
+    {
+        $inMemoryPatternBackend = new InMemoryPatternBackend([
+            new PatternEntry(PatternKind::HEADER_REGEX, '/curl|bot/i', target: 'User-Agent'),
+        ]);
+
+        $snapshotBlocklistMatcher = new SnapshotBlocklistMatcher($inMemoryPatternBackend);
+
+        $matchRequest = new ServerRequest('GET', '/any', ['USER-AGENT' => 'curl/8.0.0'], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertTrue($snapshotBlocklistMatcher->match($matchRequest)->isMatch(), 'Header regex must match regardless of header-name casing');
+
+        $missRequest = new ServerRequest('GET', '/any', ['User-Agent' => 'Mozilla/5.0'], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
+        $this->assertFalse($snapshotBlocklistMatcher->match($missRequest)->isMatch());
+    }
+
     public function testRequestRegexMatchesHeaderOnOwnLine(): void
     {
         $inMemoryPatternBackend = new InMemoryPatternBackend([
@@ -109,5 +152,35 @@ final class SnapshotBlocklistMatcherTest extends TestCase
 
         $safeRequest = new ServerRequest('GET', '/page', ['User-Agent' => 'SafeBrowser/1.0', 'X-Custom' => 'evil'], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
         $this->assertFalse($snapshotBlocklistMatcher->match($safeRequest)->isMatch());
+    }
+
+    /**
+     * A long-lived matcher over an unchanged file must stop matching an entry once
+     * its expiry passes. FilePatternBackend folds the earliest pending expiry into
+     * the snapshot version, so the matcher recompiles and drops the expired pattern
+     * even though the file's mtime never changes between requests.
+     */
+    public function testLongLivedMatcherDropsExpiredEntryOnUnchangedFile(): void
+    {
+        $root = vfsStream::setup('patterns', 0700);
+        $file = vfsStream::url('patterns/patterns.txt');
+
+        // kind|value|target|expiresAt|addedAt — IP entry expiring at 1_700_000_010.
+        file_put_contents($file, PatternKind::IP->value . "|203.0.113.20||1700000010|1700000000\n");
+        $root->getChild('patterns.txt')->lastModified(1_700_000_000);
+
+        $now = 1_700_000_000;
+        $backend = new FilePatternBackend($file, now: static function () use (&$now): int {
+            return $now;
+        });
+        $matcher = new SnapshotBlocklistMatcher($backend);
+
+        $request = new ServerRequest('GET', '/any', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.20']);
+        $this->assertTrue($matcher->match($request)->isMatch(), 'Entry matches before its expiry');
+
+        // Advance past the expiry WITHOUT touching the file; the SAME matcher must
+        // recompile from the new snapshot version and stop matching.
+        $now = 1_700_000_011;
+        $this->assertFalse($matcher->match($request)->isMatch(), 'Expired entry must stop matching on the unchanged file');
     }
 }
