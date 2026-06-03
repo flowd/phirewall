@@ -48,6 +48,16 @@ use Flowd\Phirewall\Portable\PortableConfig;
  * Override any of these by combining the preset with your own portable schema
  * that redefines the rule by name.
  *
+ * ## Versioning
+ *
+ * {@see VERSION} identifies the bundled rule catalogue and is bumped whenever a
+ * preset's rule set changes in a way integrators should review. Phirewall ships
+ * no update-check mechanism and performs no network I/O: to surface "a newer
+ * ruleset is available", compare {@see VERSION} against a feed you trust
+ * (Packagist, an internal config service, a versioned JSON document, …) with
+ * {@see version_compare()}, e.g.
+ * `version_compare(Presets::VERSION, $latestFromYourFeed, '<')`.
+ *
  * ## Keys and proxies
  *
  * IP-keyed rules resolve the client from `REMOTE_ADDR` (proxy headers are not
@@ -61,8 +71,9 @@ final class Presets
 {
     /**
      * Version of the bundled preset catalogue. Bumped whenever a preset's rule
-     * set changes in a way integrators should review. Pair it with a
-     * {@see PresetUpdateChecker} to surface "a newer ruleset is available".
+     * set changes in a way integrators should review. Compare it against a feed
+     * you trust with {@see version_compare()} to surface "a newer ruleset is
+     * available" (see the class docblock).
      */
     public const VERSION = '1.0.0';
 
