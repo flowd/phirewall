@@ -276,8 +276,11 @@ final class PortableConfig
     /**
      * Match requests missing standard browser headers.
      *
-     * Backed by {@see SuspiciousHeadersMatcher}. Pass null (default) to require
-     * the default header set; pass an explicit list to override it.
+     * Backed by {@see SuspiciousHeadersMatcher}. Pass null (the default) to
+     * require the curated default header set; pass a non-empty list to require
+     * those headers instead; pass an explicit empty list to require no headers,
+     * which disables the filter (it never matches). The three intents mirror the
+     * matcher and the compiler, so each round-trips through toArray()/fromArray().
      *
      * @param list<string>|null $requiredHeaders
      * @return FilterSuspiciousHeaders
@@ -285,7 +288,11 @@ final class PortableConfig
     public static function filterSuspiciousHeaders(?array $requiredHeaders = null): array
     {
         $filter = ['type' => 'suspicious_headers'];
-        if ($requiredHeaders !== null) {
+        if ($requiredHeaders === []) {
+            // An explicit empty list requires no headers and so disables the
+            // filter; distinct from null, which selects the curated defaults.
+            $filter['headers'] = [];
+        } elseif ($requiredHeaders !== null) {
             $filter['headers'] = self::requireNonEmptyStringList($requiredHeaders, 'filterSuspiciousHeaders()');
         }
 
@@ -934,7 +941,7 @@ final class PortableConfig
         return match ($type) {
             'ip' => new IpMatcher(self::toStringList($filter['ips'] ?? [])),
             'known_scanners' => new KnownScannerMatcher(isset($filter['patterns']) ? self::toStringList($filter['patterns']) : null),
-            'suspicious_headers' => new SuspiciousHeadersMatcher(isset($filter['headers']) ? self::toStringList($filter['headers']) : []),
+            'suspicious_headers' => new SuspiciousHeadersMatcher(isset($filter['headers']) ? self::toStringList($filter['headers']) : null),
             default => new ClosureRequestMatcher($this->compileFilterClosure($filter)),
         };
     }
@@ -1175,7 +1182,14 @@ final class PortableConfig
             throw new \InvalidArgumentException('known_scanners patterns must be a list of strings');
         }
 
-        if ($type === 'suspicious_headers' && isset($filter['headers']) && !$this->isStringList($filter['headers'])) {
+        if (
+            $type === 'suspicious_headers'
+            && isset($filter['headers'])
+            && $filter['headers'] !== []
+            && !$this->isStringList($filter['headers'])
+        ) {
+            // An explicit empty list is valid here: it disables the matcher
+            // (require no headers). A non-empty value must be a list of strings.
             throw new \InvalidArgumentException('suspicious_headers headers must be a list of strings');
         }
     }

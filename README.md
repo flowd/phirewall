@@ -402,9 +402,9 @@ $config = (new Config($cache))->combine(
 
 > **Note:** `scannerBlocking()`'s `suspicious-headers` rule is aggressive — some legitimate API clients and privacy tools also omit `Accept-*` headers. Drop or override it by name if your traffic includes non-browser clients.
 
-**Versioning & update checks.** `Presets::VERSION` identifies the bundled rule catalogue. To surface "a newer ruleset is available", implement the `PresetUpdateChecker` interface against a source you trust (Packagist, an internal config service, a versioned JSON document, …) and compare against `Presets::VERSION`. Phirewall hardcodes no endpoint and performs **no network I/O**: the shipped `NullPresetUpdateChecker` never reports an update, and wiring a real source is the integrator's job.
+**Versioning & update checks.** `Presets::VERSION` identifies the bundled rule catalogue. To surface "a newer ruleset is available", compare `Presets::VERSION` against a feed you trust (Packagist, an internal config service, a versioned JSON document, …) with `version_compare(Presets::VERSION, $latestFromYourFeed, '<')`. Phirewall hardcodes no endpoint and performs **no network I/O**; wiring a real source is the integrator's job.
 
-See [31-presets.php](examples/31-presets.php) for standalone use, portable inspection, composition with override-by-name, and the update-check seam.
+See [31-presets.php](examples/31-presets.php) for standalone use, portable inspection, composition with override-by-name, and the version comparison.
 
 ## Real-World Recipes
 
