@@ -767,11 +767,23 @@ final class PortableConfigTest extends TestCase
         PortableConfig::filterKnownScanners([]);
     }
 
-    public function testFilterSuspiciousHeadersRejectsEmptyList(): void
+    public function testFilterSuspiciousHeadersEmptyListDisablesTheFilter(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessageMatches('/filterSuspiciousHeaders.*non-empty/');
-        PortableConfig::filterSuspiciousHeaders([]);
+        // An explicit empty list expresses "require no headers" (the matcher
+        // never matches), distinct from null which selects the curated defaults.
+        // Unlike the sibling builders that have no disable semantics, it must be
+        // accepted and round-trip through the transport rather than throw.
+        $this->assertSame(
+            ['type' => 'suspicious_headers', 'headers' => []],
+            PortableConfig::filterSuspiciousHeaders([]),
+        );
+
+        $firewall = $this->firewallFrom(
+            PortableConfig::create()->blocklist('suspicious', PortableConfig::filterSuspiciousHeaders([]))
+        );
+
+        // A request missing every default header still passes: the filter is disabled.
+        $this->assertTrue($firewall->decide(new ServerRequest('GET', '/'))->isPass());
     }
 
     public function testFilterIpRejectsBlankEntry(): void
