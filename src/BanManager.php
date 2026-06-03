@@ -41,8 +41,15 @@ final readonly class BanManager
 
     /**
      * Check if a specific key is currently banned for a rule.
+     *
+     * The ban category must be passed explicitly. This method and
+     * {@see Http\Firewall::isBanned()} previously carried
+     * conflicting defaults, so a caller that reached for the wrong entry point
+     * silently queried the other category (an allow2ban and a fail2ban entry for
+     * the same rule and key live under distinct cache keys) and got a false
+     * negative. The default is therefore removed from both isBanned() methods.
      */
-    public function isBanned(string $ruleName, string $key, BanType $banType = BanType::Allow2Ban): bool
+    public function isBanned(string $ruleName, string $key, BanType $banType): bool
     {
         $cache = $this->config->cache;
         $banKey = $this->buildBanCacheKey($banType, $ruleName, $key);
