@@ -21,8 +21,9 @@ declare(strict_types=1);
  *   1. uses a preset standalone;
  *   2. inspects/serializes the underlying PortableConfig;
  *   3. composes a preset with a user Config, overriding a rule BY NAME;
- *   4. shows Presets::version() and how a PresetUpdateChecker would be wired
- *      (Phirewall ships only the no-op NullPresetUpdateChecker — see note).
+ *   4. shows Presets::VERSION and how an integrator compares it against their
+ *      own feed with version_compare() (Phirewall ships no update mechanism and
+ *      performs no network I/O).
  *
  * Run: php examples/31-presets.php
  */
@@ -34,8 +35,6 @@ use Flowd\Phirewall\Context\RequestContext;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Portable\PortableConfig;
-use Flowd\Phirewall\Preset\NullPresetUpdateChecker;
-use Flowd\Phirewall\Preset\PresetUpdateChecker;
 use Flowd\Phirewall\Preset\Presets;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -171,50 +170,24 @@ assertDecision(
 );
 
 // ─────────────────────────────────────────────────────────────────────────
-// 4. Versioning + update check (no network I/O shipped).
+// 4. Versioning (no update mechanism, no network I/O shipped).
 // ─────────────────────────────────────────────────────────────────────────
-echo "\n4. Preset versioning and the update-check seam:\n";
+echo "\n4. Preset versioning:\n";
 printf("   Presets::VERSION = %s\n", Presets::VERSION);
 printf("   shipped presets  = %s\n", implode(', ', Presets::names()));
 
-// The default checker performs no I/O and never reports an update.
-$defaultChecker = new NullPresetUpdateChecker();
+// Phirewall hardcodes no endpoint and makes no network call. To surface "a
+// newer ruleset is available", an integrator compares Presets::VERSION against
+// a feed they trust (Packagist, an internal config service, a versioned JSON
+// document, …) with version_compare(). Here the "feed" is a static value,
+// purely to show the comparison:
+$latestFromYourFeed = '1.2.0';
 printf(
-    "   NullPresetUpdateChecker: latestVersion=%s isOutdated=%s\n",
-    var_export($defaultChecker->latestVersion(Presets::API_RATE_LIMITING), true),
-    $defaultChecker->isOutdated(Presets::API_RATE_LIMITING, Presets::VERSION) ? 'true' : 'false',
+    "   current=%s latest=%s -> %s\n",
+    Presets::VERSION,
+    $latestFromYourFeed,
+    version_compare(Presets::VERSION, $latestFromYourFeed, '<') ? 'UPDATE AVAILABLE' : 'up to date',
 );
-
-// Integrators wire a real source themselves (Packagist, an internal config
-// service, a versioned JSON document, …). Phirewall hardcodes no endpoint and
-// makes no network call. Here is a tiny *offline* implementation backed by a
-// static map, purely to show the seam:
-$staticChecker = new class () implements PresetUpdateChecker {
-    /** @var array<string, string> */
-    private array $latest = [Presets::API_RATE_LIMITING => '1.2.0'];
-
-    public function latestVersion(string $preset): ?string
-    {
-        return $this->latest[$preset] ?? null;
-    }
-
-    public function isOutdated(string $preset, string $currentVersion): bool
-    {
-        $latest = $this->latestVersion($preset);
-        return $latest !== null && version_compare($currentVersion, $latest, '<');
-    }
-};
-
-foreach (Presets::names() as $presetName) {
-    $latest = $staticChecker->latestVersion($presetName);
-    printf(
-        "   %-24s current=%s latest=%s -> %s\n",
-        $presetName,
-        Presets::VERSION,
-        $latest ?? '(unknown)',
-        $staticChecker->isOutdated($presetName, Presets::VERSION) ? 'UPDATE AVAILABLE' : 'up to date',
-    );
-}
 
 echo "\nAll assertions passed.\n";
 
