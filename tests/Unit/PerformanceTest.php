@@ -37,7 +37,7 @@ final class PerformanceTest extends TestCase
         };
 
         $config = new Config($inMemoryCache, $events);
-        $config->safelist('all', fn($request): bool => true);
+        $config->safelists->add('all', fn($request): bool => true);
 
         $firewall = new Firewall($config);
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
@@ -71,7 +71,7 @@ final class PerformanceTest extends TestCase
         };
 
         $config = new Config($inMemoryCache, $events);
-        $config->throttle('ip', 0, 10, fn($request): string => '1.1.1.1');
+        $config->throttles->add('ip', 0, 10, fn($request): string => '1.1.1.1');
 
         $firewall = new Firewall($config);
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));

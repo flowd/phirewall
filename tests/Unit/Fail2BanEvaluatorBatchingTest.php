@@ -58,7 +58,7 @@ final class Fail2BanEvaluatorBatchingTest extends TestCase
     {
         $countingCache = new CallCountingCache(new InMemoryCache());
         $config = new Config($countingCache);
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login',
             threshold: 2,
             period: 5,
@@ -82,7 +82,7 @@ final class Fail2BanEvaluatorBatchingTest extends TestCase
         $config->enableResponseHeaders();
         // Two rules sharing the same key/filter; the FIRST rule (by insertion order)
         // must own the ban decision.
-        $config->fail2ban(
+        $config->fail2ban->add(
             'first',
             threshold: 2,
             period: 5,
@@ -90,7 +90,7 @@ final class Fail2BanEvaluatorBatchingTest extends TestCase
             filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
             key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1',
         );
-        $config->fail2ban(
+        $config->fail2ban->add(
             'second',
             threshold: 2,
             period: 5,

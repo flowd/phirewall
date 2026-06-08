@@ -35,7 +35,7 @@ final class DiscriminatorNormalizerTest extends TestCase
     {
         $config = $this->createConfig();
 
-        $config->throttle(
+        $config->throttles->add(
             'user-throttle',
             2,
             60,
@@ -68,7 +68,7 @@ final class DiscriminatorNormalizerTest extends TestCase
 
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
-        $config->throttle(
+        $config->throttles->add(
             'user-throttle',
             2,
             60,
@@ -104,7 +104,7 @@ final class DiscriminatorNormalizerTest extends TestCase
         $config->enableResponseHeaders();
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login-ban',
             2,       // threshold
             60,      // period
@@ -160,7 +160,7 @@ final class DiscriminatorNormalizerTest extends TestCase
 
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
-        $config->track(
+        $config->tracks->add(
             'user-activity',
             period: 60,
             filter: fn($request): bool => true,
@@ -203,7 +203,7 @@ final class DiscriminatorNormalizerTest extends TestCase
 
         $this->assertNull($config->getDiscriminatorNormalizer());
 
-        $config->throttle(
+        $config->throttles->add(
             'user-throttle',
             1,
             60,
@@ -240,7 +240,7 @@ final class DiscriminatorNormalizerTest extends TestCase
 
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login-ban',
             2,       // threshold
             60,      // period

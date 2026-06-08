@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall;
 
-use Flowd\Phirewall\Config\DeprecatedConfigMethods;
 use Flowd\Phirewall\Config\Response\BlocklistedResponseFactoryInterface;
 use Flowd\Phirewall\Config\Response\Psr17BlocklistedResponseFactory;
 use Flowd\Phirewall\Config\Response\Psr17ThrottledResponseFactory;
@@ -36,8 +35,6 @@ use Psr\SimpleCache\CacheInterface;
  */
 final class Config
 {
-    use DeprecatedConfigMethods;
-
     // ── Rule sections ────────────────────────────────────────────────────
 
     public readonly SafelistSection $safelists;

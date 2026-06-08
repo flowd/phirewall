@@ -23,7 +23,7 @@ final class ResponseHeaderToggleTest extends TestCase
     public function testBlockedResponseOmitsPhirewallHeadersByDefault(): void
     {
         $config = new Config(new InMemoryCache());
-        $config->blocklist('block-all', fn($request): bool => true);
+        $config->blocklists->add('block-all', fn($request): bool => true);
 
         $firewall = new Firewall($config);
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
@@ -38,7 +38,8 @@ final class ResponseHeaderToggleTest extends TestCase
     {
         $config = new Config(new InMemoryCache());
         $config->enableResponseHeaders();
-        $config->blocklist('block-all', fn($request): bool => true);
+
+        $config->blocklists->add('block-all', fn($request): bool => true);
 
         $firewall = new Firewall($config);
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
@@ -52,7 +53,7 @@ final class ResponseHeaderToggleTest extends TestCase
     {
         $config = new Config(new InMemoryCache());
         // Do NOT enable response headers — Retry-After must still be present
-        $config->throttle('ip', 0, 30, fn($request): string => '1.2.3.4');
+        $config->throttles->add('ip', 0, 30, fn($request): string => '1.2.3.4');
 
         $firewall = new Firewall($config);
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
@@ -67,7 +68,7 @@ final class ResponseHeaderToggleTest extends TestCase
     public function testSafelistResponseOmitsSafelistHeaderByDefault(): void
     {
         $config = new Config(new InMemoryCache());
-        $config->safelist('health', fn($request): bool => $request->getUri()->getPath() === '/health');
+        $config->safelists->add('health', fn($request): bool => $request->getUri()->getPath() === '/health');
 
         $firewall = new Firewall($config);
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/health'));
@@ -81,7 +82,8 @@ final class ResponseHeaderToggleTest extends TestCase
     {
         $config = new Config(new InMemoryCache());
         $config->enableResponseHeaders();
-        $config->safelist('health', fn($request): bool => $request->getUri()->getPath() === '/health');
+
+        $config->safelists->add('health', fn($request): bool => $request->getUri()->getPath() === '/health');
 
         $firewall = new Firewall($config);
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/health'));
@@ -113,7 +115,8 @@ final class ResponseHeaderToggleTest extends TestCase
         $config = new Config(new InMemoryCache());
         // Enable rate limit headers but NOT response headers
         $config->enableRateLimitHeaders();
-        $config->throttle('ip', 2, 60, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
+
+        $config->throttles->add('ip', 2, 60, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
 
         $firewall = new Firewall($config);
         $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
