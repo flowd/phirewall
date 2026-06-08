@@ -13,7 +13,7 @@ final readonly class TrackRule implements RuleInterface
      * @param string $name Unique rule identifier
      * @param int $period Time window in seconds for counting
      * @param RequestMatcherInterface $requestMatcher Filter to decide which requests to count
-     * @param KeyExtractorInterface $keyExtractor Extracts the grouping key from the request
+     * @param ?KeyExtractorInterface $keyExtractor Extracts the grouping key; null defaults to the client IP at evaluation
      * @param int|null $limit Optional threshold; when set, TrackHit events include thresholdReached=true once count >= limit
      *
      * @throws \InvalidArgumentException If name is empty, period is less than 1, or limit is non-null and less than 1
@@ -22,7 +22,7 @@ final readonly class TrackRule implements RuleInterface
         private string $name,
         private int $period,
         private RequestMatcherInterface $requestMatcher,
-        private KeyExtractorInterface $keyExtractor,
+        private ?KeyExtractorInterface $keyExtractor,
         private ?int $limit = null,
     ) {
         if ($this->name === '') {
@@ -57,7 +57,8 @@ final readonly class TrackRule implements RuleInterface
         return $this->requestMatcher;
     }
 
-    public function keyExtractor(): KeyExtractorInterface
+    /** Null when no key was specified; defaults to the client IP at evaluation. */
+    public function keyExtractor(): ?KeyExtractorInterface
     {
         return $this->keyExtractor;
     }

@@ -20,7 +20,7 @@ final readonly class Allow2BanRule implements RuleInterface
         private int $threshold,
         private int $period,
         private int $banSeconds,
-        private KeyExtractorInterface $keyExtractor,
+        private ?KeyExtractorInterface $keyExtractor,
     ) {
         if ($name === '') {
             throw new \InvalidArgumentException('Allow2BanRule name must not be empty.');
@@ -59,7 +59,8 @@ final readonly class Allow2BanRule implements RuleInterface
         return $this->banSeconds;
     }
 
-    public function keyExtractor(): KeyExtractorInterface
+    /** Null when no key was specified; defaults to the client IP at evaluation. */
+    public function keyExtractor(): ?KeyExtractorInterface
     {
         return $this->keyExtractor;
     }

@@ -37,7 +37,7 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
         $banKeys = [];
         foreach ($evaluationContext->config->fail2ban->rules() as $fail2BanRule) {
             $name = $fail2BanRule->name();
-            $key = $fail2BanRule->keyExtractor()->extract($serverRequest);
+            $key = $evaluationContext->config->resolveKey($fail2BanRule->keyExtractor(), $serverRequest);
             if ($key === null) {
                 continue;
             }

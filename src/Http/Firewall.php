@@ -161,7 +161,7 @@ final readonly class Firewall
             return;
         }
 
-        $rawKey = $recordedSignal->key ?? $rule->keyExtractor()->extract($serverRequest);
+        $rawKey = $recordedSignal->key ?? $this->config->resolveKey($rule->keyExtractor(), $serverRequest);
         if ($rawKey === null || $rawKey === '') {
             return;
         }
@@ -185,7 +185,7 @@ final readonly class Firewall
             return;
         }
 
-        $rawKey = $recordedSignal->key ?? $rule->keyExtractor()->extract($serverRequest);
+        $rawKey = $recordedSignal->key ?? $this->config->resolveKey($rule->keyExtractor(), $serverRequest);
         if ($rawKey === null || $rawKey === '') {
             return;
         }

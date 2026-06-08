@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall;
 
+use Flowd\Phirewall\Config\KeyExtractorInterface;
 use Flowd\Phirewall\Config\Response\BlocklistedResponseFactoryInterface;
 use Flowd\Phirewall\Config\Response\Psr17BlocklistedResponseFactory;
 use Flowd\Phirewall\Config\Response\Psr17ThrottledResponseFactory;
@@ -22,6 +23,7 @@ use Flowd\Phirewall\Store\CacheKeyRules;
 use Flowd\Phirewall\Store\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\SimpleCache\CacheInterface;
 
@@ -71,7 +73,7 @@ final class Config
 
     private ?CacheKeyGenerator $cacheKeyGenerator = null;
 
-    /** @var (\Closure(\Psr\Http\Message\ServerRequestInterface): ?string)|null */
+    /** @var (\Closure(ServerRequestInterface): ?string)|null */
     private ?\Closure $ipResolver = null;
 
     /** @var (\Closure(string): string)|null */
@@ -129,7 +131,8 @@ final class Config
      *    blocklists, TrustedBotMatcher) capture their resolver when the rule is
      *    constructed, so the composed resolver applies only to rules added
      *    afterwards — it does not rewrite IP rules carried over from earlier
-     *    layers. Set the resolver on each source Config before adding its IP rules.
+     *    layers. Exception: counter rules added without an explicit key resolve
+     *    their default IP key against the composed Config ({@see resolveKey()}).
      *  - **Infrastructure** (the PSR-16 cache, the PSR-14 event dispatcher and the
      *    clock) is inherited from the base layer; overlays do not override it.
      *
@@ -340,11 +343,30 @@ final class Config
     }
 
     /**
-     * @return (\Closure(\Psr\Http\Message\ServerRequestInterface): ?string)|null
+     * @return (\Closure(ServerRequestInterface): ?string)|null
      */
     public function getIpResolver(): ?\Closure
     {
         return $this->ipResolver;
+    }
+
+    /**
+     * Resolve a rule's discriminator key. A null $keyExtractor keys on the
+     * client IP from this Config's resolver ({@see setIpResolver()}), else
+     * REMOTE_ADDR; a non-null extractor is used as-is. Resolved against the
+     * evaluating Config, so {@see compose()} applies its own resolver here.
+     * An empty-string result is normalized to null (no key, skips the rule).
+     */
+    public function resolveKey(?KeyExtractorInterface $keyExtractor, ServerRequestInterface $serverRequest): ?string
+    {
+        if ($keyExtractor instanceof KeyExtractorInterface) {
+            $key = $keyExtractor->extract($serverRequest);
+        } else {
+            $resolver = $this->ipResolver ?? KeyExtractors::ip();
+            $key = $resolver($serverRequest);
+        }
+
+        return $key === '' ? null : $key;
     }
 
     // ── Discriminator normalizer ────────────────────────────────────────

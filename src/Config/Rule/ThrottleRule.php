@@ -18,7 +18,7 @@ final readonly class ThrottleRule implements RuleInterface
         private string $name,
         private int|Closure $limit,
         private int|Closure $period,
-        private KeyExtractorInterface $keyExtractor,
+        private ?KeyExtractorInterface $keyExtractor,
         private bool $sliding = false,
     ) {
         if ($this->name === '') {
@@ -99,7 +99,8 @@ final readonly class ThrottleRule implements RuleInterface
         return $this->period;
     }
 
-    public function keyExtractor(): KeyExtractorInterface
+    /** Null when no key was specified; defaults to the client IP at evaluation. */
+    public function keyExtractor(): ?KeyExtractorInterface
     {
         return $this->keyExtractor;
     }
