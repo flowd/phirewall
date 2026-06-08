@@ -20,7 +20,7 @@ final readonly class TrackEvaluator implements EvaluatorInterface
         foreach ($evaluationContext->config->tracks->rules() as $trackRule) {
             $name = $trackRule->name();
             if ($trackRule->filter()->match($serverRequest)->isMatch()) {
-                $key = $trackRule->keyExtractor()->extract($serverRequest);
+                $key = $evaluationContext->config->resolveKey($trackRule->keyExtractor(), $serverRequest);
                 if ($key !== null) {
                     $normalizedKey = ($evaluationContext->normalize)((string) $key);
                     $counterKey = $evaluationContext->config->cacheKeyGenerator()->trackKey($name, $normalizedKey);

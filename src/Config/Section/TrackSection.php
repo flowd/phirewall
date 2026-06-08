@@ -15,14 +15,15 @@ final class TrackSection
     private array $rules = [];
 
     /**
-     * Add a track rule with closure filter and key extractor.
+     * Add a track rule. Omit $key to key on the client IP (Config IP resolver, else REMOTE_ADDR).
+     * When $limit is set, TrackHit carries a thresholdReached flag once the count reaches it.
      *
-     * When $limit is set, the TrackHit event includes a thresholdReached flag
-     * that becomes true once the counter reaches the threshold within the period.
+     * @param Closure(\Psr\Http\Message\ServerRequestInterface): bool $filter
+     * @param (Closure(\Psr\Http\Message\ServerRequestInterface): ?string)|null $key
      */
-    public function add(string $name, int $period, Closure $filter, Closure $key, ?int $limit = null): self
+    public function add(string $name, int $period, Closure $filter, ?Closure $key = null, ?int $limit = null): self
     {
-        return $this->addRule(new TrackRule($name, $period, new ClosureRequestMatcher($filter), new ClosureKeyExtractor($key), $limit));
+        return $this->addRule(new TrackRule($name, $period, new ClosureRequestMatcher($filter), $key instanceof Closure ? new ClosureKeyExtractor($key) : null, $limit));
     }
 
     /**

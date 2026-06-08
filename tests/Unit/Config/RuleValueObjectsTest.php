@@ -41,7 +41,7 @@ final class RuleValueObjectsTest extends TestCase
         $this->assertSame('t', $throttleRule->name());
         $this->assertSame(5, $throttleRule->limit());
         $this->assertSame(60, $throttleRule->period());
-        $this->assertSame('k', $throttleRule->keyExtractor()->extract(new ServerRequest('GET', '/')));
+        $this->assertSame('k', $throttleRule->keyExtractor()?->extract(new ServerRequest('GET', '/')));
     }
 
     public function testThrottleRuleSlidingFlag(): void
@@ -83,7 +83,7 @@ final class RuleValueObjectsTest extends TestCase
         $this->assertSame(120, $fail2BanRule->period());
         $this->assertSame(600, $fail2BanRule->banSeconds());
         $this->assertTrue($fail2BanRule->filter()->match((new ServerRequest('GET', '/'))->withHeader('X', '1'))->isMatch());
-        $this->assertSame('ip', $fail2BanRule->keyExtractor()->extract(new ServerRequest('GET', '/')));
+        $this->assertSame('ip', $fail2BanRule->keyExtractor()?->extract(new ServerRequest('GET', '/')));
     }
 
     public function testTrackRuleStoresValues(): void
@@ -94,7 +94,7 @@ final class RuleValueObjectsTest extends TestCase
         $this->assertSame('track', $trackRule->name());
         $this->assertSame(30, $trackRule->period());
         $this->assertTrue($trackRule->filter()->match(new ServerRequest('GET', '/'))->isMatch());
-        $this->assertSame('agent', $trackRule->keyExtractor()->extract(new ServerRequest('GET', '/')));
+        $this->assertSame('agent', $trackRule->keyExtractor()?->extract(new ServerRequest('GET', '/')));
     }
 
     // ── TrackRule validation tests ──────────────────────────────────────

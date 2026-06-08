@@ -22,7 +22,7 @@ final readonly class TrackRule implements RuleInterface
         private string $name,
         private int $period,
         private RequestMatcherInterface $requestMatcher,
-        private KeyExtractorInterface $keyExtractor,
+        private ?KeyExtractorInterface $keyExtractor,
         private ?int $limit = null,
     ) {
         if ($this->name === '') {
@@ -57,7 +57,8 @@ final readonly class TrackRule implements RuleInterface
         return $this->requestMatcher;
     }
 
-    public function keyExtractor(): KeyExtractorInterface
+    /** Null when no key was specified; defaults to the client IP at evaluation. */
+    public function keyExtractor(): ?KeyExtractorInterface
     {
         return $this->keyExtractor;
     }

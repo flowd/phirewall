@@ -30,7 +30,7 @@ final class ThrottleEvaluator implements EvaluatorInterface
     {
         foreach ($evaluationContext->config->throttles->rules() as $throttleRule) {
             $name = $throttleRule->name();
-            $key = $throttleRule->keyExtractor()->extract($serverRequest);
+            $key = $evaluationContext->config->resolveKey($throttleRule->keyExtractor(), $serverRequest);
             if ($key === null) {
                 continue;
             }

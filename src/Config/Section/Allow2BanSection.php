@@ -14,16 +14,18 @@ final class Allow2BanSection
     private array $rules = [];
 
     /**
-     * Add an allow2ban rule with a closure key extractor.
+     * Add an allow2ban rule. Omit $key to key on the client IP (Config IP resolver, else REMOTE_ADDR).
+     *
+     * @param (Closure(\Psr\Http\Message\ServerRequestInterface): ?string)|null $key
      */
-    public function add(string $name, int $threshold, int $period, int $banSeconds, Closure $key): self
+    public function add(string $name, int $threshold, int $period, int $banSeconds, ?Closure $key = null): self
     {
         return $this->addRule(new Allow2BanRule(
             $name,
             $threshold,
             $period,
             $banSeconds,
-            new ClosureKeyExtractor($key),
+            $key instanceof Closure ? new ClosureKeyExtractor($key) : null,
         ));
     }
 
