@@ -358,16 +358,18 @@ final class Config
      * client IP from this Config's resolver ({@see setIpResolver()}), else
      * REMOTE_ADDR; a non-null extractor is used as-is. Resolved against the
      * evaluating Config, so {@see compose()} applies its own resolver here.
+     * An empty-string result is normalized to null (no key, skips the rule).
      */
     public function resolveKey(?KeyExtractorInterface $keyExtractor, ServerRequestInterface $serverRequest): ?string
     {
         if ($keyExtractor instanceof KeyExtractorInterface) {
-            return $keyExtractor->extract($serverRequest);
+            $key = $keyExtractor->extract($serverRequest);
+        } else {
+            $resolver = $this->ipResolver ?? KeyExtractors::ip();
+            $key = $resolver($serverRequest);
         }
 
-        $resolver = $this->ipResolver ?? KeyExtractors::ip();
-
-        return $resolver($serverRequest);
+        return $key === '' ? null : $key;
     }
 
     // ── Discriminator normalizer ────────────────────────────────────────

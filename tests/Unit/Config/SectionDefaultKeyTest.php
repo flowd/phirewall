@@ -45,6 +45,17 @@ final class SectionDefaultKeyTest extends TestCase
         $this->assertTrue($firewall->decide($this->request('9.9.9.9', 'client-b'))->isPass());
     }
 
+    public function testEmptyStringKeyIsTreatedAsNoKeyAndSkipsTheRule(): void
+    {
+        $config = new Config(new InMemoryCache());
+        // An extractor yielding '' is normalized to null, so the rule is skipped.
+        // With limit 0 a real key would throttle the first request; '' lets it pass.
+        $config->throttles->add('t', 0, 60, static fn(): string => '');
+
+        $firewall = new Firewall($config);
+        $this->assertTrue($firewall->decide($this->request('1.1.1.1'))->isPass());
+    }
+
     public function testThrottleDefaultKeyFallsBackToRemoteAddr(): void
     {
         $config = new Config(new InMemoryCache()); // no IP resolver set
