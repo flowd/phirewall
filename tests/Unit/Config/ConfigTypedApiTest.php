@@ -23,17 +23,17 @@ final class ConfigTypedApiTest extends TestCase
     public function testAddAndGetRulesByName(): void
     {
         $config = new Config(new InMemoryCache());
-        $config->addSafelist(new SafelistRule('s', new ClosureRequestMatcher(static fn($r): bool => true)));
-        $config->addBlocklist(new BlocklistRule('b', new ClosureRequestMatcher(static fn($r): bool => false)));
-        $config->addThrottle(new ThrottleRule('t', 10, 60, new ClosureKeyExtractor(static fn($r): string => 'k')));
-        $config->addFail2Ban(new Fail2BanRule('f', 3, 120, 600, new ClosureRequestMatcher(static fn($r): bool => true), new ClosureKeyExtractor(static fn($r): string => 'ip')));
-        $config->addTrack(new TrackRule('tr', 30, new ClosureRequestMatcher(static fn($r): bool => true), new ClosureKeyExtractor(static fn($r): string => 'ua')));
+        $config->safelists->addRule(new SafelistRule('s', new ClosureRequestMatcher(static fn($r): bool => true)));
+        $config->blocklists->addRule(new BlocklistRule('b', new ClosureRequestMatcher(static fn($r): bool => false)));
+        $config->throttles->addRule(new ThrottleRule('t', 10, 60, new ClosureKeyExtractor(static fn($r): string => 'k')));
+        $config->fail2ban->addRule(new Fail2BanRule('f', 3, 120, 600, new ClosureRequestMatcher(static fn($r): bool => true), new ClosureKeyExtractor(static fn($r): string => 'ip')));
+        $config->tracks->addRule(new TrackRule('tr', 30, new ClosureRequestMatcher(static fn($r): bool => true), new ClosureKeyExtractor(static fn($r): string => 'ua')));
 
-        $this->assertArrayHasKey('s', $config->getSafelistRules());
-        $this->assertArrayHasKey('b', $config->getBlocklistRules());
-        $this->assertArrayHasKey('t', $config->getThrottleRules());
-        $this->assertArrayHasKey('f', $config->getFail2BanRules());
-        $this->assertArrayHasKey('tr', $config->getTrackRules());
+        $this->assertArrayHasKey('s', $config->safelists->rules());
+        $this->assertArrayHasKey('b', $config->blocklists->rules());
+        $this->assertArrayHasKey('t', $config->throttles->rules());
+        $this->assertArrayHasKey('f', $config->fail2ban->rules());
+        $this->assertArrayHasKey('tr', $config->tracks->rules());
     }
 
     public function testResponseFactorySettersAndGetters(): void
@@ -41,10 +41,10 @@ final class ConfigTypedApiTest extends TestCase
         $config = new Config(new InMemoryCache());
         $blockFactory = new ClosureBlocklistedResponseFactory(static fn(string $r, string $t, $req): Response => new Response(418));
         $throttleFactory = new ClosureThrottledResponseFactory(static fn(string $r, int $ra, $req): Response => new Response(420));
-        $config->setBlocklistedResponseFactory($blockFactory);
-        $config->setThrottledResponseFactory($throttleFactory);
-        $this->assertSame($blockFactory, $config->getBlocklistedResponseFactory());
-        $this->assertSame($throttleFactory, $config->getThrottledResponseFactory());
+        $config->blocklistedResponseFactory = $blockFactory;
+        $config->throttledResponseFactory = $throttleFactory;
+        $this->assertSame($blockFactory, $config->blocklistedResponseFactory);
+        $this->assertSame($throttleFactory, $config->throttledResponseFactory);
     }
 
     public function testEnableRateLimitHeadersFlag(): void

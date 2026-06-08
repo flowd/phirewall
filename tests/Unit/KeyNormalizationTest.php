@@ -28,7 +28,7 @@ final class KeyNormalizationTest extends TestCase
             }
         };
         $config = new Config($inMemoryCache, $events);
-        $config->track(
+        $config->tracks->add(
             'hits weird name',
             period: 60,
             filter: fn($request): bool => true,
@@ -65,7 +65,7 @@ final class KeyNormalizationTest extends TestCase
             }
         };
         $config = new Config($inMemoryCache, $events);
-        $config->track(
+        $config->tracks->add(
             'long',
             period: 60,
             filter: fn($request): bool => true,

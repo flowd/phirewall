@@ -82,6 +82,28 @@ final class CacheKeyGeneratorTest extends TestCase
         }
     }
 
+    public function testLongRuleNameIsTruncatedToTheBudgetWithAHashSuffix(): void
+    {
+        $generator = new CacheKeyGenerator('phirewall');
+
+        $normalized = $generator->normalizeName(str_repeat('x', 300));
+
+        // The constants MAX_NAME_LENGTH (120) and HASH_SUFFIX_LENGTH (12) must
+        // not drift: a truncated name is exactly the budget length and ends in
+        // a '-' separator followed by a 12-char lowercase-hex sha1 fragment.
+        $this->assertSame(120, strlen($normalized));
+        $this->assertMatchesRegularExpression('/^x{107}-[0-9a-f]{12}$/', $normalized);
+    }
+
+    public function testRuleNameAtTheBudgetLengthIsNotTruncated(): void
+    {
+        $generator = new CacheKeyGenerator('phirewall');
+
+        $name = str_repeat('x', 120);
+
+        $this->assertSame($name, $generator->normalizeName($name));
+    }
+
     #[DataProvider('ruleNames')]
     public function testGeneratedKeysAreAcceptedByTheCacheBackend(string $name): void
     {

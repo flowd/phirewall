@@ -21,7 +21,7 @@ final class FirewallOwaspDiagnosticsHeaderTest extends TestCase
         $rulesText = "SecRule REQUEST_URI \"@rx ^/admin\\b\" \"id:600001,phase:2,deny,msg:'Block admin path'\"";
         $coreRuleSet = SecRuleLoader::fromString($rulesText);
         $config = new Config(new InMemoryCache());
-        $config->owaspBlocklist('owasp', $coreRuleSet);
+        $config->blocklists->owasp('owasp', $coreRuleSet);
         return [$config, new Firewall($config)];
     }
 

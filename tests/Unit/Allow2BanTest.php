@@ -369,7 +369,7 @@ final class Allow2BanTest extends TestCase
         $blockedResponseInvocations = 0;
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
-        $config->blocklistedResponse(function (
+        $config->blocklistedResponseFactory = new Config\Response\ClosureBlocklistedResponseFactory(function (
             string $rule,
             string $type,
             \Psr\Http\Message\ServerRequestInterface $serverRequest,

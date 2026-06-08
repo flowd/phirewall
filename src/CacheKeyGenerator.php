@@ -6,6 +6,20 @@ namespace Flowd\Phirewall;
 
 final class CacheKeyGenerator
 {
+    /**
+     * Maximum length of a normalized rule-name fragment.
+     *
+     * This budget keeps the fragment small enough that the final cache key
+     * (once combined with the prefix and the sha256 key discriminator) stays
+     * well under the key-length limit enforced by the cache backends.
+     */
+    private const MAX_NAME_LENGTH = 120;
+
+    /**
+     * Length of the sha1-derived discriminator appended to truncated names.
+     */
+    private const HASH_SUFFIX_LENGTH = 12;
+
     /** @var array<string, string> */
     private array $cache = [];
 
@@ -90,10 +104,12 @@ final class CacheKeyGenerator
         }
 
         $sanitized = preg_replace('/_+/', '_', $sanitized) ?? $sanitized;
-        $max = 120;
-        if (strlen($sanitized) > $max) {
-            $hash = substr(sha1($original), 0, 12);
-            $sanitized = substr($sanitized, 0, $max - 13) . '-' . $hash;
+        if (strlen($sanitized) > self::MAX_NAME_LENGTH) {
+            // Reserve room for the hash suffix plus its '-' separator so the
+            // truncated result is exactly MAX_NAME_LENGTH characters long.
+            $truncationOffset = self::MAX_NAME_LENGTH - (self::HASH_SUFFIX_LENGTH + 1);
+            $hash = substr(sha1($original), 0, self::HASH_SUFFIX_LENGTH);
+            $sanitized = substr($sanitized, 0, $truncationOffset) . '-' . $hash;
         }
 
         return $sanitized;

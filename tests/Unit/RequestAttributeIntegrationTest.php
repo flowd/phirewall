@@ -83,7 +83,7 @@ final class RequestAttributeIntegrationTest extends TestCase
         $cache = new InMemoryCache();
         $config = new Config($cache);
         // filter returns false — decide() won't count, only context signals will
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login-brute-force',
             threshold: 5,
             period: 300,
@@ -109,7 +109,7 @@ final class RequestAttributeIntegrationTest extends TestCase
         $config = new Config($cache, $dispatcher);
         $config->enableResponseHeaders();
         // filter returns false — only context signals increment the fail counter
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login-brute-force',
             threshold: 3,
             period: 300,
@@ -205,7 +205,7 @@ final class RequestAttributeIntegrationTest extends TestCase
 
         $config = new Config($failingCache, $dispatcher);
         // filter returns false — only context signals trigger processing
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login-brute-force',
             threshold: 1,
             period: 300,
@@ -291,7 +291,7 @@ final class RequestAttributeIntegrationTest extends TestCase
         $config = new Config($failingCache);
         $config->setFailOpen(false);
         // filter returns false — only context signals trigger processing
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login-brute-force',
             threshold: 1,
             period: 300,
@@ -344,7 +344,7 @@ final class RequestAttributeIntegrationTest extends TestCase
     {
         $cache = new InMemoryCache();
         $config = new Config($cache);
-        $config->blocklist('admin', fn($request): bool => $request->getUri()->getPath() === '/admin');
+        $config->blocklists->add('admin', fn($request): bool => $request->getUri()->getPath() === '/admin');
 
         $capture = new \stdClass();
         $capture->called = false;
@@ -373,7 +373,7 @@ final class RequestAttributeIntegrationTest extends TestCase
     {
         $cache = new InMemoryCache();
         $config = new Config($cache);
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login-brute-force',
             threshold: 3,
             period: 300,
@@ -399,7 +399,8 @@ final class RequestAttributeIntegrationTest extends TestCase
         $cache = new InMemoryCache();
         $config = new Config($cache, $dispatcher);
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
-        $config->fail2ban(
+
+        $config->fail2ban->add(
             'login-brute-force',
             threshold: 2,
             period: 300,
@@ -432,7 +433,7 @@ final class RequestAttributeIntegrationTest extends TestCase
         $dispatcher = $this->eventCollector();
         $cache = new InMemoryCache();
         $config = new Config($cache, $dispatcher);
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login-brute-force',
             threshold: 2,
             period: 300,

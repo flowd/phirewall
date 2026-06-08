@@ -18,8 +18,9 @@ final class FirewallTest extends TestCase
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
         $config->enableResponseHeaders();
-        $config->safelist('healthcheck', fn($request): bool => $request->getUri()->getPath() === '/health');
-        $config->blocklist('block-all', function ($request): bool {
+
+        $config->safelists->add('healthcheck', fn($request): bool => $request->getUri()->getPath() === '/health');
+        $config->blocklists->add('block-all', function ($request): bool {
             return true; // should be bypassed by safelist
         });
 
@@ -36,7 +37,8 @@ final class FirewallTest extends TestCase
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
         $config->enableResponseHeaders();
-        $config->blocklist('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
+
+        $config->blocklists->add('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
 
         $firewall = new Firewall($config);
         $serverRequest = new ServerRequest('GET', '/admin');
@@ -54,7 +56,7 @@ final class FirewallTest extends TestCase
         $period = 10;
         $limit = 2;
         $config->enableRateLimitHeaders();
-        $config->throttle('ip', $limit, $period, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
+        $config->throttles->add('ip', $limit, $period, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
 
         $firewall = new Firewall($config);
 
@@ -81,7 +83,8 @@ final class FirewallTest extends TestCase
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
         $config->enableResponseHeaders();
-        $config->fail2ban(
+
+        $config->fail2ban->add(
             'login',
             2,
             5,
@@ -111,7 +114,7 @@ final class FirewallTest extends TestCase
         $period = 2; // short timeframe for testing
         $limit = 2;
         $config->enableRateLimitHeaders();
-        $config->throttle('ip', $limit, $period, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
+        $config->throttles->add('ip', $limit, $period, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
 
         $firewall = new Firewall($config);
         $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '9.8.7.6']);
@@ -140,7 +143,7 @@ final class FirewallTest extends TestCase
         $config->enableResponseHeaders();
 
         $blockedResponseInvocations = 0;
-        $config->blocklistedResponse(function (
+        $config->blocklistedResponseFactory = new Config\Response\ClosureBlocklistedResponseFactory(function (
             string $rule,
             string $type,
             \Psr\Http\Message\ServerRequestInterface $serverRequest,
@@ -148,7 +151,7 @@ final class FirewallTest extends TestCase
             ++$blockedResponseInvocations;
             return new \Nyholm\Psr7\Response(403, ['X-Banned' => $rule], 'banned');
         });
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login',
             threshold: 3,
             period: 60,
@@ -189,7 +192,7 @@ final class FirewallTest extends TestCase
         $threshold = 2;
         $banSeconds = 5;
 
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login-reset',
             $threshold,
             $period,

@@ -263,7 +263,7 @@ final class PdoCacheFunctionalTest extends TestCase
         $cache = $this->createCache();
         $config = new Config($cache);
 
-        $config->throttle('api', limit: 3, period: 60, key: KeyExtractors::ip());
+        $config->throttles->add('api', limit: 3, period: 60, key: KeyExtractors::ip());
 
         $firewall = new Firewall($config);
         $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
@@ -279,7 +279,7 @@ final class PdoCacheFunctionalTest extends TestCase
         $cache = $this->createCache();
         $config = new Config($cache);
 
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login',
             threshold: 2,
             period: 60,

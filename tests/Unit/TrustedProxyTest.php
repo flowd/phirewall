@@ -21,7 +21,7 @@ final class TrustedProxyTest extends TestCase
         $trustedProxyResolver = new TrustedProxyResolver(['127.0.0.1', '10.0.0.0/8']);
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -37,7 +37,8 @@ final class TrustedProxyTest extends TestCase
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
         $config->enableResponseHeaders();
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -56,7 +57,7 @@ final class TrustedProxyTest extends TestCase
         $trustedProxyResolver = new TrustedProxyResolver(['127.0.0.1']);
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -73,7 +74,7 @@ final class TrustedProxyTest extends TestCase
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -92,7 +93,7 @@ final class TrustedProxyTest extends TestCase
         $trustedProxyResolver = new TrustedProxyResolver(['2001:db8::/32']);
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -110,7 +111,7 @@ final class TrustedProxyTest extends TestCase
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -134,7 +135,7 @@ final class TrustedProxyTest extends TestCase
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -156,7 +157,7 @@ final class TrustedProxyTest extends TestCase
         // both to the same 16-byte binary, so the trust check should match.
         $trustedProxyResolver = new TrustedProxyResolver(['2001:db8::1']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -175,7 +176,7 @@ final class TrustedProxyTest extends TestCase
         // recognise both forms as the same host.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.1']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -192,7 +193,7 @@ final class TrustedProxyTest extends TestCase
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -215,7 +216,7 @@ final class TrustedProxyTest extends TestCase
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['X-Forwarded-For']);
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -236,7 +237,7 @@ final class TrustedProxyTest extends TestCase
         // must be accepted alongside the with-port variant.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -259,7 +260,7 @@ final class TrustedProxyTest extends TestCase
         // untrusted entry — regardless of which form it takes.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -288,7 +289,7 @@ final class TrustedProxyTest extends TestCase
         // REMOTE_ADDR.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -329,7 +330,7 @@ final class TrustedProxyTest extends TestCase
         // authoritative entries survive the truncation.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['X-Forwarded-For'], 2);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -357,7 +358,7 @@ final class TrustedProxyTest extends TestCase
         // The resolver should keep the two rightmost — same direction as XFF.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded'], 2);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -382,7 +383,7 @@ final class TrustedProxyTest extends TestCase
         // collapsing the chain to empty and falling back to REMOTE_ADDR.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded'], 2);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -409,7 +410,7 @@ final class TrustedProxyTest extends TestCase
         // rather than fall back to REMOTE_ADDR.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -434,7 +435,7 @@ final class TrustedProxyTest extends TestCase
         // must strip the port so the resolved client IP equals the bare IPv4.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -459,7 +460,7 @@ final class TrustedProxyTest extends TestCase
         // direct peer (REMOTE_ADDR) at the end of resolve().
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -484,7 +485,7 @@ final class TrustedProxyTest extends TestCase
         // arbitrary entry.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -506,7 +507,7 @@ final class TrustedProxyTest extends TestCase
         // resolve to the valid IP, not REMOTE_ADDR.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -535,7 +536,7 @@ final class TrustedProxyTest extends TestCase
         // the client, so both requests resolve to it and share the bucket.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -567,7 +568,7 @@ final class TrustedProxyTest extends TestCase
         // both.)
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -598,7 +599,7 @@ final class TrustedProxyTest extends TestCase
         // `for="1.2.3.4", for="10.0.0.1"` must resolve identically.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -623,7 +624,7 @@ final class TrustedProxyTest extends TestCase
         // carrying different client IPs, Forwarded must win.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded', 'X-Forwarded-For']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -661,7 +662,7 @@ final class TrustedProxyTest extends TestCase
         // an attacker cannot split their bucket via dual representation.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -685,7 +686,7 @@ final class TrustedProxyTest extends TestCase
         // explicitly — the other tests configure CIDR ranges.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.5']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -721,7 +722,7 @@ final class TrustedProxyTest extends TestCase
         // ignored and the resolver falls back to REMOTE_ADDR.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['X-Real-IP']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -749,7 +750,7 @@ final class TrustedProxyTest extends TestCase
         // than null. This covers the empty-header arm of the match dispatch.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['X-Forwarded-For']);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
@@ -782,7 +783,7 @@ final class TrustedProxyTest extends TestCase
         // setup as the clamped behaviour.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['X-Forwarded-For'], $maxChainEntries);
         $config = new Config(new InMemoryCache());
-        $config->throttle('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 

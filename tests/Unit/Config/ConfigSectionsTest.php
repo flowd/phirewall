@@ -35,8 +35,6 @@ final class ConfigSectionsTest extends TestCase
         $config->safelists->add('health', fn($r): bool => $r->getUri()->getPath() === '/health');
 
         $this->assertCount(1, $config->safelists->rules());
-        // Deprecated getter still works
-        $this->assertCount(1, $config->getSafelistRules());
     }
 
     public function testBlocklistSectionAdd(): void
@@ -86,7 +84,6 @@ final class ConfigSectionsTest extends TestCase
         );
 
         $this->assertCount(1, $config->fail2ban->rules());
-        $this->assertCount(1, $config->getFail2BanRules());
     }
 
     public function testTrackSectionAdd(): void
@@ -95,7 +92,6 @@ final class ConfigSectionsTest extends TestCase
         $config->tracks->add('api', 60, fn($r): true => true, fn($r): string => '127.0.0.1');
 
         $this->assertCount(1, $config->tracks->rules());
-        $this->assertCount(1, $config->getTrackRules());
     }
 
     public function testThrottleSectionMulti(): void
@@ -115,38 +111,15 @@ final class ConfigSectionsTest extends TestCase
         $this->assertSame(60, $rules['api:60s']->resolvePeriod($serverRequest));
     }
 
-    public function testDeprecatedMethodsStillWork(): void
+    public function testMatchingSafelistShortCircuitsBlocklist(): void
     {
         $config = new Config(new InMemoryCache());
 
-        // Old API
-        $config->safelist('health', fn($r): true => true);
-        $config->blocklist('admin', fn($r): true => true);
-        $config->throttle('ip', 10, 60, fn($r): string => '127.0.0.1');
-        $config->fail2ban('login', 5, 60, 900, fn($r): true => true, fn($r): string => '127.0.0.1');
-        $config->track('api', 60, fn($r): true => true, fn($r): string => '127.0.0.1');
-
-        // Rules land in the sections
-        $this->assertCount(1, $config->safelists->rules());
-        $this->assertCount(1, $config->blocklists->rules());
-        $this->assertCount(1, $config->throttles->rules());
-        $this->assertCount(1, $config->fail2ban->rules());
-        $this->assertCount(1, $config->tracks->rules());
-    }
-
-    public function testMixOldAndNewApi(): void
-    {
-        $config = new Config(new InMemoryCache());
-
-        // Mix both APIs
-        $config->safelist('old-way', fn($r): false => false);
-
-        $config->safelists->add('new-way', fn($r): bool => $r->getUri()->getPath() === '/health');
+        $config->safelists->add('deny-none', fn($r): false => false);
+        $config->safelists->add('health', fn($r): bool => $r->getUri()->getPath() === '/health');
 
         $this->assertCount(2, $config->safelists->rules());
-        $this->assertCount(2, $config->getSafelistRules());
 
-        // Both are honored by Firewall
         $config->blocklists->add('block-all', fn(): true => true);
         $firewall = new Firewall($config);
 

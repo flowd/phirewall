@@ -105,7 +105,7 @@ final class RedisCacheTest extends TestCase
         $redisCache = new RedisCache($client, 'Phirewall:test:');
 
         $config = new Config($redisCache);
-        $config->throttle('ip', 1, 5, fn($request): string => '1.2.3.4');
+        $config->throttles->add('ip', 1, 5, fn($request): string => '1.2.3.4');
 
         $firewall = new Firewall($config);
 

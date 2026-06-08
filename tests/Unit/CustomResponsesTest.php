@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Tests;
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\Response\ClosureBlocklistedResponseFactory;
+use Flowd\Phirewall\Config\Response\ClosureThrottledResponseFactory;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -31,10 +33,10 @@ final class CustomResponsesTest extends TestCase
         $config->enableResponseHeaders();
 
         // Block everything via blocklist
-        $config->blocklist('all', fn($request): bool => true);
+        $config->blocklists->add('all', fn($request): bool => true);
 
         // Custom blocklisted response factory
-        $config->blocklistedResponse(function (string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface {
+        $config->blocklistedResponseFactory = new ClosureBlocklistedResponseFactory(function (string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface {
             // Return a JSON 451 just for testing; middleware should still add X-Phirewall headers
             $body = json_encode(['blocked' => $rule, 'type' => $type], JSON_THROW_ON_ERROR);
             return new Response(451, ['Content-Type' => 'application/json'], $body);
@@ -51,7 +53,8 @@ final class CustomResponsesTest extends TestCase
         $inMemoryCache->clear();
         $config = new Config($inMemoryCache);
         $config->enableResponseHeaders();
-        $config->fail2ban(
+
+        $config->fail2ban->add(
             'login',
             1,
             60,
@@ -59,7 +62,7 @@ final class CustomResponsesTest extends TestCase
             filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
             key: fn($request): string => 'ip-1'
         );
-        $config->blocklistedResponse(fn(string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface => new Response(499, ['X-Custom' => $type]));
+        $config->blocklistedResponseFactory = new ClosureBlocklistedResponseFactory(fn(string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface => new Response(499, ['X-Custom' => $type]));
 
         $middleware = new Middleware($config, new Psr17Factory());
         $handler = $this->handler();
@@ -79,10 +82,11 @@ final class CustomResponsesTest extends TestCase
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
         $config->enableResponseHeaders();
-        $config->throttle('ip', 0, 30, fn($request): string => '1.2.3.4');
+
+        $config->throttles->add('ip', 0, 30, fn($request): string => '1.2.3.4');
 
         // Custom throttled response without Retry-After header
-        $config->throttledResponse(fn(string $rule, int $retryAfter, \Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface => new Response(429, ['X-Custom' => 'yes']));
+        $config->throttledResponseFactory = new ClosureThrottledResponseFactory(fn(string $rule, int $retryAfter, \Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface => new Response(429, ['X-Custom' => 'yes']));
 
         $middleware = new Middleware($config, new Psr17Factory());
         $handler = $this->handler();

@@ -306,15 +306,15 @@ final class TrackThresholdTest extends TestCase
     }
 
     /**
-     * The deprecated Config::track() method accepts a limit parameter.
+     * A track rule accepts an optional limit parameter.
      */
-    public function testDeprecatedTrackMethodAcceptsLimit(): void
+    public function testTrackRuleAcceptsLimit(): void
     {
         $events = $this->createCollectingDispatcher();
 
         $config = $this->createConfig($events);
-        $config->track(
-            'deprecated-with-limit',
+        $config->tracks->add(
+            'track-with-limit',
             period: 60,
             filter: fn($request): bool => true,
             key: fn($request): string => 'k',
@@ -322,7 +322,7 @@ final class TrackThresholdTest extends TestCase
         );
 
         $rules = $config->tracks->rules();
-        $this->assertSame(3, $rules['deprecated-with-limit']->limit());
+        $this->assertSame(3, $rules['track-with-limit']->limit());
 
         $firewall = new Firewall($config);
         $request = new ServerRequest('GET', '/');

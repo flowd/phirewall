@@ -41,7 +41,7 @@ final class DisableToggleTest extends TestCase
     public function testDisableSkipsBlocklist(): void
     {
         $config = $this->createConfig();
-        $config->blocklist('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
+        $config->blocklists->add('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
         $config->disable();
 
         $firewall = new Firewall($config);
@@ -55,7 +55,7 @@ final class DisableToggleTest extends TestCase
     public function testDisableSkipsThrottle(): void
     {
         $config = $this->createConfig();
-        $config->throttle('ip', 1, 60, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
+        $config->throttles->add('ip', 1, 60, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
         $config->disable();
 
         $firewall = new Firewall($config);
@@ -72,7 +72,7 @@ final class DisableToggleTest extends TestCase
     public function testReEnableAppliesRules(): void
     {
         $config = $this->createConfig();
-        $config->blocklist('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
+        $config->blocklists->add('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
         $config->disable();
 
         $firewall = new Firewall($config);
@@ -111,7 +111,7 @@ final class DisableToggleTest extends TestCase
     public function testMiddlewareShortCircuitsWhenDisabled(): void
     {
         $config = $this->createConfig();
-        $config->blocklist('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
+        $config->blocklists->add('blockedPath', fn($request): bool => $request->getUri()->getPath() === '/admin');
         $config->disable();
 
         $middleware = new Middleware($config, new Psr17Factory());
@@ -135,7 +135,7 @@ final class DisableToggleTest extends TestCase
         $config = $this->createConfig();
         $limit = 3;
         $period = 60;
-        $config->throttle('ip', $limit, $period, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
+        $config->throttles->add('ip', $limit, $period, fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1');
         $config->disable();
 
         $firewall = new Firewall($config);
