@@ -19,7 +19,7 @@ final class RateLimitHeadersTest extends TestCase
         $config = new Config($inMemoryCache);
         $config->enableRateLimitHeaders(true);
         // Limit 3 requests per 30s by IP
-        $config->throttle('ip', 3, 30, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
+        $config->throttles->add('ip', 3, 30, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
 
         $firewall = new Firewall($config);
 
@@ -41,7 +41,7 @@ final class RateLimitHeadersTest extends TestCase
         $config = new Config($inMemoryCache);
         $config->enableRateLimitHeaders(true);
         // Limit 1 per 10s by IP
-        $config->throttle('ip', 1, 10, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
+        $config->throttles->add('ip', 1, 10, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
 
         $firewall = new Firewall($config);
 
@@ -64,7 +64,8 @@ final class RateLimitHeadersTest extends TestCase
         $inMemoryCache = new InMemoryCache();
         $config = new Config($inMemoryCache);
         $config->enableRateLimitHeaders(false);
-        $config->throttle('ip', 10, 60, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
+
+        $config->throttles->add('ip', 10, 60, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
 
         $firewall = new Firewall($config);
 

@@ -29,7 +29,7 @@ final class TrackTest extends TestCase
         };
 
         $config = new Config($inMemoryCache, $events);
-        $config->track(
+        $config->tracks->add(
             'login_failed',
             period: 60,
             filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
@@ -70,7 +70,7 @@ final class TrackTest extends TestCase
         };
 
         $config = new Config($inMemoryCache, $events);
-        $config->track(
+        $config->tracks->add(
             'any',
             period: 30,
             filter: fn($request): bool => false,

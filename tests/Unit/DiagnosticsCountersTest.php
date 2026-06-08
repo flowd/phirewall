@@ -19,8 +19,8 @@ final class DiagnosticsCountersTest extends TestCase
     {
         $diagnosticsCounters = new DiagnosticsCounters();
         $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
-        $config->safelist('health', fn($req): bool => $req->getUri()->getPath() === '/health');
-        $config->blocklist('block-all', fn(): bool => true);
+        $config->safelists->add('health', fn($req): bool => $req->getUri()->getPath() === '/health');
+        $config->blocklists->add('block-all', fn(): bool => true);
 
         $firewall = new Firewall($config);
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/health'));
@@ -37,7 +37,7 @@ final class DiagnosticsCountersTest extends TestCase
     {
         $diagnosticsCounters = new DiagnosticsCounters();
         $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
-        $config->blocklist('admin', fn($req): bool => $req->getUri()->getPath() === '/admin');
+        $config->blocklists->add('admin', fn($req): bool => $req->getUri()->getPath() === '/admin');
 
         $firewall = new Firewall($config);
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/admin'));
@@ -52,7 +52,7 @@ final class DiagnosticsCountersTest extends TestCase
     {
         $diagnosticsCounters = new DiagnosticsCounters();
         $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
-        $config->throttle('ip', 1, 10, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
+        $config->throttles->add('ip', 1, 10, fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null);
 
         $firewall = new Firewall($config);
 
@@ -70,7 +70,7 @@ final class DiagnosticsCountersTest extends TestCase
     {
         $diagnosticsCounters = new DiagnosticsCounters();
         $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login',
             threshold: 2,
             period: 10,
@@ -102,7 +102,7 @@ final class DiagnosticsCountersTest extends TestCase
     {
         $diagnosticsCounters = new DiagnosticsCounters();
         $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
-        $config->track('all', period: 60, filter: fn(): bool => true, key: fn(): string => 'k');
+        $config->tracks->add('all', period: 60, filter: fn(): bool => true, key: fn(): string => 'k');
 
         $firewall = new Firewall($config);
 
@@ -140,7 +140,7 @@ final class DiagnosticsCountersTest extends TestCase
     public function testWithoutDiagnosticsNothingBreaks(): void
     {
         $config = new Config(new InMemoryCache());
-        $config->blocklist('all', fn(): bool => true);
+        $config->blocklists->add('all', fn(): bool => true);
 
         $firewall = new Firewall($config);
         $firewallResult = $firewall->decide(new ServerRequest('GET', '/'));
@@ -151,7 +151,7 @@ final class DiagnosticsCountersTest extends TestCase
     {
         $diagnosticsCounters = new DiagnosticsCounters();
         $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
-        $config->blocklist('test', fn(): bool => true);
+        $config->blocklists->add('test', fn(): bool => true);
 
         $firewall = new Firewall($config);
         $firewall->decide(new ServerRequest('GET', '/'));

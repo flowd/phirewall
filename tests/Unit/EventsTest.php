@@ -33,8 +33,8 @@ final class EventsTest extends TestCase
         };
 
         $config = new Config($inMemoryCache, $dispatcher);
-        $config->safelist('health', fn($request): bool => $request->getUri()->getPath() === '/health');
-        $config->blocklist('admin', fn($request): bool => $request->getUri()->getPath() === '/admin');
+        $config->safelists->add('health', fn($request): bool => $request->getUri()->getPath() === '/health');
+        $config->blocklists->add('admin', fn($request): bool => $request->getUri()->getPath() === '/admin');
 
         $firewall = new Firewall($config);
 
@@ -84,9 +84,9 @@ final class EventsTest extends TestCase
         };
 
         $config = new Config($inMemoryCache, $dispatcher);
-        $config->throttle('ip', 1, 30, fn($request): ?string => $request->getServerParams()['REMOTE_ADDR'] ?? null);
+        $config->throttles->add('ip', 1, 30, fn($request): ?string => $request->getServerParams()['REMOTE_ADDR'] ?? null);
 
-        $config->fail2ban(
+        $config->fail2ban->add(
             'login',
             2,
             10,

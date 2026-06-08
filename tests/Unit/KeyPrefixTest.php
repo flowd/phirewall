@@ -19,13 +19,13 @@ final class KeyPrefixTest extends TestCase
 
         // Firewall A with prefix A
         $configA = (new Config($inMemoryCache))->setKeyPrefix('customA');
-        $configA->throttle('by_key', 1, 60, fn($r): string => 'k');
+        $configA->throttles->add('by_key', 1, 60, fn($r): string => 'k');
 
         $fwA = new Firewall($configA);
 
         // Firewall B with prefix B (same rule/key but isolated by prefix)
         $configB = (new Config($inMemoryCache))->setKeyPrefix('customB');
-        $configB->throttle('by_key', 1, 60, fn($r): string => 'k');
+        $configB->throttles->add('by_key', 1, 60, fn($r): string => 'k');
 
         $fwB = new Firewall($configB);
 

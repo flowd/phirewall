@@ -130,16 +130,16 @@ final class DynamicThrottleTest extends TestCase
     }
 
     /**
-     * The deprecated $config->throttle() method also accepts closure-based limits.
+     * Throttle limits accept a closure for a per-request dynamic value.
      */
-    public function testDeprecatedThrottleAcceptsDynamicLimit(): void
+    public function testThrottleAcceptsDynamicLimit(): void
     {
         $config = $this->createConfig();
 
         $dynamicLimit = fn(ServerRequestInterface $serverRequest): int => 3;
 
-        $config->throttle(
-            'deprecated-dynamic',
+        $config->throttles->add(
+            'dynamic-limit',
             $dynamicLimit,
             60,
             fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1'
