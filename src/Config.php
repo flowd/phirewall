@@ -372,7 +372,7 @@ final class Config
     // ── Discriminator normalizer ────────────────────────────────────────
 
     /**
-     * Set a normalizer applied to all discriminator keys (throttle, fail2ban, track)
+     * Set a normalizer applied to all discriminator keys (throttle, fail2ban, allow2ban, track)
      * before they are used for cache lookups.
      *
      * Common use case: case-insensitive key matching via strtolower().
