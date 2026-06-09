@@ -54,7 +54,8 @@ final class KeyExtractors
     }
 
     /**
-     * Extract a header value by name (first value). Returns null if header missing.
+     * Extract a header value by name via PSR-7 getHeaderLine(), so repeated header lines are
+     * joined with commas (not just the first value). Returns null if the header is missing.
      *
      * A null key skips the rule entirely: a throttle / fail2ban / allow2ban rule keyed on a
      * header does NOT apply to a request that omits the header, so an unauthenticated client can
