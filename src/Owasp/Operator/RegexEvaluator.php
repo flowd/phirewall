@@ -48,7 +48,11 @@ final readonly class RegexEvaluator implements OperatorEvaluatorInterface
 
         foreach ($values as $value) {
             if (strlen($value) > RegexMatcher::MAX_SUBJECT_LENGTH) {
-                $value = substr($value, 0, RegexMatcher::MAX_SUBJECT_LENGTH);
+                // Byte truncation can split a trailing multi-byte UTF-8 sequence, which would make
+                // an otherwise-valid subject fail the /u match and be wrongly treated as a match.
+                // Drop the partial trailing sequence so a valid long input is not falsely blocked;
+                // a subject malformed before the boundary still fails closed below.
+                $value = $this->trimPartialTrailingUtf8(substr($value, 0, RegexMatcher::MAX_SUBJECT_LENGTH));
             }
 
             // Pattern compiles, so anything other than a definite no-match (0) is either a real
@@ -59,6 +63,20 @@ final readonly class RegexEvaluator implements OperatorEvaluatorInterface
         }
 
         return false;
+    }
+
+    /**
+     * Drop an incomplete trailing UTF-8 sequence left by byte truncation. A UTF-8 character is at
+     * most 4 bytes, so at most 3 trailing bytes can form a partial sequence; a subject that stays
+     * invalid after trimming is malformed before the boundary and is left to fail closed.
+     */
+    private function trimPartialTrailingUtf8(string $value): string
+    {
+        for ($dropped = 0; $dropped < 3 && $value !== '' && @preg_match('//u', $value) !== 1; ++$dropped) {
+            $value = substr($value, 0, -1);
+        }
+
+        return $value;
     }
 
     /**
