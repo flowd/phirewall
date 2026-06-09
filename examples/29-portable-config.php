@@ -8,15 +8,16 @@ declare(strict_types=1);
  * PortableConfig expresses a firewall ruleset as plain, JSON-serializable data
  * instead of PHP closures. That makes a ruleset portable: you can store it in a
  * database, ship it through a config service, diff it in git, or hand it to
- * another process — then rebuild a live Config from it with Config::combine().
+ * another process, then rebuild a live Config from it with Config::combine().
  *
  * This example covers:
  *   1. Building a ruleset with the expanded schema and round-tripping it
  *      through toArray() / fromArray().
  *   2. The signed transport (toSignedJson() / loadSigned()) and how tampering
  *      is rejected.
- *   3. A realistic "rules live in a database, hot-reload on change" scenario,
- *      with the DB simulated by an in-memory store (no real database needed).
+ *   3. Rules that live in a database and are loaded per request, with a note on
+ *      the long-running-worker rebuild-on-change optimization. The DB is
+ *      simulated by an in-memory store (no real database needed).
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -49,9 +50,9 @@ $portableConfig = PortableConfig::create()
     ->throttle('api', limit: 100, period: 60, key: PortableConfig::keyHashedHeader('X-Api-Key'), sliding: true)
     // Hard volume cap per IP: 1000 requests / minute then a 5-minute ban.
     ->allow2ban('volume-cap', threshold: 1000, period: 60, ban: 300, key: PortableConfig::keyIp())
-    // Auto-ban brute force on the login endpoint.
-    ->fail2ban('login', threshold: 5, period: 60, ban: 900, filter: PortableConfig::filterHeaderEquals('X-Login-Failed', '1'), key: PortableConfig::keyIp())
-    // A pattern blocklist — the kind of catalogue you would keep in a database.
+    // Auto-ban IPs that repeatedly probe a path the app does not serve.
+    ->fail2ban('wp-login-probe', threshold: 5, period: 60, ban: 900, filter: PortableConfig::filterPathEquals('/wp-login.php'), key: PortableConfig::keyIp())
+    // A pattern blocklist, the kind of catalogue you would keep in a database.
     ->patternBlocklist('threats', [
         PortableConfig::patternEntry(PatternKind::CIDR, '10.66.0.0/16'),
         PortableConfig::patternEntry(PatternKind::PATH_EXACT, '/.env'),
@@ -123,10 +124,10 @@ try {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// 3. Rules in a "database" with hot-reload (DB simulated in-memory).
+// 3. Rules in a "database": each request loads the current ruleset.
 // ─────────────────────────────────────────────────────────────────────────
 
-echo "3. Rules stored in a database, hot-reloaded on change:\n";
+echo "3. Rules stored in a database, loaded per request:\n";
 
 // A tiny stand-in for a rules table: a signed blob keyed by version. A real
 // implementation would SELECT this from MySQL/Postgres/Redis/etc.
@@ -138,25 +139,17 @@ $rulesTable = [
         ->toSignedJson($secretKey),
 ];
 
-// The application keeps the compiled Firewall and the version it was built from,
-// and rebuilds only when the stored version changes — that is the hot-reload.
-$loadedVersion = null;
-$liveFirewall = null;
-
-$reload = static function () use (&$rulesTable, &$loadedVersion, &$liveFirewall, $secretKey): bool {
-    if ($loadedVersion === $rulesTable['version']) {
-        return false; // already current — no rebuild
-    }
-
+// Under PHP-FPM the worker process is reused, but userland state does not carry
+// over between requests, so every request loads the current blob from the store
+// and builds the firewall. Changing the stored rules takes effect on the next
+// request, with no deploy and no in-process "reload".
+$loadFirewall = static function () use (&$rulesTable, $secretKey): Firewall {
     $portable = PortableConfig::loadSigned($rulesTable['blob'], $secretKey);
-    $liveFirewall = new Firewall((new Config(new InMemoryCache()))->combine($portable));
-    $loadedVersion = $rulesTable['version'];
-
-    return true;
+    return new Firewall((new Config(new InMemoryCache()))->combine($portable));
 };
 
-$reload();
-echo "   Loaded rules version {$loadedVersion} from the store.\n";
+$liveFirewall = $loadFirewall();
+echo "   Request A loaded rules version {$rulesTable['version']} from the store.\n";
 assertDecision(
     $liveFirewall,
     (new ServerRequest('GET', '/'))->withHeader('User-Agent', 'nikto/2.5'),
@@ -177,17 +170,21 @@ $rulesTable['blob'] = PortableConfig::create()
     ->blocklist('lock-admin', PortableConfig::filterPathPrefix('/admin'))
     ->toSignedJson($secretKey);
 $rulesTable['version'] = 2;
-
 echo "   Operator published version {$rulesTable['version']}.\n";
-echo '   reload() rebuilt the firewall: ' . ($reload() ? 'yes' : 'no') . "\n";
+
+// The next request simply loads the store again and sees the new rules.
+$liveFirewall = $loadFirewall();
+echo "   Request B loaded rules version {$rulesTable['version']} from the store.\n";
 assertDecision(
     $liveFirewall,
     (new ServerRequest('GET', '/admin'))->withHeader('Accept', '*/*'),
     'blocked',
     '/admin now blocked under v2',
 );
-echo '   Calling reload() again with no change is a no-op: '
-    . ($reload() ? 'rebuilt' : 'skipped') . "\n";
+
+// On a long-running worker (Swoole, RoadRunner, FrankenPHP worker mode, Octane)
+// the process persists across requests, so you would keep the built Firewall in
+// memory and rebuild it only when $rulesTable['version'] changes.
 
 echo "\nAll assertions passed.\n";
 
@@ -200,7 +197,7 @@ function assertDecision(Firewall $firewall, ServerRequest $serverRequest, string
     $actual = $result->outcome->value;
 
     if ($actual !== $expected) {
-        fwrite(STDERR, sprintf("ASSERTION FAILED: %s — expected %s, got %s\n", $label, $expected, $actual));
+        fwrite(STDERR, sprintf("ASSERTION FAILED: %s, expected %s, got %s\n", $label, $expected, $actual));
         exit(1);
     }
 
