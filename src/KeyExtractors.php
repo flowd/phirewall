@@ -56,6 +56,11 @@ final class KeyExtractors
     /**
      * Extract a header value by name (first value). Returns null if header missing.
      *
+     * A null key skips the rule entirely: a throttle / fail2ban / allow2ban rule keyed on a
+     * header does NOT apply to a request that omits the header, so an unauthenticated client can
+     * sidestep the limit by simply not sending it. Pair a header-keyed limiter with a blocklist
+     * or suspicious-header rule that rejects requests missing the header, or key on the client IP.
+     *
      * The raw value flows into per-key counters and into the ban registry for
      * rules using it. When the header carries a credential or other value the
      * integrator does not want stored verbatim in the cache backend (e.g.
