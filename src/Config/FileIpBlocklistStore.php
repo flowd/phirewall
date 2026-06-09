@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Config;
 
+use Flowd\Phirewall\Matchers\Support\CidrMatcher;
+
 /**
  * Minimal file-backed list manager for IP blocklists.
  *
@@ -96,6 +98,12 @@ final class FileIpBlocklistStore
                     }
 
                     if (str_starts_with($entry, ';')) {
+                        continue;
+                    }
+
+                    // Only persist well-formed IPs/CIDRs. This also rejects values carrying a
+                    // newline, which would otherwise be split into a second (injected) entry on read.
+                    if (!$this->isValidIpOrCidr($entry)) {
                         continue;
                     }
 
@@ -214,6 +222,16 @@ final class FileIpBlocklistStore
         }
 
         return ['expiresAt' => $expiresAt, 'addedAt' => $addedAt];
+    }
+
+    /** Whether the entry is a plain IP or a CIDR range, mirroring the matcher's read-side parse. */
+    private function isValidIpOrCidr(string $entry): bool
+    {
+        if (str_contains($entry, '/')) {
+            return CidrMatcher::compile($entry) !== null;
+        }
+
+        return filter_var($entry, FILTER_VALIDATE_IP) !== false;
     }
 
     /**
