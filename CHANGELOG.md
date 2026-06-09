@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Removed
+
+- **Removed the route-scoped `apiRateLimiting()` and `loginProtection()` presets** and their constants (`API_RATE_LIMITING`, `LOGIN_PROTECTION`, `API_PATH_PREFIX`, `LOGIN_PATH_PREFIX`, `LOGIN_FAILURE_RULE`). They hardcoded an application's own routes (`/api`, `/login`), which vary per app, so they did not belong in a shipped, universal preset catalogue; the remaining presets (`scannerBlocking()`, `sensitivePathBlocking()`) key only on universal attacker signals. Build API rate limiting and login brute-force protection as plain `Config` instead (see `examples/03-api-rate-limiting.php` and `examples/02-brute-force-protection.php`). **BREAKING.**
+
 ## 0.5.0 - 2026-06-08
 
 ### Added

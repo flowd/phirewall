@@ -370,37 +370,33 @@ See [30-config-composition.php](examples/30-config-composition.php) for a full v
 
 ## Presets
 
-Presets are ready-to-use rule bundles for recurring scenarios, so you don't have to hand-write the same rules each time. Each preset is a [`PortableConfig`](#portable-config) — plain, inspectable, serializable data — returned directly (to serialize, diff, sign, or layer) and materialized onto a `Config` with `Config::combine()`.
+Presets are ready-to-use rule bundles for recurring scenarios, so you don't have to hand-write the same rules each time. Each preset is a [`PortableConfig`](#portable-config): plain, inspectable, serializable data returned directly (to serialize, diff, sign, or layer) and materialized onto a `Config` with `Config::combine()`.
 
 ```php
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Preset\Presets;
 
 // A preset on its own (a Config requires a PSR-16 cache):
-$config = (new Config($cache))->combine(Presets::apiRateLimiting());
+$config = (new Config($cache))->combine(Presets::scannerBlocking());
 
 // Inspect / serialize the underlying portable schema:
-$schema = Presets::apiRateLimiting()->toArray();
+$schema = Presets::scannerBlocking()->toArray();
 
 // Because presets ARE PortableConfigs, they combine onto your own base Config (later wins by name):
-$config = (new Config($cache))->combine(Presets::loginProtection())->mergedWith($myConfig);
 $config = (new Config($cache))->combine(
     Presets::scannerBlocking(),
     Presets::sensitivePathBlocking(),
-    Presets::apiRateLimiting(),
 )->mergedWith($myConfig); // your overrides win
 ```
 
 | Preset | Rules (all namespaced `preset.<area>.*`) |
 |--------|------------------------------------------|
-| `apiRateLimiting()` | Per-client sliding-window throttles on the `/api` prefix: `preset.api.burst` (20 req/s) and `preset.api.sustained` (300 req/60s), keyed on client IP. |
-| `loginProtection()` | `preset.login.throttle` (10 attempts/60s per IP on `/login`) + `preset.login.bruteforce` fail2ban (ban the IP for 15 min after 5 failures in 15 min). |
 | `scannerBlocking()` | `preset.scanner.known-tools` (known scanner/exploit User-Agents) + `preset.scanner.suspicious-headers` (missing standard browser `Accept-*` headers). |
-| `sensitivePathBlocking()` | `preset.sensitive-path.probes` — pattern blocklist for `/.git`, `/.svn`, `/.hg`, `/.env*`, `/.aws/credentials`, `/.htpasswd`, `/.htaccess`, `/.DS_Store`. |
+| `sensitivePathBlocking()` | `preset.sensitive-path.probes`: pattern blocklist for `/.git`, `/.svn`, `/.hg`, `/.env*`, `/.aws/credentials`, `/.htpasswd`, `/.htaccess`, `/.DS_Store`. |
 
-**Conventions & overrides.** `apiRateLimiting()` scopes to `/api` and `loginProtection()` to `/login`; the login fail2ban counts a failure **only** when your handler calls `$context->recordFailure(Presets::LOGIN_FAILURE_RULE)` after a failed authentication. The rule uses a never-match filter on purpose — counting failures from a spoofable marker header would let an attacker forge it to ban an arbitrary IP (and behind a shared proxy/CDN, ban the proxy itself and lock out everyone). Because every rule is namespaced, you override any of them by composing the preset with your own `Config` that redefines the rule by the same name. IP-keyed rules use `REMOTE_ADDR`; behind a proxy/CDN, layer your own throttle keyed on a trusted client IP (see [Client IP Behind Proxies](#client-ip-behind-proxies)).
+**Conventions & overrides.** The shipped presets target signals that are universal across applications (scanner User-Agents, missing browser headers, well-known sensitive paths), so they assume nothing about your routing; a `PortableConfig` you build yourself can key on whatever fits your environment, including routes your own apps standardize. Because every rule is namespaced, you override any of them by composing the preset with your own `Config` that redefines the rule by the same name.
 
-> **Note:** `scannerBlocking()`'s `suspicious-headers` rule is aggressive — some legitimate API clients and privacy tools also omit `Accept-*` headers. Drop or override it by name if your traffic includes non-browser clients.
+> **Note:** `scannerBlocking()`'s `suspicious-headers` rule is aggressive: some legitimate API clients and privacy tools also omit `Accept-*` headers. Drop or override it by name if your traffic includes non-browser clients.
 
 **Versioning & update checks.** `Presets::VERSION` identifies the bundled rule catalogue. To surface "a newer ruleset is available", compare `Presets::VERSION` against a feed you trust (Packagist, an internal config service, a versioned JSON document, …) with `version_compare(Presets::VERSION, $latestFromYourFeed, '<')`. Phirewall hardcodes no endpoint and performs **no network I/O**; wiring a real source is the integrator's job.
 
