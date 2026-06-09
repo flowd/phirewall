@@ -25,6 +25,13 @@ final readonly class PatternEntry
         public ?int $addedAt = null,
         public array $metadata = [],
     ) {
+        // A line break would be serialised verbatim by the file backend and re-parse as a second,
+        // injected entry on read. No pattern kind carries a raw newline, so reject it here.
+        foreach ([$value, $target ?? ''] as $field) {
+            if (str_contains($field, "\n") || str_contains($field, "\r")) {
+                throw new \InvalidArgumentException('PatternEntry value and target must not contain line breaks.');
+            }
+        }
     }
 
     /**
