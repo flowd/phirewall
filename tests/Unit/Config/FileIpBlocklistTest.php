@@ -47,6 +47,38 @@ final class FileIpBlocklistTest extends TestCase
         $this->assertSame("198.51.100.22||1700000000\n", $contents);
     }
 
+    public function testStoreRejectsEntryWithEmbeddedNewline(): void
+    {
+        vfsStream::setup('blocklist', 0700);
+        $file = vfsStream::url('blocklist/list.txt');
+
+        $now = 1_700_000_000;
+        $fileIpBlocklistStore = new FileIpBlocklistStore($file, now: static fn(): int => $now);
+
+        // A newline-bearing value must not split into a second, injected blocklist entry
+        // (here an over-broad 0.0.0.0/0 that would block everything).
+        $fileIpBlocklistStore->add("203.0.113.10\n0.0.0.0/0");
+
+        $contents = is_file($file) ? (string) file_get_contents($file) : '';
+        $this->assertStringNotContainsString('0.0.0.0/0', $contents);
+    }
+
+    public function testStoreWritesValidIpAndCidrEntriesAndSkipsInvalid(): void
+    {
+        vfsStream::setup('blocklist', 0700);
+        $file = vfsStream::url('blocklist/list.txt');
+
+        $now = 1_700_000_000;
+        $fileIpBlocklistStore = new FileIpBlocklistStore($file, now: static fn(): int => $now);
+        $fileIpBlocklistStore->addAll(['198.51.100.22', '10.0.0.0/8', '2001:db8::/32', 'not-an-ip']);
+
+        $contents = (string) file_get_contents($file);
+        $this->assertStringContainsString('198.51.100.22', $contents);
+        $this->assertStringContainsString('10.0.0.0/8', $contents);
+        $this->assertStringContainsString('2001:db8::/32', $contents);
+        $this->assertStringNotContainsString('not-an-ip', $contents);
+    }
+
     public function testTtlExpiryPrunedAndMatcherSkipsExpiredEntries(): void
     {
         vfsStream::setup('blocklist', 0700);
