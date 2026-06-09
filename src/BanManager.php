@@ -202,17 +202,19 @@ final readonly class BanManager
         $registryKey = $this->config->cacheKeyGenerator()->banRegistryKey($banType->value, $ruleName);
 
         $raw = $cache->get($registryKey);
-        if (!is_string($raw)) {
-            return [];
+
+        // The registry is stored as a native array. A string is a legacy/foreign payload (or a
+        // backend that returns JSON verbatim) and is decoded here; a backend that already decodes
+        // JSON documents (e.g. RedisCache) returns the array directly.
+        if (is_string($raw)) {
+            try {
+                $raw = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                return [];
+            }
         }
 
-        try {
-            $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            return [];
-        }
-
-        if (!is_array($decoded)) {
+        if (!is_array($raw)) {
             return [];
         }
 
@@ -220,7 +222,7 @@ final readonly class BanManager
         // foreign producer could put non-numeric values here and would
         // otherwise propagate a TypeError into request handling.
         $registry = [];
-        foreach ($decoded as $key => $expiresAt) {
+        foreach ($raw as $key => $expiresAt) {
             if (is_string($key) && is_numeric($expiresAt)) {
                 $registry[$key] = (float) $expiresAt;
             }
@@ -255,10 +257,9 @@ final readonly class BanManager
         // registry cache entry expires together with the last ban it tracks.
         $ttl = (int) max(1, ceil(max($registry) - $now));
 
-        try {
-            $cache->set($registryKey, json_encode($registry, JSON_THROW_ON_ERROR), $ttl);
-        } catch (\JsonException) {
-            // Fail closed: skip registry update rather than breaking request handling.
-        }
+        // Stored as a native array so every backend's own serialization round-trips it; a
+        // pre-encoded JSON string is re-typed to an array on read by backends that decode JSON
+        // documents (e.g. RedisCache), which would make the registry read back empty.
+        $cache->set($registryKey, $registry, $ttl);
     }
 }

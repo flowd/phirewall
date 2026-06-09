@@ -10,6 +10,7 @@ use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Flowd\Phirewall\Tests\Support\FakeClock;
+use Flowd\Phirewall\Tests\Support\JsonDecodingCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
 
@@ -202,6 +203,19 @@ final class BanManagerTest extends TestCase
 
         $result = $banManager->unban('test-rule', '99.99.99.99');
         $this->assertFalse($result, 'unban should return false when key is not banned');
+    }
+
+    public function testListBansSurvivesBackendThatDecodesJsonStrings(): void
+    {
+        // RedisCache returns a decoded array for a stored JSON-document string. The registry
+        // must round-trip through such a backend so listBans()/clearBans() keep working there.
+        $banManager = (new Config(new JsonDecodingCache()))->banManager();
+
+        $banManager->ban('test-rule', '9.9.9.9', 3600, BanType::Allow2Ban);
+
+        $bans = $banManager->listBans('test-rule', BanType::Allow2Ban);
+
+        $this->assertSame(['9.9.9.9'], array_column($bans, 'key'));
     }
 
     // ── Test 6: listBans returns active bans ────────────────────────────
