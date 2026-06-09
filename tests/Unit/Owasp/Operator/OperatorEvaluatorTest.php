@@ -36,10 +36,12 @@ final class OperatorEvaluatorTest extends TestCase
         $this->assertFalse($evaluator->evaluate(['/admin']));
     }
 
-    public function testRegexEvaluatorSkipsValuesExceedingMaxLength(): void
+    public function testRegexEvaluatorDoesNotMatchPayloadBeyondMaxLength(): void
     {
-        $evaluator = new RegexEvaluator('a');
-        $oversizedValue = str_repeat('a', self::REGEX_MAX_SUBJECT_LENGTH + 1);
+        // Truncation still bounds inspection: content that only appears after the limit is
+        // not seen, so a pattern matching only that tail does not fire.
+        $evaluator = new RegexEvaluator('needle');
+        $oversizedValue = str_repeat('a', self::REGEX_MAX_SUBJECT_LENGTH) . 'needle';
         $this->assertFalse($evaluator->evaluate([$oversizedValue]));
     }
 
@@ -55,6 +57,27 @@ final class OperatorEvaluatorTest extends TestCase
         $evaluator = new RegexEvaluator('a');
         $exactLimitValue = str_repeat('a', self::REGEX_MAX_SUBJECT_LENGTH);
         $this->assertTrue($evaluator->evaluate([$exactLimitValue]));
+    }
+
+    public function testRegexEvaluatorTreatsEngineErrorOnMalformedUtf8AsMatch(): void
+    {
+        // The pattern compiles, so a false result from preg_match is a subject-induced
+        // engine error (malformed UTF-8 under the /u flag). A crafted value must not be
+        // able to disable the rule by forcing that error.
+        $evaluator = new RegexEvaluator('select.*from');
+        $malformedSubject = "select \xff\xfe from users";
+
+        $this->assertTrue($evaluator->evaluate([$malformedSubject]));
+    }
+
+    public function testRegexEvaluatorInspectsHeadOfOversizedValue(): void
+    {
+        // A payload within the first MAX_SUBJECT_LENGTH bytes must be inspected even when
+        // the value is padded past the limit.
+        $evaluator = new RegexEvaluator('attack');
+        $paddedValue = 'attack' . str_repeat('A', self::REGEX_MAX_SUBJECT_LENGTH);
+
+        $this->assertTrue($evaluator->evaluate([$paddedValue]));
     }
 
     public function testRegexEvaluatorStillMatchesShorterValueWhenOverlengthPresent(): void

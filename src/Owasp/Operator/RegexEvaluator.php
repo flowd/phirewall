@@ -17,31 +17,43 @@ use Flowd\Phirewall\Matchers\Support\RegexMatcher;
  * character (notably backticks in rule 942510), turning those characters into
  * PCRE delimiters and collapsing the rule to its inner alternation.
  *
- * Values exceeding {@see RegexMatcher::MAX_SUBJECT_LENGTH} bytes are skipped (treated as
- * non-matching). This is an intentional trade-off: extremely long payloads may evade regex
- * detection, but the alternative — running unbounded regex on attacker-controlled input — risks
- * catastrophic backtracking that can freeze the process. This mirrors standard WAF behavior
- * (e.g., ModSecurity SecRequestBodyLimit).
+ * Values exceeding {@see RegexMatcher::MAX_SUBJECT_LENGTH} bytes are truncated to that length
+ * and the head is inspected, bounding regex work on attacker-controlled input without letting a
+ * payload evade detection simply by padding past the limit. A subject that triggers a PCRE engine
+ * error (malformed UTF-8 under the /u flag, backtrack/recursion limit) is treated as a match so a
+ * crafted value cannot disable a rule by forcing the error.
  */
 final readonly class RegexEvaluator implements OperatorEvaluatorInterface
 {
     /** Cached regex pattern with delimiters, ready for preg_match(). */
     private string $delimitedPattern;
 
+    /** Whether the delimited pattern itself compiles; a broken pattern can never match. */
+    private bool $patternCompiles;
+
     public function __construct(string $pattern)
     {
         $this->delimitedPattern = self::wrapInTildeDelimiters($pattern);
+        $this->patternCompiles = @preg_match($this->delimitedPattern, '') !== false;
     }
 
     /** @param list<string> $values */
     public function evaluate(array $values): bool
     {
+        // A non-compiling pattern cannot match; treating it as a match would make one broken
+        // rule block every request. The breakage surfaces when the rule is loaded, not per request.
+        if (!$this->patternCompiles) {
+            return false;
+        }
+
         foreach ($values as $value) {
             if (strlen($value) > RegexMatcher::MAX_SUBJECT_LENGTH) {
-                continue;
+                $value = substr($value, 0, RegexMatcher::MAX_SUBJECT_LENGTH);
             }
 
-            if (@preg_match($this->delimitedPattern, $value) === 1) {
+            // Pattern compiles, so anything other than a definite no-match (0) is either a real
+            // match or a subject-induced engine error; both fail closed to a match.
+            if (@preg_match($this->delimitedPattern, $value) !== 0) {
                 return true;
             }
         }
