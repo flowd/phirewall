@@ -10,10 +10,11 @@ use Flowd\Phirewall\Store\InMemoryCache;
 use Psr\SimpleCache\CacheInterface;
 
 /**
- * Cache that models RedisCache's documented read behaviour: a stored string that parses as a
- * JSON array is returned as the decoded array. Delegates to an inner {@see InMemoryCache} (which
- * is final, hence composition) and only re-types the value on read. Used to exercise consumers
- * such as the ban registry against a backend that does not round-trip a JSON-encoded string.
+ * Cache that models RedisCache's documented read behaviour: a stored string that decodes to a JSON
+ * document (array or object, both yielded as a PHP array by json_decode(..., true)) is returned as
+ * that array. Delegates to an inner {@see InMemoryCache} (which is final, hence composition) and
+ * only re-types the value on read. Used to exercise consumers such as the ban registry against a
+ * backend that does not round-trip a JSON-encoded string.
  */
 final readonly class JsonDecodingCache implements CacheInterface, CounterStoreInterface
 {

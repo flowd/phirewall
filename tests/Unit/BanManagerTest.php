@@ -300,6 +300,26 @@ final class BanManagerTest extends TestCase
         $this->assertSame(['3.3.3.3'], $keys, 'Coerced 1.1.1.1 has no matching primary ban so listBans drops it; 3.3.3.3 was just banned and survives.');
     }
 
+    public function testLoadRegistryDropsNonFiniteExpiry(): void
+    {
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
+        $banManager = $config->banManager();
+        $cacheKeyGenerator = $config->cacheKeyGenerator();
+
+        // Both entries have a live primary ban key, so only the non-finite filtering in
+        // loadRegistry can drop the second one. "1e400" casts to INF, which would otherwise make a
+        // JSON-encoding backend throw on the next save.
+        $registryKey = $cacheKeyGenerator->banRegistryKey(BanType::Allow2Ban->value, 'test-rule');
+        $inMemoryCache->set($registryKey, ['finite' => microtime(true) + 3600, 'infinite' => '1e400'], 3600);
+        $inMemoryCache->set($cacheKeyGenerator->allow2BanBanKey('test-rule', 'finite'), 1, 3600);
+        $inMemoryCache->set($cacheKeyGenerator->allow2BanBanKey('test-rule', 'infinite'), 1, 3600);
+
+        $keys = array_column($banManager->listBans('test-rule', BanType::Allow2Ban), 'key');
+
+        $this->assertSame(['finite'], $keys);
+    }
+
     // ── Test 7: listBans filters expired bans ───────────────────────────
 
     public function testListBansFiltersExpiredBans(): void

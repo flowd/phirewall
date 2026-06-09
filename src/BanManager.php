@@ -218,12 +218,12 @@ final readonly class BanManager
             return [];
         }
 
-        // Coerce defensively: an older format, a tampered cache entry, or a
-        // foreign producer could put non-numeric values here and would
-        // otherwise propagate a TypeError into request handling.
+        // Coerce defensively: an older format, a tampered cache entry, or a foreign producer could
+        // put non-numeric or non-finite values here. A non-finite expiry (e.g. "1e400" casting to
+        // INF) would also make a JSON-encoding backend throw on the next save, so drop it here too.
         $registry = [];
         foreach ($raw as $key => $expiresAt) {
-            if (is_string($key) && is_numeric($expiresAt)) {
+            if (is_string($key) && is_numeric($expiresAt) && is_finite((float) $expiresAt)) {
                 $registry[$key] = (float) $expiresAt;
             }
         }
@@ -257,9 +257,9 @@ final readonly class BanManager
         // registry cache entry expires together with the last ban it tracks.
         $ttl = (int) max(1, ceil(max($registry) - $now));
 
-        // Stored as a native array so every backend's own serialization round-trips it; a
-        // pre-encoded JSON string is re-typed to an array on read by backends that decode JSON
-        // documents (e.g. RedisCache), which would make the registry read back empty.
+        // Store as a native array so every backend's own serialization round-trips it. Pre-encoding
+        // to a JSON string here was the previous bug: a backend that decodes JSON documents on read
+        // (e.g. RedisCache) returned an array, which loadRegistry then rejected as a non-string.
         $cache->set($registryKey, $registry, $ttl);
     }
 }
