@@ -11,10 +11,12 @@ use Psr\Http\Message\ServerRequestInterface;
  *
  * Collection works from the already-parsed PSR-7 arrays (getQueryParams()/getParsedBody()),
  * so the number of entries is bounded by the runtime's own input parsing (e.g. PHP's
- * `max_input_vars`). The per-variable evaluation cap — and the fail-closed behaviour when it
- * is exceeded — is applied centrally by {@see RequestVariableValues}, so this collector does
- * not truncate: truncating here would drop a parameter's name while keeping its value (a
- * half-collected parameter) and hide the overflow from the fail-closed check.
+ * `max_input_vars` and `max_input_nesting_level`). Nested parameters (`a[b][c]=x`) are flattened
+ * to every scalar leaf value and key so a payload cannot evade an ARGS rule by nesting. The
+ * per-variable evaluation cap — and the fail-closed behaviour when it is exceeded — is applied
+ * centrally by {@see RequestVariableValues}, so this collector does not truncate: truncating here
+ * would drop a parameter's name while keeping its value (a half-collected parameter) and hide the
+ * overflow from the fail-closed check.
  */
 final readonly class ArgsCollector implements VariableCollectorInterface
 {
@@ -44,16 +46,12 @@ final readonly class ArgsCollector implements VariableCollectorInterface
     {
         foreach ($parameters as $key => $value) {
             if (is_array($value)) {
-                foreach ($value as $nestedValue) {
-                    if (is_scalar($nestedValue)) {
-                        $collected[] = (string) $nestedValue;
-                    }
-                }
+                $this->collectFrom($value, $collected);
             } elseif (is_scalar($value)) {
                 $collected[] = (string) $value;
             }
 
-            $collected[] = (string) $key; // include argument names for name-based checks
+            $collected[] = (string) $key; // include argument names at every level for name-based checks
         }
     }
 }

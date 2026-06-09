@@ -83,6 +83,21 @@ final class VariableCollectorTest extends TestCase
         $this->assertContains('nested', $result);
     }
 
+    public function testArgsCollectorCollectsDeeplyNestedValues(): void
+    {
+        // a[b][c]=payload parses to a nested array; the leaf value must still be collected
+        // so an ARGS-targeting rule cannot be evaded by nesting the payload.
+        $collector = new ArgsCollector();
+        $request = (new ServerRequest('POST', '/'))
+            ->withQueryParams(['a' => ['b' => ['c' => 'queryPayload']]])
+            ->withParsedBody(['x' => ['y' => ['z' => 'bodyPayload']]]);
+
+        $result = $collector->collect($request);
+
+        $this->assertContains('queryPayload', $result);
+        $this->assertContains('bodyPayload', $result);
+    }
+
     public function testArgsCollectorCollectsValueAndNameForEveryParameterWithoutTruncating(): void
     {
         $collector = new ArgsCollector();
