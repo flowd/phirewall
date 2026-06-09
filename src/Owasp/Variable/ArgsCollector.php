@@ -11,12 +11,14 @@ use Psr\Http\Message\ServerRequestInterface;
  *
  * Collection works from the already-parsed PSR-7 arrays (getQueryParams()/getParsedBody()),
  * so the number of entries is bounded by the runtime's own input parsing (e.g. PHP's
- * `max_input_vars` and `max_input_nesting_level`). Nested parameters (`a[b][c]=x`) are flattened
- * to every scalar leaf value and key so a payload cannot evade an ARGS rule by nesting. The
- * per-variable evaluation cap — and the fail-closed behaviour when it is exceeded — is applied
- * centrally by {@see RequestVariableValues}, so this collector does not truncate: truncating here
- * would drop a parameter's name while keeping its value (a half-collected parameter) and hide the
- * overflow from the fail-closed check.
+ * `max_input_vars` and `max_input_nesting_level`). PHP expands a bracketed parameter name like
+ * `a[b][c]=x` into a nested array; this collector flattens it back to the leaf value (`x`) and the
+ * original bracketed name (`a[b][c]`), so a payload cannot evade an ARGS rule by nesting and the
+ * collected name matches the request parameter rather than each path segment. The per-variable
+ * evaluation cap — and the fail-closed behaviour when it is exceeded — is applied centrally by
+ * {@see RequestVariableValues}, so this collector does not truncate: truncating here would drop a
+ * parameter's name while keeping its value (a half-collected parameter) and hide the overflow from
+ * the fail-closed check.
  */
 final readonly class ArgsCollector implements VariableCollectorInterface
 {
@@ -37,21 +39,27 @@ final readonly class ArgsCollector implements VariableCollectorInterface
     }
 
     /**
-     * Append values and names from a parameter map.
+     * Append every scalar leaf value and its flattened bracketed name from a parameter map.
      *
      * @param array<array-key, mixed> $parameters
      * @param list<string> $collected
      */
-    private function collectFrom(array $parameters, array &$collected): void
+    private function collectFrom(array $parameters, array &$collected, string $namePrefix = ''): void
     {
         foreach ($parameters as $key => $value) {
+            // Rebuild the original bracketed parameter name (foo[bar][baz]) as we descend.
+            $name = $namePrefix === '' ? (string) $key : $namePrefix . '[' . $key . ']';
+
             if (is_array($value)) {
-                $this->collectFrom($value, $collected);
-            } elseif (is_scalar($value)) {
+                $this->collectFrom($value, $collected, $name);
+                continue;
+            }
+
+            if (is_scalar($value)) {
                 $collected[] = (string) $value;
             }
 
-            $collected[] = (string) $key; // include argument names at every level for name-based checks
+            $collected[] = $name;
         }
     }
 }
