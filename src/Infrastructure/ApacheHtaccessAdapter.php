@@ -142,7 +142,16 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
             }
 
             [$before, $managed, $after] = $this->readSections();
-            $entries = $mutator($this->parseManaged($managed));
+            $existingEntries = $this->parseManaged($managed);
+            $entries = $mutator($existingEntries);
+
+            // Skip the full read-modify-rewrite when the managed entry set is unchanged. Without
+            // this, an already-blocked client that keeps hitting the firewall drives an O(file)
+            // rewrite under the exclusive lock on every request.
+            if ($entries === $existingEntries) {
+                return;
+            }
+
             $this->writeSections($before, $entries, $after);
         } finally {
             flock($lockHandle, LOCK_UN);

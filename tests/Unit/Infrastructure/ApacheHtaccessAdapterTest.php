@@ -49,6 +49,26 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $this->assertSame($first, $second, 'Blocking the same IP twice must not change the file');
     }
 
+    public function testReblockingAnAlreadyBlockedIpDoesNotRewriteTheFile(): void
+    {
+        $adapter = new ApacheHtaccessAdapter($this->htaccess);
+        $adapter->blockIp('203.0.113.10');
+
+        // Introduce a duplicate managed line. A rewrite regenerates the managed body from the
+        // de-duplicated entry set and would collapse this to one line; skipping the rewrite on a
+        // no-op leaves the file as-is. The surviving duplicate proves no rewrite occurred.
+        $line = 'Require not ip 203.0.113.10' . "\n";
+        file_put_contents($this->htaccess, str_replace($line, $line . $line, $this->readHtaccess()));
+
+        $adapter->blockIp('203.0.113.10');
+
+        $this->assertSame(
+            2,
+            substr_count($this->readHtaccess(), 'Require not ip 203.0.113.10'),
+            'A no-op block must not rewrite the htaccess file',
+        );
+    }
+
     // ─── IPv6 ────────────────────────────────────────────────────────
 
     public function testBlockIpv6Address(): void
