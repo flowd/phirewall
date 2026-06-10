@@ -138,7 +138,7 @@ The [examples/](examples/) folder contains runnable examples:
 ### Observability
 
 - **PSR-14 Events** - `SafelistMatched`, `BlocklistMatched`, `ThrottleExceeded`, `Fail2BanBanned`, `Allow2BanBanned`, `TrackHit`, `FirewallError`
-- **Fail-Open by Default** - Cache outages don't take down the application; errors dispatched via PSR-14
+- **Fail-Open by Default** - Cache outages don't take down the application; a `FirewallError` event is dispatched via PSR-14. Trade-off: while failing open all rules are skipped, so deployments that must keep blocking during an outage should `setFailOpen(false)` and monitor `FirewallError`
 - **Diagnostics Counters** - Per-rule statistics for monitoring
 - **Standard Headers** - `X-RateLimit-*`, `Retry-After`, `X-Phirewall-*`
 
@@ -419,6 +419,8 @@ $config->throttles->multi('api', [
 ], KeyExtractors::ip());
 
 // Dynamic limits based on user role
+// Note: a header-keyed rule is skipped when the header is absent, so a client can avoid the
+// limit by omitting X-User-Id. Pair it with a rule that rejects the missing header, or key on IP.
 $config->throttles->add('user', fn($req) => $req->getHeaderLine('X-Plan') === 'pro' ? 5000 : 100, 60,
     KeyExtractors::header('X-User-Id')
 );

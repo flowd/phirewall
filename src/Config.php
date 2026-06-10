@@ -79,6 +79,7 @@ final class Config
     /** @var (\Closure(string): string)|null */
     private ?\Closure $discriminatorNormalizer = null;
 
+    /** Fail open on firewall-internal errors. See {@see setFailOpen()} for the security trade-off. */
     private bool $failOpen = true;
 
     public function __construct(
@@ -436,11 +437,15 @@ final class Config
      * Configure whether the middleware should fail open (default) or fail closed.
      *
      * When fail-open (true): if the firewall throws an exception (e.g., cache
-     * backend unavailable), the request is allowed through and the error is
-     * dispatched as a PSR-14 event for logging.
+     * backend unavailable), the entire decision is skipped - the request is
+     * forwarded with NO rules applied at all (safelist, blocklist, throttle,
+     * fail2ban, allow2ban, track and OWASP) - and a {@see Events\FirewallError}
+     * event is dispatched (PSR-14) so the outage is observable. A cache disruption
+     * therefore leaves the application unprotected for its duration; deployments
+     * where blocking matters more than availability should set this to false and
+     * monitor the FirewallError event either way.
      *
      * When fail-closed (false): exceptions propagate, resulting in a 500 error.
-     * Use this only when blocking is more important than availability.
      */
     public function setFailOpen(bool $failOpen): self
     {
