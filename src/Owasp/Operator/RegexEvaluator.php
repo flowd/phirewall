@@ -40,8 +40,9 @@ final readonly class RegexEvaluator implements OperatorEvaluatorInterface
     /** @param list<string> $values */
     public function evaluate(array $values): bool
     {
-        // A non-compiling pattern cannot match; treating it as a match would make one broken
-        // rule block every request. The breakage surfaces when the rule is loaded, not per request.
+        // A pattern that does not compile is treated as no-match for that rule (validity is
+        // checked once in the constructor). Treating it as a match instead would let one broken
+        // rule block every request.
         if (!$this->patternCompiles) {
             return false;
         }
