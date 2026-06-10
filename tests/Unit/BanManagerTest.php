@@ -10,6 +10,7 @@ use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Flowd\Phirewall\Tests\Support\FakeClock;
+use Flowd\Phirewall\Tests\Support\JsonDecodingCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
 
@@ -204,6 +205,31 @@ final class BanManagerTest extends TestCase
         $this->assertFalse($result, 'unban should return false when key is not banned');
     }
 
+    public function testListBansSurvivesBackendThatDecodesJsonStrings(): void
+    {
+        // RedisCache returns a decoded array for a stored JSON-document string. The registry
+        // must round-trip through such a backend so listBans()/clearBans() keep working there.
+        $banManager = (new Config(new JsonDecodingCache()))->banManager();
+
+        $banManager->ban('test-rule', '9.9.9.9', 3600, BanType::Allow2Ban);
+
+        $bans = $banManager->listBans('test-rule', BanType::Allow2Ban);
+
+        $this->assertSame(['9.9.9.9'], array_column($bans, 'key'));
+    }
+
+    public function testBanWithMalformedUtf8KeyDoesNotBreakOnJsonEncodingBackend(): void
+    {
+        // A key with malformed UTF-8 cannot be JSON-encoded, so saving the registry throws on a
+        // JSON-encoding backend (Redis/PDO). ban() must still succeed and enforce the ban via the
+        // primary (hashed) cache key; the audit registry is best-effort.
+        $banManager = (new Config(new JsonDecodingCache()))->banManager();
+
+        $banManager->ban('test-rule', "\xff\xfe", 3600, BanType::Allow2Ban);
+
+        $this->assertTrue($banManager->isBanned('test-rule', "\xff\xfe", BanType::Allow2Ban));
+    }
+
     // ── Test 6: listBans returns active bans ────────────────────────────
 
     public function testListBansReturnsActiveBans(): void
@@ -284,6 +310,26 @@ final class BanManagerTest extends TestCase
         $keys = array_column($bans, 'key');
         sort($keys);
         $this->assertSame(['3.3.3.3'], $keys, 'Coerced 1.1.1.1 has no matching primary ban so listBans drops it; 3.3.3.3 was just banned and survives.');
+    }
+
+    public function testLoadRegistryDropsNonFiniteExpiry(): void
+    {
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache);
+        $banManager = $config->banManager();
+        $cacheKeyGenerator = $config->cacheKeyGenerator();
+
+        // Both entries have a live primary ban key, so only the non-finite filtering in
+        // loadRegistry can drop the second one. "1e400" casts to INF, which would otherwise make a
+        // JSON-encoding backend throw on the next save.
+        $registryKey = $cacheKeyGenerator->banRegistryKey(BanType::Allow2Ban->value, 'test-rule');
+        $inMemoryCache->set($registryKey, ['finite' => microtime(true) + 3600, 'infinite' => '1e400'], 3600);
+        $inMemoryCache->set($cacheKeyGenerator->allow2BanBanKey('test-rule', 'finite'), 1, 3600);
+        $inMemoryCache->set($cacheKeyGenerator->allow2BanBanKey('test-rule', 'infinite'), 1, 3600);
+
+        $keys = array_column($banManager->listBans('test-rule', BanType::Allow2Ban), 'key');
+
+        $this->assertSame(['finite'], $keys);
     }
 
     // ── Test 7: listBans filters expired bans ───────────────────────────
