@@ -17,36 +17,67 @@ use Flowd\Phirewall\Matchers\Support\RegexMatcher;
  * character (notably backticks in rule 942510), turning those characters into
  * PCRE delimiters and collapsing the rule to its inner alternation.
  *
- * Values exceeding {@see RegexMatcher::MAX_SUBJECT_LENGTH} bytes are skipped (treated as
- * non-matching). This is an intentional trade-off: extremely long payloads may evade regex
- * detection, but the alternative — running unbounded regex on attacker-controlled input — risks
- * catastrophic backtracking that can freeze the process. This mirrors standard WAF behavior
- * (e.g., ModSecurity SecRequestBodyLimit).
+ * Values exceeding {@see RegexMatcher::MAX_SUBJECT_LENGTH} bytes are truncated to that length
+ * and the head is inspected, bounding regex work on attacker-controlled input without letting a
+ * payload evade detection simply by padding past the limit. A subject that triggers a PCRE engine
+ * error (malformed UTF-8 under the /u flag, backtrack/recursion limit) is treated as a match so a
+ * crafted value cannot disable a rule by forcing the error.
  */
 final readonly class RegexEvaluator implements OperatorEvaluatorInterface
 {
     /** Cached regex pattern with delimiters, ready for preg_match(). */
     private string $delimitedPattern;
 
+    /** Whether the delimited pattern itself compiles; a broken pattern can never match. */
+    private bool $patternCompiles;
+
     public function __construct(string $pattern)
     {
         $this->delimitedPattern = self::wrapInTildeDelimiters($pattern);
+        $this->patternCompiles = @preg_match($this->delimitedPattern, '') !== false;
     }
 
     /** @param list<string> $values */
     public function evaluate(array $values): bool
     {
+        // A pattern that does not compile is treated as no-match for that rule (validity is
+        // checked once in the constructor). Treating it as a match instead would let one broken
+        // rule block every request.
+        if (!$this->patternCompiles) {
+            return false;
+        }
+
         foreach ($values as $value) {
             if (strlen($value) > RegexMatcher::MAX_SUBJECT_LENGTH) {
-                continue;
+                // Byte truncation can split a trailing multi-byte UTF-8 sequence, which would make
+                // an otherwise-valid subject fail the /u match and be wrongly treated as a match.
+                // Drop the partial trailing sequence so a valid long input is not falsely blocked;
+                // a subject malformed before the boundary still fails closed below.
+                $value = $this->trimPartialTrailingUtf8(substr($value, 0, RegexMatcher::MAX_SUBJECT_LENGTH));
             }
 
-            if (@preg_match($this->delimitedPattern, $value) === 1) {
+            // Pattern compiles, so anything other than a definite no-match (0) is either a real
+            // match or a subject-induced engine error; both fail closed to a match.
+            if (@preg_match($this->delimitedPattern, $value) !== 0) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * Drop an incomplete trailing UTF-8 sequence left by byte truncation. A UTF-8 character is at
+     * most 4 bytes, so at most 3 trailing bytes can form a partial sequence; a subject that stays
+     * invalid after trimming is malformed before the boundary and is left to fail closed.
+     */
+    private function trimPartialTrailingUtf8(string $value): string
+    {
+        for ($dropped = 0; $dropped < 3 && $value !== '' && @preg_match('//u', $value) !== 1; ++$dropped) {
+            $value = substr($value, 0, -1);
+        }
+
+        return $value;
     }
 
     /**
