@@ -75,12 +75,35 @@ final class VariableCollectorTest extends TestCase
         // Query params: value "bar", key "foo"
         $this->assertContains('bar', $result);
         $this->assertContains('foo', $result);
-        // Body params: value "secret", key "token", nested values "a" and "b", key "nested"
+        // Body params: value "secret", key "token", nested values "a"/"b" with bracketed names.
         $this->assertContains('secret', $result);
         $this->assertContains('token', $result);
         $this->assertContains('a', $result);
         $this->assertContains('b', $result);
-        $this->assertContains('nested', $result);
+        // The collected name is the original bracketed parameter, not each path segment.
+        $this->assertContains('nested[0]', $result);
+        $this->assertContains('nested[1]', $result);
+        $this->assertNotContains('nested', $result);
+    }
+
+    public function testArgsCollectorCollectsDeeplyNestedValuesWithBracketedNames(): void
+    {
+        // a[b][c]=payload parses to a nested array; the leaf value must still be collected so an
+        // ARGS-targeting rule cannot be evaded by nesting, and the name flattens to the bracketed
+        // parameter name rather than each segment.
+        $collector = new ArgsCollector();
+        $request = (new ServerRequest('POST', '/'))
+            ->withQueryParams(['a' => ['b' => ['c' => 'queryPayload']]])
+            ->withParsedBody(['x' => ['y' => ['z' => 'bodyPayload']]]);
+
+        $result = $collector->collect($request);
+
+        $this->assertContains('queryPayload', $result);
+        $this->assertContains('bodyPayload', $result);
+        $this->assertContains('a[b][c]', $result);
+        $this->assertContains('x[y][z]', $result);
+        $this->assertNotContains('a', $result);
+        $this->assertNotContains('b', $result);
     }
 
     public function testArgsCollectorCollectsValueAndNameForEveryParameterWithoutTruncating(): void
