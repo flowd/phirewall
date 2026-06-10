@@ -437,10 +437,11 @@ final class Config
      * Configure whether the middleware should fail open (default) or fail closed.
      *
      * When fail-open (true): if the firewall throws an exception (e.g., cache
-     * backend unavailable), the request is allowed through with NO rules applied
-     * and a {@see Events\FirewallError} event is dispatched (PSR-14) so the
-     * outage is observable. A cache disruption therefore disables every throttle,
-     * fail2ban, allow2ban, blocklist and OWASP rule for its duration; deployments
+     * backend unavailable), the entire decision is skipped - the request is
+     * forwarded with NO rules applied at all (safelist, blocklist, throttle,
+     * fail2ban, allow2ban, track and OWASP) - and a {@see Events\FirewallError}
+     * event is dispatched (PSR-14) so the outage is observable. A cache disruption
+     * therefore leaves the application unprotected for its duration; deployments
      * where blocking matters more than availability should set this to false and
      * monitor the FirewallError event either way.
      *
