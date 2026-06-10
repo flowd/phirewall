@@ -218,6 +218,18 @@ final class BanManagerTest extends TestCase
         $this->assertSame(['9.9.9.9'], array_column($bans, 'key'));
     }
 
+    public function testBanWithMalformedUtf8KeyDoesNotBreakOnJsonEncodingBackend(): void
+    {
+        // A key with malformed UTF-8 cannot be JSON-encoded, so saving the registry throws on a
+        // JSON-encoding backend (Redis/PDO). ban() must still succeed and enforce the ban via the
+        // primary (hashed) cache key; the audit registry is best-effort.
+        $banManager = (new Config(new JsonDecodingCache()))->banManager();
+
+        $banManager->ban('test-rule', "\xff\xfe", 3600, BanType::Allow2Ban);
+
+        $this->assertTrue($banManager->isBanned('test-rule', "\xff\xfe", BanType::Allow2Ban));
+    }
+
     // ── Test 6: listBans returns active bans ────────────────────────────
 
     public function testListBansReturnsActiveBans(): void

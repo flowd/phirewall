@@ -260,6 +260,12 @@ final readonly class BanManager
         // Store as a native array so every backend's own serialization round-trips it. Pre-encoding
         // to a JSON string here was the previous bug: a backend that decodes JSON documents on read
         // (e.g. RedisCache) returned an array, which loadRegistry then rejected as a non-string.
-        $cache->set($registryKey, $registry, $ttl);
+        try {
+            $cache->set($registryKey, $registry, $ttl);
+        } catch (\JsonException) {
+            // A key with malformed UTF-8 cannot be JSON-encoded by some backends (RedisCache/
+            // PdoCache). The primary ban key is already set, so the ban is still enforced; the
+            // audit registry is best-effort, so skip it rather than break request handling.
+        }
     }
 }

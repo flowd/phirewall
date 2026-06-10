@@ -10,11 +10,12 @@ use Flowd\Phirewall\Store\InMemoryCache;
 use Psr\SimpleCache\CacheInterface;
 
 /**
- * Cache that models RedisCache's documented read behaviour: a stored string that decodes to a JSON
- * document (array or object, both yielded as a PHP array by json_decode(..., true)) is returned as
- * that array. Delegates to an inner {@see InMemoryCache} (which is final, hence composition) and
- * only re-types the value on read. Used to exercise consumers such as the ban registry against a
- * backend that does not round-trip a JSON-encoded string.
+ * Cache that models RedisCache's documented serialization behaviour: on write it JSON-encodes the
+ * value (throwing on un-encodable input such as a malformed-UTF-8 key, like JSON_THROW_ON_ERROR
+ * backends do), and on read a stored string that decodes to a JSON document (array or object, both
+ * yielded as a PHP array by json_decode(..., true)) is returned as that array. Delegates to an
+ * inner {@see InMemoryCache} (which is final, hence composition). Used to exercise consumers such
+ * as the ban registry against a backend that does not round-trip a JSON-encoded string.
  */
 final readonly class JsonDecodingCache implements CacheInterface, CounterStoreInterface
 {
@@ -40,6 +41,10 @@ final readonly class JsonDecodingCache implements CacheInterface, CounterStoreIn
 
     public function set(string $key, mixed $value, null|int|DateInterval $ttl = null): bool
     {
+        // Mirror backends that JSON-encode on write: an un-encodable value (e.g. a malformed-UTF-8
+        // array key) throws here, as RedisCache/PdoCache would with JSON_THROW_ON_ERROR.
+        json_encode($value, JSON_THROW_ON_ERROR);
+
         return $this->inner->set($key, $value, $ttl);
     }
 
