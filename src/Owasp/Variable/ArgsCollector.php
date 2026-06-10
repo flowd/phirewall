@@ -43,11 +43,14 @@ final readonly class ArgsCollector implements VariableCollectorInterface
      *
      * @param array<array-key, mixed> $parameters
      * @param list<string> $collected
+     * @param string $namePrefix Bracketed name accumulated while descending (e.g. "foo[bar]")
      */
     private function collectFrom(array $parameters, array &$collected, string $namePrefix = ''): void
     {
         foreach ($parameters as $key => $value) {
-            // Rebuild the original bracketed parameter name (foo[bar][baz]) as we descend.
+            // Rebuild the bracketed parameter name as PHP parsed it (foo[bar]; list items such as
+            // foo[]=a get numeric indices, e.g. foo[0]) so name-based rules see the parameter name
+            // rather than each path segment.
             $name = $namePrefix === '' ? (string) $key : $namePrefix . '[' . $key . ']';
 
             if (is_array($value)) {
