@@ -10,12 +10,16 @@ use Flowd\Phirewall\Store\InMemoryCache;
 use Psr\SimpleCache\CacheInterface;
 
 /**
- * Cache that models RedisCache's documented serialization behaviour: on write it JSON-encodes the
- * value (throwing on un-encodable input such as a malformed-UTF-8 key, like JSON_THROW_ON_ERROR
- * backends do), and on read a stored string that decodes to a JSON document (array or object, both
- * yielded as a PHP array by json_decode(..., true)) is returned as that array. Delegates to an
- * inner {@see InMemoryCache} (which is final, hence composition). Used to exercise consumers such
- * as the ban registry against a backend that does not round-trip a JSON-encoded string.
+ * Minimal test double for the two RedisCache behaviours the ban-registry tests rely on:
+ *  - WRITE: validates the value is JSON-encodable and throws on un-encodable input (e.g. a
+ *    malformed-UTF-8 array key), as a JSON_THROW_ON_ERROR backend does; the value itself is then
+ *    stored verbatim in the inner {@see InMemoryCache}.
+ *  - READ: a stored string that decodes to a JSON document (array or object, both yielded as a
+ *    PHP array by json_decode(..., true)) is returned as that array, mirroring how RedisCache
+ *    hands back an array for a stored JSON document.
+ *
+ * It intentionally does not reproduce RedisCache's full value serialization (scalars are not JSON
+ * round-tripped); that is out of scope for these tests.
  */
 final readonly class JsonDecodingCache implements CacheInterface, CounterStoreInterface
 {
@@ -82,7 +86,13 @@ final readonly class JsonDecodingCache implements CacheInterface, CounterStoreIn
      */
     public function setMultiple(iterable $values, null|int|DateInterval $ttl = null): bool
     {
-        return $this->inner->setMultiple($values, $ttl);
+        // Route through set() so multi-key writes get the same JSON-encodability validation.
+        $ok = true;
+        foreach ($values as $key => $value) {
+            $ok = $this->set((string) $key, $value, $ttl) && $ok;
+        }
+
+        return $ok;
     }
 
     /**
