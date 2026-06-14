@@ -6,12 +6,13 @@
  * This example combines all protection strategies into a production-ready
  * configuration that defends against multiple attack vectors:
  *
- * - SQL Injection (OWASP rules)
- * - XSS Attacks (OWASP rules)
  * - Brute Force (Fail2Ban + throttling)
  * - DDoS/Rate Abuse (tiered rate limiting)
  * - Scanner Detection (User-Agent + path blocking)
  * - Path Traversal (pattern detection)
+ *
+ * OWASP CRS detection (SQL injection, XSS, ...) is available via the companion
+ * package flowd/phirewall-preset-owasp-crs (see Layer 3 below).
  *
  * Run: php examples/08-comprehensive-protection.php
  */
@@ -26,7 +27,6 @@ use Flowd\Phirewall\Config\DiagnosticsDispatcher;
 use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
-use Flowd\Phirewall\Owasp\SecRuleLoader;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;
@@ -124,33 +124,19 @@ $config->blocklists->add('path-traversal', function ($req): bool {
 echo "  - Path traversal patterns\n\n";
 
 // =============================================================================
-// LAYER 3: OWASP RULES (SQL Injection, XSS, etc.)
+// LAYER 3: OWASP CRS RULES (SQL Injection, XSS, etc.)
+// =============================================================================
+//
+// OWASP CRS detection lives in the companion package
+// flowd/phirewall-preset-owasp-crs, which ships the SecRule engine plus
+// ready-made blocklist/fail2ban presets:
+//
+//     use Flowd\PhirewallPresetOwaspCrs\{ParanoiaLevel, Presets};
+//     $config = $config->with(Presets::blocklist(ParanoiaLevel::Level1));
+//
 // =============================================================================
 
-echo "Layer 3: OWASP Rules\n";
-
-$owaspRules = <<<'CRS'
-# SQL Injection
-SecRule ARGS "@rx (?i)\bunion\b.*\bselect\b" "id:942100,phase:2,deny,msg:'SQLi: UNION SELECT'"
-SecRule ARGS "@rx (?i)('\s*(or|and)\s*'|'\s*=\s*')" "id:942110,phase:2,deny,msg:'SQLi: Boolean'"
-SecRule ARGS "@rx (--|/\*|\*/)" "id:942120,phase:2,deny,msg:'SQLi: Comment'"
-SecRule ARGS "@rx (?i);\s*(drop|delete|insert|update)\b" "id:942130,phase:2,deny,msg:'SQLi: Stacked'"
-
-# XSS
-SecRule ARGS "@rx (?i)<script[^>]*>" "id:941100,phase:2,deny,msg:'XSS: Script tag'"
-SecRule ARGS "@rx (?i)\bon(load|error|click|mouseover)\s*=" "id:941110,phase:2,deny,msg:'XSS: Event handler'"
-SecRule ARGS "@rx (?i)javascript\s*:" "id:941120,phase:2,deny,msg:'XSS: JS protocol'"
-
-# PHP Injection
-SecRule ARGS "@rx (?i)(eval|exec|system|shell_exec)\s*\(" "id:933100,phase:2,deny,msg:'PHP: Code injection'"
-SecRule ARGS "@rx (?i)(base64_decode|gzinflate)\s*\(" "id:933110,phase:2,deny,msg:'PHP: Obfuscation'"
-CRS;
-
-$coreRuleSet = SecRuleLoader::fromString($owaspRules);
-$config->blocklists->owasp('owasp', $coreRuleSet);
-echo "  - SQL Injection rules (4)\n";
-echo "  - XSS rules (3)\n";
-echo "  - PHP Injection rules (2)\n\n";
+echo "Layer 3: OWASP CRS - optional, install flowd/phirewall-preset-owasp-crs to enable\n";
 
 // =============================================================================
 // LAYER 4: FAIL2BAN (Brute force protection)
@@ -271,13 +257,9 @@ $tests = [
     ['WordPress probe', 'GET', '/wp-admin/', [], '1.1.1.3', 403],
     ['.env access', 'GET', '/.env', [], '1.1.1.4', 403],
 
-    // SQL Injection
-    ['SQLi UNION', 'GET', '/api?id=1+UNION+SELECT', [], '1.1.1.5', 403],
-    ['SQLi Boolean', 'GET', "/api?user=admin'OR'1'='1", [], '1.1.1.6', 403],
-
-    // XSS
-    ['XSS Script', 'GET', '/api?q=<script>alert(1)', [], '1.1.1.7', 403],
-    ['XSS Event', 'GET', '/api?q=<img+onerror=alert(1)>', [], '1.1.1.8', 403],
+    // SQL injection and XSS detection are not built into core; they live in the
+    // OWASP CRS companion package (flowd/phirewall-preset-owasp-crs, see Layer 3),
+    // so this core-only example does not assert on them.
 
     // Path traversal
     ['Path traversal', 'GET', '/files/../../../etc/passwd', [], '1.1.1.9', 403],
@@ -346,7 +328,7 @@ $counters = $diagnostics->all();
 
 $categories = [
     'safelisted' => 'Safelisted (bypassed)',
-    'blocklisted' => 'Blocked by blocklist/OWASP',
+    'blocklisted' => 'Blocked by blocklist',
     'throttle_exceeded' => 'Throttled (rate limited)',
     'fail2ban_banned' => 'Banned by Fail2Ban',
     'passed' => 'Passed (allowed)',
