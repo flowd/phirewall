@@ -17,7 +17,7 @@ final class PresetsTest extends TestCase
 {
     public function testScannerBlockingBlocksKnownToolsAndSuspiciousHeaders(): void
     {
-        $firewall = new Firewall((new Config(new InMemoryCache()))->combine(Presets::scannerBlocking()));
+        $firewall = new Firewall((new Config(new InMemoryCache()))->with(Presets::scannerBlocking()));
 
         $scanner = $firewall->decide($this->request('GET', '/')->withHeader('User-Agent', 'sqlmap/1.7'));
         $this->assertSame(Outcome::BLOCKED, $scanner->outcome);
@@ -34,7 +34,7 @@ final class PresetsTest extends TestCase
 
     public function testSensitivePathBlockingBlocksProbesButAllowsNormalPaths(): void
     {
-        $firewall = new Firewall((new Config(new InMemoryCache()))->combine(Presets::sensitivePathBlocking()));
+        $firewall = new Firewall((new Config(new InMemoryCache()))->with(Presets::sensitivePathBlocking()));
 
         foreach (['/.git/config', '/.svn/entries', '/.env', '/.env.production', '/.aws/credentials', '/.htpasswd', '/.htaccess', '/.DS_Store'] as $path) {
             $this->assertSame(
@@ -54,7 +54,7 @@ final class PresetsTest extends TestCase
 
     public function testSensitivePathBlockingBlocksNestedAndTrailingEvasions(): void
     {
-        $firewall = new Firewall((new Config(new InMemoryCache()))->combine(Presets::sensitivePathBlocking()));
+        $firewall = new Firewall((new Config(new InMemoryCache()))->with(Presets::sensitivePathBlocking()));
 
         // Anchored regex entries block nesting, trailing slashes, and doubled
         // slashes: the exact evasions a PATH_EXACT match would have let through.
@@ -80,8 +80,8 @@ final class PresetsTest extends TestCase
         $this->assertNotSame(Presets::scannerBlocking(), Presets::scannerBlocking());
 
         $cache = new InMemoryCache();
-        $configA = (new Config($cache))->combine(Presets::scannerBlocking());
-        $configB = (new Config($cache))->combine(Presets::scannerBlocking());
+        $configA = (new Config($cache))->with(Presets::scannerBlocking());
+        $configB = (new Config($cache))->with(Presets::scannerBlocking());
         $this->assertNotSame($configA, $configB);
         $this->assertNotSame($configA->blocklists, $configB->blocklists);
     }
@@ -146,9 +146,9 @@ final class PresetsTest extends TestCase
     public function testConfigByNameMatchesNamedFactory(): void
     {
         $cache = new InMemoryCache();
-        $byName = (new Config($cache))->combine(Presets::get(Presets::SCANNER_BLOCKING));
+        $byName = (new Config($cache))->with(Presets::get(Presets::SCANNER_BLOCKING));
         $this->assertSame(
-            array_keys((new Config($cache))->combine(Presets::scannerBlocking())->blocklists->rules()),
+            array_keys((new Config($cache))->with(Presets::scannerBlocking())->blocklists->rules()),
             array_keys($byName->blocklists->rules()),
         );
     }
@@ -160,10 +160,9 @@ final class PresetsTest extends TestCase
         $userConfig = new Config($cache);
         $userConfig->safelists->add('internal', static fn($request): bool => $request->getHeaderLine('X-Internal') === 'yes');
 
-        $effective = Config::compose(
-            (new Config($cache))->combine(Presets::scannerBlocking(), Presets::sensitivePathBlocking()),
-            $userConfig,
-        );
+        $effective = (new Config($cache))
+            ->with(Presets::scannerBlocking(), Presets::sensitivePathBlocking())
+            ->with($userConfig);
         $firewall = new Firewall($effective);
 
         // Scanner preset rule still fires.
@@ -187,7 +186,7 @@ final class PresetsTest extends TestCase
         $relaxed = new Config($cache);
         $relaxed->blocklists->add('preset.scanner.suspicious-headers', static fn($request): bool => false);
 
-        $effective = (new Config($cache))->combine(Presets::scannerBlocking())->mergedWith($relaxed);
+        $effective = (new Config($cache))->with(Presets::scannerBlocking())->with($relaxed);
         $this->assertSame(
             ['preset.scanner.known-tools', 'preset.scanner.suspicious-headers'],
             array_keys($effective->blocklists->rules()),

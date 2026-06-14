@@ -35,7 +35,7 @@ use Psr\SimpleCache\CacheInterface;
  * over this Config; it is the supported runtime-management entry point and
  * shares all cached state with the {@see Middleware}.
  */
-final class Config
+final class Config implements ConfigLayer
 {
     // ── Rule sections ────────────────────────────────────────────────────
 
@@ -85,7 +85,7 @@ final class Config
     public function __construct(
         public readonly CacheInterface $cache,
         public readonly ?EventDispatcherInterface $eventDispatcher = null,
-        private readonly ?ClockInterface $clock = null,
+        public readonly ?ClockInterface $clock = null,
     ) {
         $this->safelists = new SafelistSection($this);
         $this->blocklists = new BlocklistSection($this);
@@ -147,7 +147,7 @@ final class Config
      * be appended to or cleared): mutating an input layer's backend after
      * composition therefore also affects the composed Config.
      */
-    public static function compose(self $base, self ...$overlays): self
+    private function compose(self $base, self ...$overlays): self
     {
         $composed = new self($base->cache, $base->eventDispatcher, $base->clock);
         $layers = [$base, ...$overlays];
@@ -173,7 +173,7 @@ final class Config
             // carried over from earlier layers, instead of the rule silently
             // keeping the backend instance it captured at construction.
             foreach ($layer->blocklists->rules() as $rule) {
-                $composed->blocklists->addRule(self::rebindPatternBackend($rule, $composedBackends));
+                $composed->blocklists->addRule($this->rebindPatternBackend($rule, $composedBackends));
             }
 
             foreach ($layer->throttles->rules() as $rule) {
@@ -199,30 +199,24 @@ final class Config
         // silently disabled. Unlike the other scalar options below, holding the
         // default value here does not forfeit the layer's say.
         $composed->setEnabled($layers[array_key_last($layers)]->enabled);
-        $composed->setFailOpen(self::lastExplicit(array_map(static fn(self $layer): bool => $layer->failOpen, $layers), true));
-        $composed->enableRateLimitHeaders(self::lastExplicit(array_map(static fn(self $layer): bool => $layer->rateLimitHeadersEnabled, $layers), false));
-        $composed->enableOwaspDiagnosticsHeader(self::lastExplicit(array_map(static fn(self $layer): bool => $layer->owaspDiagnosticsHeaderEnabled, $layers), false));
-        $composed->enableResponseHeaders(self::lastExplicit(array_map(static fn(self $layer): bool => $layer->responseHeadersEnabled, $layers), false));
-        $composed->setKeyPrefix(self::lastExplicit(array_map(static fn(self $layer): string => $layer->keyPrefix, $layers), 'phirewall'));
+        $composed->setFailOpen($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->failOpen, $layers), true));
+        $composed->enableRateLimitHeaders($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->rateLimitHeadersEnabled, $layers), false));
+        $composed->enableOwaspDiagnosticsHeader($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->owaspDiagnosticsHeaderEnabled, $layers), false));
+        $composed->enableResponseHeaders($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->responseHeadersEnabled, $layers), false));
+        $composed->setKeyPrefix($this->lastExplicit(array_map(static fn(self $layer): string => $layer->keyPrefix, $layers), 'phirewall'));
 
-        $ipResolver = self::lastExplicit(array_map(static fn(self $layer): ?\Closure => $layer->ipResolver, $layers), null);
+        $ipResolver = $this->lastExplicit(array_map(static fn(self $layer): ?\Closure => $layer->ipResolver, $layers), null);
         if ($ipResolver instanceof \Closure) {
             $composed->setIpResolver($ipResolver);
         }
 
-        $discriminatorNormalizer = self::lastExplicit(array_map(static fn(self $layer): ?\Closure => $layer->discriminatorNormalizer, $layers), null);
+        $discriminatorNormalizer = $this->lastExplicit(array_map(static fn(self $layer): ?\Closure => $layer->discriminatorNormalizer, $layers), null);
         if ($discriminatorNormalizer instanceof \Closure) {
             $composed->setDiscriminatorNormalizer($discriminatorNormalizer);
         }
 
-        $composed->blocklistedResponseFactory = self::lastExplicit(
-            array_map(static fn(self $layer): ?BlocklistedResponseFactoryInterface => $layer->blocklistedResponseFactory, $layers),
-            null,
-        );
-        $composed->throttledResponseFactory = self::lastExplicit(
-            array_map(static fn(self $layer): ?ThrottledResponseFactoryInterface => $layer->throttledResponseFactory, $layers),
-            null,
-        );
+        $composed->blocklistedResponseFactory = $this->lastExplicit(array_map(static fn(self $layer): ?BlocklistedResponseFactoryInterface => $layer->blocklistedResponseFactory, $layers), null);
+        $composed->throttledResponseFactory = $this->lastExplicit(array_map(static fn(self $layer): ?ThrottledResponseFactoryInterface => $layer->throttledResponseFactory, $layers), null);
 
         return $composed;
     }
@@ -237,7 +231,7 @@ final class Config
      *
      * @param array<string, PatternBackendInterface> $composedBackends
      */
-    private static function rebindPatternBackend(BlocklistRule $blocklistRule, array $composedBackends): BlocklistRule
+    private function rebindPatternBackend(BlocklistRule $blocklistRule, array $composedBackends): BlocklistRule
     {
         $matcher = $blocklistRule->matcher();
         if (!$matcher instanceof SnapshotBlocklistMatcher) {
@@ -255,44 +249,33 @@ final class Config
     }
 
     /**
-     * Layer one or more overlay Configs on top of this one and return a NEW
-     * composed Config, leaving this instance (and every overlay) untouched.
+     * Apply zero or more {@see ConfigLayer}s - other Configs, PortableConfigs, or
+     * presets - on top of this one, leaving this instance and every layer
+     * untouched. With at least one layer the result is a NEW composed Config; with
+     * no layers this same instance is returned unchanged.
      *
-     * Equivalent to {@see Config::compose()} with `$this` as the base; see that
-     * method for the full merge and precedence semantics.
+     * Layers are applied left to right, so later layers win on a rule-name clash.
+     * A PortableConfig layer is materialized onto this Config's cache (and event
+     * dispatcher / clock); layers never carry a cache themselves. See
+     * {@see compose()} for the full merge and precedence semantics.
      */
-    public function mergedWith(self ...$overlays): self
+    public function with(ConfigLayer ...$layers): self
     {
-        return self::compose($this, ...$overlays);
+        $result = $this;
+        foreach ($layers as $layer) {
+            $result = $layer->applyTo($result);
+        }
+
+        return $result;
     }
 
     /**
-     * Combine this Config with one or more {@see PortableConfig}s and return a
-     * NEW composed Config, leaving this instance untouched.
-     *
-     * Each PortableConfig is materialized on THIS Config's cache (and event
-     * dispatcher / clock) — the portable/preset layer never receives a cache
-     * itself, so shareable rule data stays decoupled from the stateful counter
-     * store. The receiver is the base and each PortableConfig is an overlay
-     * applied left to right, so later arguments win on a name clash — the same
-     * precedence as {@see compose()} / {@see mergedWith()}.
-     *
-     * Each materialized layer inherits the receiver's `enabled` state: a
-     * PortableConfig cannot express `enabled`, and `compose()` resolves it with
-     * strict last-layer-wins, so a fresh (default-enabled) layer would otherwise
-     * silently re-enable a disabled receiver. Combining never changes whether
-     * the firewall is enabled.
+     * Apply this Config as a layer onto $base ({@see ConfigLayer}): composes
+     * $base with this Config so this Config wins on a rule-name clash.
      */
-    public function combine(PortableConfig ...$portableConfigs): self
+    public function applyTo(Config $config): Config
     {
-        $layers = array_map(
-            fn(PortableConfig $portableConfig): self => $portableConfig->applyTo(
-                (new self($this->cache, $this->eventDispatcher, $this->clock))->setEnabled($this->enabled),
-            ),
-            $portableConfigs,
-        );
-
-        return self::compose($this, ...$layers);
+        return $this->compose($config, $this);
     }
 
     /**
@@ -305,7 +288,7 @@ final class Config
      * @param TValue $default The field default; a layer carrying this exact value does not override.
      * @return TValue
      */
-    private static function lastExplicit(array $values, mixed $default): mixed
+    private function lastExplicit(array $values, mixed $default): mixed
     {
         $winner = $default;
         foreach ($values as $value) {

@@ -11,20 +11,21 @@ use Flowd\Phirewall\Portable\PortableConfig;
  * Ready-to-use rule bundles for common protection scenarios.
  *
  * Each preset is a {@see PortableConfig}: plain, inspectable, JSON-serializable
- * data rather than opaque closures. Materialize one (or several) on your own
- * cache with {@see \Flowd\Phirewall\Config::combine()}; presets never receive a
- * cache themselves, keeping shareable rule data decoupled from the stateful
- * counter store:
+ * data rather than opaque closures, and a {@see \Flowd\Phirewall\ConfigLayer}.
+ * Apply one (or several) onto your own cache with
+ * {@see \Flowd\Phirewall\Config::with()}; presets never receive a cache
+ * themselves, keeping shareable rule data decoupled from the stateful counter
+ * store:
  *
  * ```php
  * // A preset on its own:
- * $config = (new Config($cache))->combine(Presets::scannerBlocking());
+ * $config = (new Config($cache))->with(Presets::scannerBlocking());
  *
  * // A preset layered with your own portable rules (later args win by name):
- * $config = (new Config($cache))->combine(Presets::scannerBlocking(), $myPortable);
+ * $config = (new Config($cache))->with(Presets::scannerBlocking(), $myPortable);
  *
  * // Several presets stacked together:
- * $config = (new Config($cache))->combine(
+ * $config = (new Config($cache))->with(
  *     Presets::scannerBlocking(),
  *     Presets::sensitivePathBlocking(),
  * );

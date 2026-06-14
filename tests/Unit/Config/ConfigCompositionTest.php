@@ -40,7 +40,7 @@ final class ConfigCompositionTest extends TestCase
         $overlay = new Config(new InMemoryCache());
         $overlay->blocklists->addRule($overlayRule);
 
-        $composed = Config::compose($this->configFor($baseRule), $overlay);
+        $composed = $this->configFor($baseRule)->with($overlay);
 
         $rules = $composed->blocklists->rules();
         $this->assertCount(1, $rules);
@@ -77,7 +77,7 @@ final class ConfigCompositionTest extends TestCase
         $overlay->tracks->add('audit', 120, static fn(): bool => true, static fn(): string => 'k');
         $overlay->tracks->add('metrics', 60, static fn(): bool => true, static fn(): string => 'k');
 
-        $composed = Config::compose($base, $overlay);
+        $composed = $base->with($overlay);
 
         // Union by name: 1 overridden + 1 new = 2 per section.
         $this->assertSame(['health', 'office'], array_keys($composed->safelists->rules()));
@@ -105,7 +105,7 @@ final class ConfigCompositionTest extends TestCase
         $overlay->blocklists->add('second', static fn(): bool => false); // replace in place
         $overlay->blocklists->add('fourth', static fn(): bool => true);  // append
 
-        $composed = Config::compose($base, $overlay);
+        $composed = $base->with($overlay);
 
         $this->assertSame(['first', 'second', 'third', 'fourth'], array_keys($composed->blocklists->rules()));
     }
@@ -135,7 +135,7 @@ final class ConfigCompositionTest extends TestCase
             ->setDiscriminatorNormalizer($normalizerB);
         $overlay->throttledResponseFactory = $throttleFactory;
 
-        $composed = Config::compose($base, $overlay);
+        $composed = $base->with($overlay);
 
         $this->assertSame('tenant', $composed->getKeyPrefix());        // last explicit string
         $this->assertFalse($composed->isFailOpen());                   // only base set it (non-default)
@@ -158,7 +158,7 @@ final class ConfigCompositionTest extends TestCase
 
         $overlay = new Config(new InMemoryCache()); // all defaults
 
-        $composed = Config::compose($base, $overlay);
+        $composed = $base->with($overlay);
 
         $this->assertSame('base', $composed->getKeyPrefix());
         $this->assertFalse($composed->isFailOpen());
@@ -173,12 +173,12 @@ final class ConfigCompositionTest extends TestCase
         // An explicit re-enable on the winning layer must override an earlier disable.
         $base = (new Config(new InMemoryCache()))->disable();
         $overlay = (new Config(new InMemoryCache()))->enable();
-        $this->assertTrue(Config::compose($base, $overlay)->isEnabled());
+        $this->assertTrue($base->with($overlay)->isEnabled());
 
         // The highest-priority layer's explicit disable still wins.
         $enabledBase = new Config(new InMemoryCache());
         $disablingOverlay = (new Config(new InMemoryCache()))->disable();
-        $this->assertFalse(Config::compose($enabledBase, $disablingOverlay)->isEnabled());
+        $this->assertFalse($enabledBase->with($disablingOverlay)->isEnabled());
     }
 
     public function testInputsAreNotMutatedByComposition(): void
@@ -195,7 +195,7 @@ final class ConfigCompositionTest extends TestCase
         $baseBackendCount = count($base->blocklists->patternBackends());
         $overlayBlocklistCount = count($overlay->blocklists->rules());
 
-        Config::compose($base, $overlay);
+        $base->with($overlay);
 
         $this->assertCount($baseBlocklistCount, $base->blocklists->rules());
         $this->assertCount($baseBackendCount, $base->blocklists->patternBackends());
@@ -216,7 +216,7 @@ final class ConfigCompositionTest extends TestCase
         $overlayCache = new InMemoryCache();
         $overlay = new Config($overlayCache, $this->eventDispatcher(), new FakeClock(9_999.0));
 
-        $composed = Config::compose($base, $overlay);
+        $composed = $base->with($overlay);
 
         $this->assertSame($cache, $composed->cache, 'Composed Config uses the base cache.');
         $this->assertSame($dispatcher, $composed->eventDispatcher, 'Composed Config uses the base dispatcher.');
@@ -231,22 +231,27 @@ final class ConfigCompositionTest extends TestCase
         $overlay = new Config(new InMemoryCache());
         $overlay->blocklists->add('wp', static fn(): bool => true);
 
-        $composed = $base->mergedWith($overlay);
+        $composed = $base->with($overlay);
 
         $this->assertSame(['admin', 'wp'], array_keys($composed->blocklists->rules()));
         $this->assertNotSame($base, $composed);
         $this->assertNotSame($overlay, $composed);
     }
 
-    public function testComposeWithNoOverlaysClonesTheBaseRules(): void
+    public function testWithReturnsANewConfigAndLeavesTheBaseUntouched(): void
     {
         $base = (new Config(new InMemoryCache()))->setKeyPrefix('base');
         $base->blocklists->add('admin', static fn(): bool => true);
 
-        $composed = Config::compose($base);
+        $overlay = new Config(new InMemoryCache());
+        $overlay->blocklists->add('wp', static fn(): bool => true);
+
+        $composed = $base->with($overlay);
 
         $this->assertNotSame($base, $composed);
-        $this->assertSame(['admin'], array_keys($composed->blocklists->rules()));
+        $this->assertSame(['admin', 'wp'], array_keys($composed->blocklists->rules()));
+        // The base is unchanged by the composition.
+        $this->assertSame(['admin'], array_keys($base->blocklists->rules()));
         $this->assertSame('base', $composed->getKeyPrefix());
     }
 
@@ -264,7 +269,7 @@ final class ConfigCompositionTest extends TestCase
             new PatternEntry(PatternKind::PATH_EXACT, '/wp-login.php'),
         ]));
 
-        $composed = Config::compose($base, $overlay);
+        $composed = $base->with($overlay);
 
         $backends = $composed->blocklists->patternBackends();
         $this->assertSame(['threats', 'extra'], array_keys($backends));
@@ -287,7 +292,7 @@ final class ConfigCompositionTest extends TestCase
             new PatternEntry(PatternKind::PATH_EXACT, '/new-threat'),
         ]));
 
-        $firewall = new Firewall(Config::compose($base, $overlay));
+        $firewall = new Firewall($base->with($overlay));
 
         // The override now reaches the carried-over rule: the overlay's threat is
         // blocked, and the replaced backend's entry no longer matches.
@@ -304,7 +309,7 @@ final class ConfigCompositionTest extends TestCase
         $base->allow2ban->addRule(new Allow2BanRule('a', 1, 60, 60, new ClosureKeyExtractor(KeyExtractors::ip())));
         $base->tracks->addRule(new TrackRule('tr', 60, new ClosureRequestMatcher(static fn(): bool => false), new ClosureKeyExtractor(KeyExtractors::ip())));
 
-        $composed = Config::compose($base, new Config(new InMemoryCache()));
+        $composed = $base->with(new Config(new InMemoryCache()));
 
         $this->assertCount(1, $composed->safelists->rules());
         $this->assertCount(1, $composed->throttles->rules());
@@ -331,7 +336,7 @@ final class ConfigCompositionTest extends TestCase
             ->blocklist('scanners', PortableConfig::filterKnownScanners(['evilbot']))
             ->blocklist('admin', PortableConfig::filterPathPrefix('/admin'));
 
-        $composed = (new Config($cache))->combine($baseline, $overlay);
+        $composed = (new Config($cache))->with($baseline, $overlay);
 
         // Unioned rule sets across layers.
         $this->assertSame(['health'], array_keys($composed->safelists->rules()));
@@ -361,10 +366,10 @@ final class ConfigCompositionTest extends TestCase
         // Combining onto a disabled receiver must NOT silently re-enable it: a
         // PortableConfig cannot express `enabled`, so the materialized layer
         // inherits the receiver's state instead of the default-enabled value.
-        $this->assertFalse((new Config(new InMemoryCache()))->disable()->combine($portable)->isEnabled());
+        $this->assertFalse((new Config(new InMemoryCache()))->disable()->with($portable)->isEnabled());
 
         // An enabled receiver stays enabled.
-        $this->assertTrue((new Config(new InMemoryCache()))->combine($portable)->isEnabled());
+        $this->assertTrue((new Config(new InMemoryCache()))->with($portable)->isEnabled());
     }
 
     private function configFor(BlocklistRule $blocklistRule): Config

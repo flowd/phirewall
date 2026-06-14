@@ -14,6 +14,7 @@ use Flowd\Phirewall\Config\Rule\Fail2BanRule;
 use Flowd\Phirewall\Config\Rule\SafelistRule;
 use Flowd\Phirewall\Config\Rule\ThrottleRule;
 use Flowd\Phirewall\Config\Rule\TrackRule;
+use Flowd\Phirewall\ConfigLayer;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Matchers\IpMatcher;
 use Flowd\Phirewall\Matchers\KnownScannerMatcher;
@@ -69,7 +70,7 @@ use Psr\Http\Message\ServerRequestInterface;
  *   options: SchemaOptions
  * }
  */
-final class PortableConfig
+final class PortableConfig implements ConfigLayer
 {
     /**
      * `typ` value used inside the signed envelope header. Bumping the version
@@ -816,19 +817,19 @@ final class PortableConfig
     }
 
     /**
-     * Apply this schema's rules and options to the given Config and return it.
+     * Overlay this schema onto $base and return a NEW Config ({@see ConfigLayer}).
      *
-     * Rules are registered through the section API
-     * ({@see Config::$safelists}, {@see Config::$blocklists}, …) rather than the
-     * deprecated forwarding methods, and dedicated matchers ({@see IpMatcher},
-     * {@see KnownScannerMatcher}, …) are used where a filter maps onto one.
-     *
-     * @internal Materialize a PortableConfig through {@see Config::combine()},
-     *           which supplies the Config (and therefore the cache) — the
-     *           portable/preset layer never receives a cache itself.
+     * This schema is materialized on $base's cache (event dispatcher / clock) -
+     * the portable layer never carries a cache itself - then composed over $base,
+     * so it wins on a rule-name clash and $base's `enabled` state is preserved.
+     * Rules are registered through the section API ({@see Config::$safelists},
+     * {@see Config::$blocklists}, …), using dedicated matchers ({@see IpMatcher},
+     * {@see KnownScannerMatcher}, …) where a filter maps onto one.
      */
-    public function applyTo(Config $config): Config
+    public function applyTo(Config $base): Config
     {
+        $config = (new Config($base->cache, $base->eventDispatcher, $base->clock))->setEnabled($base->isEnabled());
+
         $options = $this->schema['options'];
         if (isset($options['rateLimitHeaders']) && $options['rateLimitHeaders']) {
             $config->enableRateLimitHeaders(true);
@@ -929,7 +930,7 @@ final class PortableConfig
             $config->blocklists->fromBackend($patternBlocklist['name'], $patternBlocklist['backend']);
         }
 
-        return $config;
+        return $base->with($config);
     }
 
     /**

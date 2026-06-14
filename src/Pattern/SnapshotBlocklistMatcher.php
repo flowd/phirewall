@@ -34,7 +34,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface
     /**
      * Name of the pattern backend this matcher reads from, as registered on the
      * Config. Empty when built from a bare backend instance with no registered
-     * name. {@see \Flowd\Phirewall\Config::compose()} uses it to re-point the
+     * name. {@see \Flowd\Phirewall\Config::with()} uses it to re-point the
      * matcher at the winning backend when layers override a backend by name.
      */
     public function backendName(): string

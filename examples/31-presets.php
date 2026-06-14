@@ -12,10 +12,10 @@ declare(strict_types=1);
  *
  *   Presets::scannerBlocking()                 -> the underlying PortableConfig
  *
- * Materialize a preset onto a cache with Config::combine(); the result is a
- * live Config that layers with your own rules through Config::compose() /
- * mergedWith() (see example 30). Every rule is namespaced `preset.<area>.*`, so
- * overriding one by name is predictable.
+ * Apply a preset onto a cache with Config::with(); the result is a live Config
+ * that layers with your own rules through the same Config::with() (see example
+ * 30). Every rule is namespaced `preset.<area>.*`, so overriding one by name is
+ * predictable.
  *
  * Presets cover only signals that are universal across applications. Rules that
  * depend on your own routing (API rate limiting on your API prefix, a throttle
@@ -50,7 +50,7 @@ $cache = new InMemoryCache();
 // 1. A preset standalone.
 // ─────────────────────────────────────────────────────────────────────────
 echo "1. Scanner-blocking preset, used as-is:\n";
-$scannerFirewall = new Firewall((new Config($cache))->combine(Presets::scannerBlocking()));
+$scannerFirewall = new Firewall((new Config($cache))->with(Presets::scannerBlocking()));
 
 assertDecision(
     $scannerFirewall,
@@ -96,10 +96,10 @@ echo "\n3. Compose presets with a user override (later layer wins):\n";
 $tenant = new Config($cache);
 $tenant->blocklists->add('preset.scanner.suspicious-headers', static fn($request): bool => false);
 
-$effective = (new Config($cache))->combine(
+$effective = (new Config($cache))->with(
     Presets::scannerBlocking(),
     Presets::sensitivePathBlocking(),
-)->mergedWith($tenant);
+)->with($tenant);
 
 printf("   blocklist rules after composition: %s\n", implode(', ', array_keys($effective->blocklists->rules())));
 

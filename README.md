@@ -67,8 +67,8 @@ php examples/01-basic-setup.php
 # See brute force protection
 php examples/02-brute-force-protection.php
 
-# Test SQL injection blocking
-php examples/04-sql-injection-blocking.php
+# See scanner and bot detection
+php examples/06-bot-detection.php
 
 # Full production setup
 php examples/08-comprehensive-protection.php
@@ -295,7 +295,7 @@ See [04-sql-injection-blocking.php](examples/04-sql-injection-blocking.php) and 
 
 ## Portable Config
 
-`PortableConfig` expresses a ruleset as plain, JSON-serializable data instead of PHP closures, so a configuration can be stored in a database, shipped through a config service, diffed in git, or shared between processes — then rebuilt into a live `Config` with `Config::combine()`.
+`PortableConfig` expresses a ruleset as plain, JSON-serializable data instead of PHP closures, so a configuration can be stored in a database, shipped through a config service, diffed in git, or shared between processes — then rebuilt into a live `Config` with `Config::with()` (a `PortableConfig` is a [`ConfigLayer`](#config-composition--layering)).
 
 ```php
 use Flowd\Phirewall\Config;
@@ -319,7 +319,7 @@ $portable = PortableConfig::create()
 
 // Round-trip as data …
 $array = $portable->toArray();
-$config = (new Config($cache))->combine(PortableConfig::fromArray($array));
+$config = (new Config($cache))->with(PortableConfig::fromArray($array));
 ```
 
 **Supported rule types:** safelists, blocklists, throttles (incl. `sliding` and an optional `scope` filter that restricts which requests the throttle counts — e.g. `filterPathPrefix('/api')`), fail2ban, allow2ban, tracks, and pattern backends. **Filters:** `all`, `none`, `path_equals`, `path_prefix`, `path_regex`, `method_equals`, `method_in`, `header_equals`, `header_present`, `header_regex`, plus the matcher-backed `ip`, `known_scanners`, and `suspicious_headers`. **Key extractors:** `ip`, `method`, `path`, `header`, `hashed_header`.
@@ -341,21 +341,21 @@ Signing keys must be at least 16 bytes (32 random bytes recommended). See [28-po
 
 ## Config composition / layering
 
-Real deployments rarely have a single source of firewall rules. A vendor ships a baseline, an environment adds its own rules, a tenant overrides a few, and a single deployment applies a last-minute tweak. `Config::compose()` (and the fluent `$base->mergedWith(...)`) merges these layers into one effective `Config` — **without mutating any input** — so each layer can be owned and shipped independently (often as a [`PortableConfig`](#portable-config)).
+Real deployments rarely have a single source of firewall rules. A vendor ships a baseline, an environment adds its own rules, a tenant overrides a few, and a single deployment applies a last-minute tweak. `Config::with(ConfigLayer ...$layers)` applies these layers onto one effective `Config` — **without mutating any input** — so each layer can be owned and shipped independently. A layer is anything that implements `ConfigLayer`: another `Config`, or a [`PortableConfig`](#portable-config) (rules as data).
 
 ```php
 use Flowd\Phirewall\Config;
 
-// Each layer is data — frequently a PortableConfig — combined onto one base Config.
-$layered = (new Config($cache))->combine(
+// Each layer is a ConfigLayer — frequently a PortableConfig — applied onto one base Config.
+$layered = (new Config($cache))->with(
     $vendorPortable,    // shared product defaults
     $envPortable,       // staging vs. production
     $tenantPortable,    // per-customer policy
 );
 $deploymentTweak = (new Config($cache))->setFailOpen(false);
 
-// Later layers win. Equivalent: Config::compose($layered, $deploymentTweak).
-$effective = $layered->mergedWith($deploymentTweak);
+// Later layers win.
+$effective = $layered->with($deploymentTweak);
 ```
 
 Merge semantics (overlays applied left to right, so **later sources win**):
@@ -370,23 +370,24 @@ See [30-config-composition.php](examples/30-config-composition.php) for a full v
 
 ## Presets
 
-Presets are ready-to-use rule bundles for recurring scenarios, so you don't have to hand-write the same rules each time. Each preset is a [`PortableConfig`](#portable-config): plain, inspectable, serializable data returned directly (to serialize, diff, sign, or layer) and materialized onto a `Config` with `Config::combine()`.
+Presets are ready-to-use rule bundles for recurring scenarios, so you don't have to hand-write the same rules each time. Each preset is a [`PortableConfig`](#portable-config): plain, inspectable, serializable data, and a [`ConfigLayer`](#config-composition--layering), returned directly (to serialize, diff, sign, or layer) and applied onto a `Config` with `Config::with()`.
 
 ```php
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Preset\Presets;
 
 // A preset on its own (a Config requires a PSR-16 cache):
-$config = (new Config($cache))->combine(Presets::scannerBlocking());
+$config = (new Config($cache))->with(Presets::scannerBlocking());
 
 // Inspect / serialize the underlying portable schema:
 $schema = Presets::scannerBlocking()->toArray();
 
-// Because presets ARE PortableConfigs, they combine onto your own base Config (later wins by name):
-$config = (new Config($cache))->combine(
+// Presets are layers, so they apply onto your own base Config (later wins by name):
+$config = (new Config($cache))->with(
     Presets::scannerBlocking(),
     Presets::sensitivePathBlocking(),
-)->mergedWith($myConfig); // your overrides win
+    $myConfig, // your overrides win
+);
 ```
 
 | Preset | Rules (all namespaced `preset.<area>.*`) |
