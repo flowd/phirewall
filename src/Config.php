@@ -250,19 +250,27 @@ final class Config implements ConfigLayer
 
     /**
      * Apply zero or more {@see ConfigLayer}s - other Configs, PortableConfigs, or
-     * presets - on top of this one, leaving this instance and every layer
-     * untouched. With at least one layer the result is a NEW composed Config; with
-     * no layers this same instance is returned unchanged.
+     * presets - on top of this one and return a NEW composed Config, leaving this
+     * instance and every layer untouched. Even with no layers a fresh, independent
+     * copy is returned, never this instance.
      *
      * Layers are applied left to right, so later layers win on a rule-name clash.
      * A PortableConfig layer is materialized onto this Config's cache (and event
      * dispatcher / clock); layers never carry a cache themselves. See
      * {@see compose()} for the full merge and precedence semantics.
      */
-    public function with(ConfigLayer ...$layers): self
+    public function with(ConfigLayer ...$configLayer): self
     {
+        // with() always returns an independent Config. With no layers there is
+        // nothing to apply, but a Config is mutable (unlike a PSR-7 message), so
+        // returning $this would let a caller mutate the supposed copy and silently
+        // change this instance; hand back a fresh copy instead.
+        if ($configLayer === []) {
+            return $this->compose($this);
+        }
+
         $result = $this;
-        foreach ($layers as $layer) {
+        foreach ($configLayer as $layer) {
             $result = $layer->applyTo($result);
         }
 

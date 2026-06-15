@@ -47,6 +47,21 @@ final class ConfigCompositionTest extends TestCase
         $this->assertSame($overlayRule, $rules['admin'], 'Later layer must replace the same-named rule.');
     }
 
+    public function testWithReturnsAnIndependentCopyEvenWithNoLayers(): void
+    {
+        $base = new Config(new InMemoryCache());
+        $base->blocklists->add('admin', static fn(): bool => true);
+
+        $copy = $base->with();
+
+        $this->assertNotSame($base, $copy, 'with() must always return a new Config, never the receiver.');
+        $this->assertSame(['admin'], array_keys($copy->blocklists->rules()));
+
+        // A Config is mutable, so the copy must not share rule state with the base.
+        $copy->blocklists->add('extra', static fn(): bool => true);
+        $this->assertSame(['admin'], array_keys($base->blocklists->rules()));
+    }
+
     public function testEachSectionMergesByName(): void
     {
         $base = new Config(new InMemoryCache());
