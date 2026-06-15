@@ -15,7 +15,9 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\Rule\SafelistRule;
 use Flowd\Phirewall\Http\Firewall;
+use Flowd\Phirewall\Matchers\TrustedBotMatcher;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 
@@ -24,14 +26,23 @@ echo "=== Trusted Bot Verification Example ===\n\n";
 $cache = new InMemoryCache();
 $config = new Config($cache);
 
-// Safelist known bots (Googlebot, Bingbot, etc.) via RDNS verification.
-// Pass a PSR-16 cache to avoid repeated DNS lookups (cached for 24 hours by default).
-$config->safelists->trustedBots(cache: $cache);
+// Safelist known bots (Googlebot, Bingbot, etc.) via reverse-DNS verification.
+// TrustedBotMatcher verifies the client IP resolves to the bot's hostname, so a
+// spoofed User-Agent cannot pass. Pass the Config's IP resolver so the client IP
+// is read correctly behind a proxy, and a PSR-16 cache to memoise DNS lookups
+// (cached for 24 hours by default).
+$config->safelists->addRule(new SafelistRule(
+    'trusted-bots',
+    new TrustedBotMatcher(ipResolver: $config->getIpResolver(), cache: $cache),
+));
 
-// Also safelist a custom internal bot
-$config->safelists->trustedBots('custom-bots', [
-    ['ua' => 'mycompany-crawler', 'hostname' => '.crawler.mycompany.com'],
-], cache: $cache);
+// Also safelist a custom internal bot by adding it to the matcher's list.
+$config->safelists->addRule(new SafelistRule(
+    'custom-bots',
+    new TrustedBotMatcher([
+        ['ua' => 'mycompany-crawler', 'hostname' => '.crawler.mycompany.com'],
+    ], ipResolver: $config->getIpResolver(), cache: $cache),
+));
 
 // Block everything else for this demo
 $config->blocklists->add('block-all', fn($r): bool => true);

@@ -9,7 +9,6 @@ use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\ClosureRequestMatcher;
 use Flowd\Phirewall\Config\Rule\SafelistRule;
 use Flowd\Phirewall\Matchers\IpMatcher;
-use Flowd\Phirewall\Matchers\TrustedBotMatcher;
 
 final class SafelistSection
 {
@@ -29,19 +28,6 @@ final class SafelistSection
     {
         $this->rules[$safelistRule->name()] = $safelistRule;
         return $this;
-    }
-
-    /**
-     * Safelist verified search engine bots via reverse DNS verification.
-     *
-     * @param list<array{ua: string, hostname: string}> $additionalBots Extra bots to recognize.
-     * @param (callable(\Psr\Http\Message\ServerRequestInterface): ?string)|null $ipResolver Overrides Config's global IP resolver for this matcher.
-     * @param \Psr\SimpleCache\CacheInterface|null $cache PSR-16 cache for DNS results (avoids repeated lookups).
-     */
-    public function trustedBots(string $name = 'trusted-bots', array $additionalBots = [], ?callable $ipResolver = null, ?\Psr\SimpleCache\CacheInterface $cache = null): self
-    {
-        $resolver = $ipResolver ?? $this->config?->getIpResolver();
-        return $this->addRule(new SafelistRule($name, new TrustedBotMatcher($additionalBots, ipResolver: $resolver, cache: $cache)));
     }
 
     /**
