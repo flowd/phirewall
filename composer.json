@@ -25,7 +25,8 @@
   },
   "suggest": {
     "predis/predis": "Optional: use RedisCache for distributed counters",
-    "ext-apcu": "Optional: use ApcuCache for fast in-process counters (enable with apc.enable_cli=1 for CLI)"
+    "ext-apcu": "Optional: use ApcuCache for fast in-process counters (enable with apc.enable_cli=1 for CLI)",
+    "flowd/phirewall-preset-owasp-crs": "OWASP CRS detection (SQL injection, XSS, ...): the SecRule engine plus per-paranoia-level presets, extracted from core in 0.6"
   },
   "require-dev": {
     "phpunit/phpunit": "^11.5",

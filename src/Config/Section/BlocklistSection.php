@@ -13,8 +13,6 @@ use Flowd\Phirewall\Config\Rule\BlocklistRule;
 use Flowd\Phirewall\Matchers\IpMatcher;
 use Flowd\Phirewall\Matchers\KnownScannerMatcher;
 use Flowd\Phirewall\Matchers\SuspiciousHeadersMatcher;
-use Flowd\Phirewall\Owasp\CoreRuleSet;
-use Flowd\Phirewall\Owasp\CoreRuleSetMatcher;
 use Flowd\Phirewall\Pattern\FilePatternBackend;
 use Flowd\Phirewall\Pattern\InMemoryPatternBackend;
 use Flowd\Phirewall\Pattern\PatternBackendInterface;
@@ -42,11 +40,6 @@ final class BlocklistSection
     {
         $this->rules[$blocklistRule->name()] = $blocklistRule;
         return $this;
-    }
-
-    public function owasp(string $name, CoreRuleSet $coreRuleSet): self
-    {
-        return $this->addRule(new BlocklistRule($name, new CoreRuleSetMatcher($coreRuleSet)));
     }
 
     /**

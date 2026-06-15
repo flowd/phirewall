@@ -11,7 +11,7 @@
 ## Why Phirewall?
 
 - **Simple Setup** - Add protection in minutes with sensible defaults
-- **Multiple Attack Vectors** - Rate limiting, brute force protection, OWASP rules, bot detection
+- **Multiple Attack Vectors** - Rate limiting, brute force protection, bot detection, and OWASP CRS (the latter via a companion package)
 - **Framework Agnostic** - Works with any PSR-15 compatible framework (Laravel, Symfony, Slim, Mezzio, etc.)
 - **Production Ready** - Redis support for multi-server deployments
 - **Observable** - PSR-14 events for logging, metrics, and alerting
@@ -83,8 +83,6 @@ The [examples/](examples/) folder contains runnable examples:
 | 01 | [basic-setup](examples/01-basic-setup.php) | Minimal configuration to get started |
 | 02 | [brute-force-protection](examples/02-brute-force-protection.php) | Fail2Ban-style login protection |
 | 03 | [api-rate-limiting](examples/03-api-rate-limiting.php) | Tiered rate limits for APIs |
-| 04 | [sql-injection-blocking](examples/04-sql-injection-blocking.php) | OWASP-style SQLi detection |
-| 05 | [xss-prevention](examples/05-xss-prevention.php) | Cross-Site Scripting protection |
 | 06 | [bot-detection](examples/06-bot-detection.php) | Scanner and malicious bot blocking |
 | 07 | [ip-blocklist](examples/07-ip-blocklist.php) | File-backed IP/CIDR blocklists |
 | 08 | [comprehensive-protection](examples/08-comprehensive-protection.php) | Production-ready multi-layer setup |
@@ -93,7 +91,6 @@ The [examples/](examples/) folder contains runnable examples:
 | 11 | [redis-storage](examples/11-redis-storage.php) | Redis backend for multi-server deployments |
 | 12 | [apache-htaccess](examples/12-apache-htaccess.php) | Apache .htaccess IP blocking |
 | 13 | [benchmarks](examples/13-benchmarks.php) | Storage backend performance comparison |
-| 14 | [owasp-crs-files](examples/14-owasp-crs-files.php) | Loading OWASP CRS rules from files |
 | 15 | [in-memory-pattern-backend](examples/15-in-memory-pattern-backend.php) | Configuration-based CIDR/IP blocklists |
 | 16 | [allow2ban](examples/16-allow2ban.php) | Hard volume cap with auto-ban |
 | 17 | [known-scanners](examples/17-known-scanners.php) | Block known attack tools and vulnerability scanners |
@@ -110,6 +107,7 @@ The [examples/](examples/) folder contains runnable examples:
 | 28 | [portable-config-signing](examples/28-portable-config-signing.php) | HMAC-signed PortableConfig transport with tamper rejection |
 | 29 | [portable-config](examples/29-portable-config.php) | PortableConfig as data: round-trip, signing, and DB hot-reload |
 | 30 | [config-composition](examples/30-config-composition.php) | Layer vendor + environment + tenant + deployment Configs into one |
+| 31 | [presets](examples/31-presets.php) | Ready-to-use rule bundles: standalone use, portable inspection, composition, and version checks |
 
 ## Features
 
@@ -123,7 +121,7 @@ The [examples/](examples/) folder contains runnable examples:
 | **Fail2Ban** | Auto-ban after repeated failures |
 | **Allow2Ban** | Hard volume cap -- ban after too many total requests |
 | **Track with Threshold** | Passive counting with optional alert threshold |
-| **OWASP CRS** | SQL injection, XSS, and PHP injection detection |
+| **OWASP CRS** | SQL injection, XSS, and more via the companion package [flowd/phirewall-preset-owasp-crs](https://github.com/flowd/phirewall-preset-owasp-crs) |
 | **Pattern Backends** | File/Redis-backed blocklists with IP, CIDR, path, and header patterns |
 
 ### Matchers
@@ -272,26 +270,24 @@ $config->throttledResponseFactory = new Psr17ThrottledResponseFactory(
 
 ## OWASP Core Rule Set
 
-Load OWASP-style rules for SQL injection, XSS, and more:
+OWASP CRS detection (SQL injection, XSS, RCE, LFI, ...) lives in the companion
+package [flowd/phirewall-preset-owasp-crs](https://github.com/flowd/phirewall-preset-owasp-crs).
+It ships the ModSecurity SecRule engine plus ready-made config-set presets:
 
-```php
-use Flowd\Phirewall\Owasp\SecRuleLoader;
-
-$rules = SecRuleLoader::fromString(<<<'CRS'
-SecRule ARGS "@rx (?i)\bunion\b.*\bselect\b" "id:942100,phase:2,deny,msg:'SQLi'"
-SecRule ARGS "@rx (?i)<script[^>]*>" "id:941100,phase:2,deny,msg:'XSS'"
-CRS);
-
-$config->blocklists->owasp('owasp', $rules);
+```bash
+composer require flowd/phirewall-preset-owasp-crs
 ```
 
-Or load from files:
-
 ```php
-$rules = \Flowd\Phirewall\Owasp\SecRuleLoader::fromDirectory('/path/to/crs-rules');
+use Flowd\PhirewallPresetOwaspCrs\ParanoiaLevel;
+use Flowd\PhirewallPresetOwaspCrs\Presets;
+
+$config = $config->with(Presets::blocklist(ParanoiaLevel::Level1));
 ```
 
-See [04-sql-injection-blocking.php](examples/04-sql-injection-blocking.php) and [05-xss-prevention.php](examples/05-xss-prevention.php) for complete examples.
+The SecRule engine itself (`Flowd\PhirewallPresetOwaspCrs\Engine\SecRuleLoader`) is part of that
+package too, so you can also load your own ModSecurity-style `.conf` rules. The
+engine was extracted from this core package in 0.6.
 
 ## Portable Config
 

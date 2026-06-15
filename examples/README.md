@@ -25,8 +25,6 @@ php examples/01-basic-setup.php
 |---------|-------------|
 | [02-brute-force-protection.php](02-brute-force-protection.php) | Fail2Ban and throttling for login protection |
 | [03-api-rate-limiting.php](03-api-rate-limiting.php) | Tiered rate limiting for APIs |
-| [04-sql-injection-blocking.php](04-sql-injection-blocking.php) | OWASP-style SQL injection detection |
-| [05-xss-prevention.php](05-xss-prevention.php) | Cross-Site Scripting (XSS) detection |
 | [06-bot-detection.php](06-bot-detection.php) | Scanner and malicious bot blocking |
 | [07-ip-blocklist.php](07-ip-blocklist.php) | File-backed IP/CIDR/path blocklists |
 | [08-comprehensive-protection.php](08-comprehensive-protection.php) | Production-ready multi-layer protection |
@@ -51,7 +49,6 @@ php examples/01-basic-setup.php
 | Example | Description                                                                     |
 |---------|---------------------------------------------------------------------------------|
 | [12-apache-htaccess.php](12-apache-htaccess.php) | Apache .htaccess IP blocking integration                                        |
-| [14-owasp-crs-files.php](14-owasp-crs-files.php) | Loading OWASP CRS rules from files in [14-owasp_crs_basic/](14-owasp_crs_basic/) |
 | [15-in-memory-pattern-backend.php](15-in-memory-pattern-backend.php) | Configuration-based blocklists without file I/O                                 |
 
 ### Advanced Features
@@ -71,7 +68,7 @@ php examples/01-basic-setup.php
 | [28-portable-config-signing.php](28-portable-config-signing.php) | Signed PortableConfig transport (HMAC-SHA256) with tamper detection |
 | [29-portable-config.php](29-portable-config.php) | PortableConfig as data: round-trip, signing, and database hot-reload |
 | [30-config-composition.php](30-config-composition.php) | Layer vendor + environment + tenant + deployment Configs into one effective Config |
-| [31-presets.php](31-presets.php) | Ready-to-use rule bundles (API rate limiting, login protection, scanner & sensitive-path blocking), composition, and the update-check seam |
+| [31-presets.php](31-presets.php) | Ready-to-use rule bundles (scanner & sensitive-path blocking): standalone use, portable inspection, composition with override-by-name, and the `Presets::VERSION` update check |
 
 ## Optional Dependencies
 
