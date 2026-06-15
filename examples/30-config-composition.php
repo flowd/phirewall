@@ -14,8 +14,8 @@ declare(strict_types=1);
  *       + tenant      (per-customer policy)
  *         + deployment (one specific box / region / maintenance window)
  *
- * Config::compose() (and the fluent $base->mergedWith(...)) merges these into a
- * single effective Config without mutating any input:
+ * Config::with(ConfigLayer ...) merges these into a single effective Config
+ * without mutating any input:
  *
  *   - Rules merge BY NAME within each section; the LATER layer wins, replacing
  *     the earlier rule in place and appending genuinely new ones (a union).
@@ -23,9 +23,9 @@ declare(strict_types=1);
  *     "last explicit value wins".
  *   - The base layer provides the infrastructure (cache, dispatcher, clock).
  *
- * The first three layers are loaded from PortableConfig (the way you would ship
- * rules as data) and materialized with Config::combine(); the last is a plain
- * hand-built Config.
+ * A layer is anything that implements ConfigLayer: another Config, or a
+ * PortableConfig (the way you would ship rules as data). The first three layers
+ * here are built from PortableConfig; the last is a plain hand-built Config.
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -44,7 +44,7 @@ $cache = new InMemoryCache();
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 1 — vendor baseline (shipped as portable data).
 // ─────────────────────────────────────────────────────────────────────────
-$vendorBaseline = (new Config($cache))->combine(PortableConfig::create()
+$vendorBaseline = (new Config($cache))->with(PortableConfig::create()
     ->setKeyPrefix('vendor')
     ->safelist('health', PortableConfig::filterPathEquals('/health'))
     ->blocklist('scanners', PortableConfig::filterKnownScanners()) // curated default list incl. sqlmap, nikto…
@@ -58,14 +58,14 @@ $vendorBaseline = (new Config($cache))->combine(PortableConfig::create()
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 2 — environment overlay (e.g. production): adds rules, turns on headers.
 // ─────────────────────────────────────────────────────────────────────────
-$environmentOverlay = (new Config($cache))->combine(PortableConfig::create()
+$environmentOverlay = (new Config($cache))->with(PortableConfig::create()
     ->enableResponseHeaders()
     ->blocklist('admin-probe', PortableConfig::filterPathPrefix('/wp-admin')));
 
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 3 — tenant overlay: OVERRIDES "scanners" by name + adds a volume cap.
 // ─────────────────────────────────────────────────────────────────────────
-$tenantOverlay = (new Config($cache))->combine(PortableConfig::create()
+$tenantOverlay = (new Config($cache))->with(PortableConfig::create()
     ->setKeyPrefix('tenant-acme')
     ->blocklist('scanners', PortableConfig::filterKnownScanners(['evilcorp-bot'])) // replaces the vendor list
     ->allow2ban('volume-cap', threshold: 1_000, period: 60, ban: 300, key: PortableConfig::keyIp()));
@@ -80,9 +80,9 @@ $deploymentTweak = (new Config($cache))
 $deploymentTweak->blocklists->add('maintenance', static fn($request): bool => str_starts_with((string) $request->getUri()->getPath(), '/legacy'));
 
 // ─────────────────────────────────────────────────────────────────────────
-// Compose them. Equivalent: Config::compose($vendorBaseline, $env, $tenant, $deploy).
+// Compose them. Equivalent: $vendorBaseline->with($env, $tenant, $deploy).
 // ─────────────────────────────────────────────────────────────────────────
-$effective = $vendorBaseline->mergedWith($environmentOverlay, $tenantOverlay, $deploymentTweak);
+$effective = $vendorBaseline->with($environmentOverlay, $tenantOverlay, $deploymentTweak);
 
 // 1. A rule overridden BY NAME — "scanners" now comes from the tenant layer.
 echo "1. Overridden-by-name rule:\n";

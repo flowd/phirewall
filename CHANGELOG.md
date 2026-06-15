@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - 0.6.0
 
-### Added
+### Changed
+
+- **Config composition is unified behind a single method, `Config::with(ConfigLayer ...$layers): self`.** `Config::combine()` and `Config::mergedWith()` have been removed and `Config::compose()` is now private; a new `Flowd\Phirewall\ConfigLayer` interface - implemented by both `Config` and `PortableConfig` - lets live configs, portable rule data and presets compose uniformly through one call, so the caller no longer picks a method by layer type. Layers apply left to right (later wins by rule name); a `PortableConfig` layer is materialized onto the base Config's cache, dispatcher and clock, so transport/preset layers never carry a cache. Migrate `combine(...)` / `mergedWith(...)` calls to `with(...)`. **BREAKING.**
 
 ### Removed
 

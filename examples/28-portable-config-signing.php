@@ -50,7 +50,7 @@ echo "2. Signature verified — config loaded.\n";
 echo '   Round-trip identical: ' . ($restored->toArray() === $portableConfig->toArray() ? 'yes' : 'no') . "\n\n";
 
 // The restored config behaves exactly like the original.
-$firewall = new Firewall((new Config(new InMemoryCache()))->combine($restored));
+$firewall = new Firewall((new Config(new InMemoryCache()))->with($restored));
 $blocked = $firewall->decide(new ServerRequest('GET', '/admin'));
 echo '   /admin is blocked by the restored ruleset: ' . ($blocked->isBlocked() ? 'yes' : 'no') . "\n\n";
 

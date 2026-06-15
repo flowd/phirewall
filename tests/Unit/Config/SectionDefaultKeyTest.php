@@ -101,7 +101,7 @@ final class SectionDefaultKeyTest extends TestCase
         );
 
         // Composed config inherits the overlay's resolver and the base's keyless rule.
-        $composed = Config::compose($base, $overlay);
+        $composed = $base->with($overlay);
         $firewall = new Firewall($composed);
 
         $this->assertTrue($firewall->decide($this->request('9.9.9.9', 'client-a'))->isPass());

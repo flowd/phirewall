@@ -8,7 +8,7 @@ declare(strict_types=1);
  * PortableConfig expresses a firewall ruleset as plain, JSON-serializable data
  * instead of PHP closures. That makes a ruleset portable: you can store it in a
  * database, ship it through a config service, diff it in git, or hand it to
- * another process, then rebuild a live Config from it with Config::combine().
+ * another process, then rebuild a live Config from it with Config::with().
  *
  * This example covers:
  *   1. Building a ruleset with the expanded schema and round-tripping it
@@ -68,7 +68,7 @@ $restored = PortableConfig::fromArray(json_decode((string) $asJson, true, 512, J
 echo '   toArray() -> JSON -> fromArray() round-trips identically: '
     . ($restored->toArray() === $asArray ? 'yes' : 'no') . "\n\n";
 
-$firewall = new Firewall((new Config(new InMemoryCache()))->combine($restored));
+$firewall = new Firewall((new Config(new InMemoryCache()))->with($restored));
 
 assertDecision($firewall, new ServerRequest('GET', '/health'), 'safelisted', 'health check safelisted');
 assertDecision($firewall, new ServerRequest('GET', '/wp-admin/setup-config.php'), 'blocked', 'admin probe blocked');
@@ -145,7 +145,7 @@ $rulesTable = [
 // request, with no deploy and no in-process "reload".
 $loadFirewall = static function () use (&$rulesTable, $secretKey): Firewall {
     $portable = PortableConfig::loadSigned($rulesTable['blob'], $secretKey);
-    return new Firewall((new Config(new InMemoryCache()))->combine($portable));
+    return new Firewall((new Config(new InMemoryCache()))->with($portable));
 };
 
 $liveFirewall = $loadFirewall();
