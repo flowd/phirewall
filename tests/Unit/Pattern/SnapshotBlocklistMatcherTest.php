@@ -12,6 +12,7 @@ use Flowd\Phirewall\Pattern\SnapshotBlocklistMatcher;
 use Nyholm\Psr7\ServerRequest;
 use org\bovigo\vfs\vfsStream;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\ServerRequestInterface;
 
 final class SnapshotBlocklistMatcherTest extends TestCase
 {
@@ -182,5 +183,60 @@ final class SnapshotBlocklistMatcherTest extends TestCase
         // recompile from the new snapshot version and stop matching.
         $now = 1_700_000_011;
         $this->assertFalse($matcher->match($request)->isMatch(), 'Expired entry must stop matching on the unchanged file');
+    }
+
+    public function testMatchWithResolverUsesSuppliedDefaultWhenNoExplicitResolver(): void
+    {
+        $inMemoryPatternBackend = new InMemoryPatternBackend([new PatternEntry(PatternKind::IP, '203.0.113.10')]);
+        $snapshotBlocklistMatcher = new SnapshotBlocklistMatcher($inMemoryPatternBackend);
+
+        $serverRequest = (new ServerRequest('GET', '/any', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Real-IP', '203.0.113.10');
+
+        $this->assertTrue($snapshotBlocklistMatcher->matchWithResolver($serverRequest, $this->headerResolver('X-Real-IP'))->isMatch());
+    }
+
+    public function testMatchWithResolverExplicitResolverWinsOverDefault(): void
+    {
+        $inMemoryPatternBackend = new InMemoryPatternBackend([new PatternEntry(PatternKind::IP, '203.0.113.10')]);
+        $snapshotBlocklistMatcher = new SnapshotBlocklistMatcher($inMemoryPatternBackend, $this->headerResolver('X-Trusted-IP'));
+
+        $serverRequest = (new ServerRequest('GET', '/any', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Trusted-IP', '203.0.113.10')
+            ->withHeader('X-Real-IP', '198.51.100.9');
+
+        $this->assertTrue($snapshotBlocklistMatcher->matchWithResolver($serverRequest, $this->headerResolver('X-Real-IP'))->isMatch());
+    }
+
+    public function testWithBackendPreservesExplicitResolverAndReturnsSelfForSameBackend(): void
+    {
+        $backendA = new InMemoryPatternBackend([new PatternEntry(PatternKind::IP, '203.0.113.10')]);
+        $backendB = new InMemoryPatternBackend([new PatternEntry(PatternKind::IP, '203.0.113.10')]);
+        $matcher = new SnapshotBlocklistMatcher($backendA, $this->headerResolver('X-Real-IP'), 'threats');
+
+        // Re-pointing at the same instance is a no-op.
+        $this->assertSame($matcher, $matcher->withBackend($backendA));
+
+        // Re-pointed at a different backend, the explicit resolver must survive: the
+        // rebuilt matcher still reads the client IP from X-Real-IP, not REMOTE_ADDR.
+        $rebound = $matcher->withBackend($backendB);
+        $serverRequest = (new ServerRequest('GET', '/any', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Real-IP', '203.0.113.10');
+
+        $this->assertTrue($rebound->match($serverRequest)->isMatch());
+        $this->assertFalse($rebound->match(new ServerRequest('GET', '/any', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.10']))->isMatch());
+    }
+
+    /**
+     * A resolver that reads the client IP from the named header (null when absent).
+     *
+     * @return callable(ServerRequestInterface): ?string
+     */
+    private function headerResolver(string $header): callable
+    {
+        return static function (ServerRequestInterface $serverRequest) use ($header): ?string {
+            $value = $serverRequest->getHeaderLine($header);
+            return $value === '' ? null : $value;
+        };
     }
 }

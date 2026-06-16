@@ -30,7 +30,7 @@ use Psr\SimpleCache\CacheInterface;
  * triggers blocking DNS lookups (gethostbyaddr + gethostbynamel/dns_get_record).
  * In production, always provide a cache instance to avoid latency and DNS load.
  */
-final class TrustedBotMatcher implements RequestMatcherInterface
+final class TrustedBotMatcher implements RequestMatcherInterface, ClientIpResolverAware
 {
     /**
      * Built-in verified search engine bots.
@@ -65,14 +65,14 @@ final class TrustedBotMatcher implements RequestMatcherInterface
     /** @var callable(string): list<string> */
     private $forwardResolve;
 
-    /** @var callable(ServerRequestInterface): ?string */
+    /** @var (callable(ServerRequestInterface): ?string)|null */
     private $ipResolver;
 
     /**
      * @param list<array{ua: string, hostname: string}> $additionalBots
      * @param (callable(string): string)|null $reverseResolve Override for gethostbyaddr() (for testing).
      * @param (callable(string): list<string>)|null $forwardResolve Override for gethostbynamel() (for testing).
-     * @param (callable(ServerRequestInterface): ?string)|null $ipResolver Custom IP resolver. Defaults to KeyExtractors::ip().
+     * @param (callable(ServerRequestInterface): ?string)|null $ipResolver Explicit IP resolver. When omitted, the evaluating Config's resolver is used (falling back to KeyExtractors::ip()).
      * @param CacheInterface|null $cache PSR-16 cache for DNS results. Avoids repeated lookups for the same IP.
      * @param positive-int $cacheTtl Cache TTL in seconds. Default: 86400 (24 hours).
      */
@@ -124,17 +124,23 @@ final class TrustedBotMatcher implements RequestMatcherInterface
 
             return $ips;
         };
-        $this->ipResolver = $ipResolver ?? KeyExtractors::ip();
+        $this->ipResolver = $ipResolver;
     }
 
     public function match(ServerRequestInterface $serverRequest): MatchResult
+    {
+        return $this->matchWithResolver($serverRequest, KeyExtractors::ip());
+    }
+
+    public function matchWithResolver(ServerRequestInterface $serverRequest, callable $defaultResolver): MatchResult
     {
         $userAgent = strtolower($serverRequest->getHeaderLine('User-Agent'));
         if ($userAgent === '') {
             return MatchResult::noMatch();
         }
 
-        $ip = ($this->ipResolver)($serverRequest);
+        $resolver = $this->ipResolver ?? $defaultResolver;
+        $ip = $resolver($serverRequest);
         if ($ip === null) {
             return MatchResult::noMatch();
         }

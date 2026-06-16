@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Config;
 
 use Flowd\Phirewall\KeyExtractors;
+use Flowd\Phirewall\Matchers\ClientIpResolverAware;
 use Flowd\Phirewall\Matchers\Support\CidrMatcher;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -19,7 +20,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * filesystem issues, reload attempts are throttled by a minimal reload interval
  * and the matcher keeps using the last known good state if a reload fails.
  */
-final class FileIpBlocklistMatcher implements RequestMatcherInterface
+final class FileIpBlocklistMatcher implements RequestMatcherInterface, ClientIpResolverAware
 {
     /** @var array<string, true> */
     private array $exactIps = [];
@@ -33,14 +34,19 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
 
     /**
      * @param (callable(ServerRequestInterface): ?string)|null $ipResolver
-     *                                                                     How to extract the client IP from a request. Defaults to
-     *                                                                     {@see KeyExtractors::ip()}, which reads `REMOTE_ADDR` verbatim and
-     *                                                                     does NOT consult proxy headers. Deployments behind a CDN, load
-     *                                                                     balancer, or reverse proxy should pass
-     *                                                                     `KeyExtractors::clientIp(new TrustedProxyResolver([...]))` instead,
-     *                                                                     otherwise every request appears to come from the proxy's address
-     *                                                                     and the blocklist will either fail to match real attackers or end
-     *                                                                     up banning the proxy itself.
+     *                                                                     How to extract the client IP from a request. When omitted
+     *                                                                     ({@see ClientIpResolverAware}), the matcher late-binds to the
+     *                                                                     resolver of the {@see \Flowd\Phirewall\Config} it is evaluated
+     *                                                                     under, falling back to {@see KeyExtractors::ip()} (`REMOTE_ADDR`
+     *                                                                     verbatim, no proxy headers) when used standalone or when that
+     *                                                                     Config sets none. Deployments behind a CDN, load balancer, or
+     *                                                                     reverse proxy must configure a trusted client-IP resolver - set
+     *                                                                     it on the Config via `setIpResolver()`, or pass one explicitly
+     *                                                                     here as `KeyExtractors::clientIp(new TrustedProxyResolver([...]))`
+     *                                                                     - otherwise every request appears to come from the proxy's
+     *                                                                     address and the blocklist will either fail to match real
+     *                                                                     attackers or end up banning the proxy itself. An explicitly
+     *                                                                     passed resolver always wins over the Config's.
      */
     public function __construct(
         private readonly string $filePath,
@@ -51,15 +57,21 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface
             throw new \InvalidArgumentException('minReloadIntervalSec must be >= 0');
         }
 
-        $this->ipResolver = $ipResolver ?? KeyExtractors::ip();
+        $this->ipResolver = $ipResolver;
     }
 
-    /** @var callable(ServerRequestInterface):?string */
+    /** @var (callable(ServerRequestInterface):?string)|null */
     private $ipResolver;
 
     public function match(ServerRequestInterface $serverRequest): MatchResult
     {
-        $ipAddress = ($this->ipResolver)($serverRequest);
+        return $this->matchWithResolver($serverRequest, KeyExtractors::ip());
+    }
+
+    public function matchWithResolver(ServerRequestInterface $serverRequest, callable $defaultResolver): MatchResult
+    {
+        $resolver = $this->ipResolver ?? $defaultResolver;
+        $ipAddress = $resolver($serverRequest);
         if (!is_string($ipAddress) || $ipAddress === '') {
             return MatchResult::noMatch();
         }

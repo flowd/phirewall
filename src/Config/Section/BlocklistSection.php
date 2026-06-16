@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Config\Section;
 
 use Closure;
-use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\ClosureRequestMatcher;
 use Flowd\Phirewall\Config\FileIpBlocklistMatcher;
 use Flowd\Phirewall\Config\FileIpBlocklistStore;
@@ -26,10 +25,6 @@ final class BlocklistSection
 
     /** @var array<string, PatternBackendInterface> */
     private array $patternBackends = [];
-
-    public function __construct(private readonly ?Config $config = null)
-    {
-    }
 
     public function add(string $name, Closure $callback): self
     {
@@ -53,13 +48,12 @@ final class BlocklistSection
     /**
      * Block requests whose client IP appears in a file-backed list.
      *
-     * @param (callable(\Psr\Http\Message\ServerRequestInterface): ?string)|null $ipResolver Overrides Config's global IP resolver.
+     * @param (callable(\Psr\Http\Message\ServerRequestInterface): ?string)|null $ipResolver Explicit IP resolver. When omitted, the client IP is read through the evaluating Config's resolver.
      */
     public function fileIp(string $name, string $filePath, ?callable $ipResolver = null): FileIpBlocklistStore
     {
-        $resolver = $ipResolver ?? $this->config?->getIpResolver();
         $fileIpBlocklistStore = new FileIpBlocklistStore($filePath);
-        $fileIpBlocklistMatcher = new FileIpBlocklistMatcher($filePath, $resolver);
+        $fileIpBlocklistMatcher = new FileIpBlocklistMatcher($filePath, $ipResolver);
         $this->addRule(new BlocklistRule($name, $fileIpBlocklistMatcher));
         return $fileIpBlocklistStore;
     }
@@ -81,13 +75,12 @@ final class BlocklistSection
      * Block requests from specific IPs or CIDR ranges.
      *
      * @param string|list<string> $ipOrCidr Single IP/CIDR or list of IPs/CIDRs.
-     * @param (callable(\Psr\Http\Message\ServerRequestInterface): ?string)|null $ipResolver Overrides Config's global IP resolver.
+     * @param (callable(\Psr\Http\Message\ServerRequestInterface): ?string)|null $ipResolver Explicit IP resolver. When omitted, the client IP is read through the evaluating Config's resolver.
      */
     public function ip(string $name, string|array $ipOrCidr, ?callable $ipResolver = null): self
     {
-        $resolver = $ipResolver ?? $this->config?->getIpResolver();
         $ips = is_array($ipOrCidr) ? $ipOrCidr : [$ipOrCidr];
-        return $this->addRule(new BlocklistRule($name, new IpMatcher($ips, $resolver)));
+        return $this->addRule(new BlocklistRule($name, new IpMatcher($ips, $ipResolver)));
     }
 
     public function addPatternBackend(string $name, PatternBackendInterface $patternBackend): self
@@ -102,8 +95,7 @@ final class BlocklistSection
             throw new \InvalidArgumentException(sprintf('Pattern backend "%s" is not registered.', $backendName));
         }
 
-        $resolver = $this->config?->getIpResolver();
-        return $this->addRule(new BlocklistRule($name, new SnapshotBlocklistMatcher($this->patternBackends[$backendName], $resolver, $backendName)));
+        return $this->addRule(new BlocklistRule($name, new SnapshotBlocklistMatcher($this->patternBackends[$backendName], null, $backendName)));
     }
 
     public function filePatternBackend(string $name, string $filePath): FilePatternBackend

@@ -7,11 +7,12 @@ namespace Flowd\Phirewall\Pattern;
 use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Config\RequestMatcherInterface;
 use Flowd\Phirewall\KeyExtractors;
+use Flowd\Phirewall\Matchers\ClientIpResolverAware;
 use Flowd\Phirewall\Matchers\Support\CidrMatcher;
 use Flowd\Phirewall\Matchers\Support\RegexMatcher;
 use Psr\Http\Message\ServerRequestInterface;
 
-final class SnapshotBlocklistMatcher implements RequestMatcherInterface
+final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientIpResolverAware
 {
     private ?PatternSnapshot $patternSnapshot = null;
 
@@ -20,7 +21,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface
      */
     private array $compiled = [];
 
-    /** @var callable(ServerRequestInterface): ?string */
+    /** @var (callable(ServerRequestInterface): ?string)|null */
     private $ipExtractor;
 
     public function __construct(
@@ -28,7 +29,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface
         ?callable $ipResolver = null,
         private readonly string $backendName = '',
     ) {
-        $this->ipExtractor = $ipResolver ?? KeyExtractors::ip();
+        $this->ipExtractor = $ipResolver;
     }
 
     /**
@@ -59,8 +60,14 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface
 
     public function match(ServerRequestInterface $serverRequest): MatchResult
     {
+        return $this->matchWithResolver($serverRequest, KeyExtractors::ip());
+    }
+
+    public function matchWithResolver(ServerRequestInterface $serverRequest, callable $defaultResolver): MatchResult
+    {
+        $resolver = $this->ipExtractor ?? $defaultResolver;
         $patternSnapshot = $this->loadSnapshot();
-        $ip = ($this->ipExtractor)($serverRequest);
+        $ip = $resolver($serverRequest);
         $path = $serverRequest->getUri()->getPath();
         $query = $serverRequest->getUri()->getQuery();
 
