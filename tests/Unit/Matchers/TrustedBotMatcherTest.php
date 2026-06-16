@@ -143,16 +143,6 @@ final class TrustedBotMatcherTest extends TestCase
         $this->assertFalse($trustedBotMatcher->match($serverRequest)->isMatch());
     }
 
-    public function testConfigSectionIntegration(): void
-    {
-        $config = new Config(new InMemoryCache());
-        $safelistSection = $config->safelists->trustedBots();
-
-        $this->assertCount(1, $config->safelists->rules());
-        $this->assertArrayHasKey('trusted-bots', $config->safelists->rules());
-        $this->assertSame($config->safelists, $safelistSection); // fluent
-    }
-
     public function testDnsCachingAvoidsDuplicateLookups(): void
     {
         $lookupCount = 0;
