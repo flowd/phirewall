@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Config\Rule;
 
 use Closure;
 use Flowd\Phirewall\Config\KeyExtractorInterface;
+use Flowd\Phirewall\Config\RequestMatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 final readonly class ThrottleRule implements RuleInterface
@@ -13,6 +14,7 @@ final readonly class ThrottleRule implements RuleInterface
     /**
      * @param int|Closure(ServerRequestInterface): int $limit Maximum number of requests allowed in the period
      * @param int|Closure(ServerRequestInterface): int $period Time window in seconds
+     * @param RequestMatcherInterface|null $scope Optional filter restricting which requests this throttle counts; the rule is skipped for requests it does not match.
      */
     public function __construct(
         private string $name,
@@ -20,6 +22,7 @@ final readonly class ThrottleRule implements RuleInterface
         private int|Closure $period,
         private ?KeyExtractorInterface $keyExtractor,
         private bool $sliding = false,
+        private ?RequestMatcherInterface $scope = null,
     ) {
         if ($this->name === '') {
             throw new \InvalidArgumentException('ThrottleRule name must not be empty.');
@@ -103,6 +106,12 @@ final readonly class ThrottleRule implements RuleInterface
     public function keyExtractor(): ?KeyExtractorInterface
     {
         return $this->keyExtractor;
+    }
+
+    /** Optional scope filter; the throttle only counts requests this matches. Null means "all requests". */
+    public function scope(): ?RequestMatcherInterface
+    {
+        return $this->scope;
     }
 
     /**

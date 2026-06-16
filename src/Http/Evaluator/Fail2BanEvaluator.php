@@ -15,8 +15,9 @@ use Psr\Http\Message\ServerRequestInterface;
  * Evaluates fail2ban rules: blocks already-banned keys and bans keys that reach the threshold.
  *
  * threshold = N: increment the failure counter on each match; ban on the Nth match.
- * Both pre-handler matches (filter()->match()) and post-handler recorded failures share
- * this single semantic via incrementAndBanIfNeeded().
+ * Both pre-handler matches (the rule filter, evaluated with the Config's client-IP
+ * resolver) and post-handler recorded failures share this single semantic via
+ * incrementAndBanIfNeeded().
  *
  * The per-rule ban-key existence checks are batched into a SINGLE getMultiple() (an MGET
  * on Redis, one SELECT on PDO) at the start of evaluation, so the common "nothing banned"
@@ -27,10 +28,13 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final readonly class Fail2BanEvaluator implements EvaluatorInterface
 {
+    use ResolvesClientIpForMatchers;
+
     public function evaluate(ServerRequestInterface $serverRequest, EvaluationContext $evaluationContext): ?FirewallResult
     {
         $cache = $evaluationContext->config->cache;
         $cacheKeyGenerator = $evaluationContext->config->cacheKeyGenerator();
+        $defaultIpResolver = $evaluationContext->config->clientIpResolver();
 
         /** @var list<array{rule: Fail2BanRule, name: string, normalizedKey: string, banKey: string}> $candidates */
         $candidates = [];
@@ -76,7 +80,7 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
 
             // threshold=N: ban on the Nth matching request (>= comparison).
             if (
-                $candidate['rule']->filter()->match($serverRequest)->isMatch()
+                $this->matchWithClientIpResolver($candidate['rule']->filter(), $serverRequest, $defaultIpResolver)->isMatch()
                 && $this->incrementAndBanIfNeeded($candidate['rule'], $candidate['normalizedKey'], $serverRequest, $evaluationContext)
             ) {
                 $evaluationContext->decisionPath = DecisionPath::Fail2BanBanned;

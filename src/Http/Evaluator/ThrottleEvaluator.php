@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Http\Evaluator;
 
+use Flowd\Phirewall\Config\RequestMatcherInterface;
 use Flowd\Phirewall\Config\Rule\ThrottleRule;
 use Flowd\Phirewall\Events\ThrottleExceeded;
 use Flowd\Phirewall\Http\DecisionPath;
@@ -22,14 +23,26 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final class ThrottleEvaluator implements EvaluatorInterface
 {
+    use ResolvesClientIpForMatchers;
+
     private ?FixedWindowStrategy $fixedStrategy = null;
 
     private ?SlidingWindowStrategy $slidingStrategy = null;
 
     public function evaluate(ServerRequestInterface $serverRequest, EvaluationContext $evaluationContext): ?FirewallResult
     {
+        $defaultIpResolver = $evaluationContext->config->clientIpResolver();
+
         foreach ($evaluationContext->config->throttles->rules() as $throttleRule) {
             $name = $throttleRule->name();
+
+            // A scope filter restricts which requests this throttle counts; an
+            // IP-aware scope late-binds the client-IP resolver like any other matcher.
+            $scope = $throttleRule->scope();
+            if ($scope instanceof RequestMatcherInterface && !$this->matchWithClientIpResolver($scope, $serverRequest, $defaultIpResolver)->isMatch()) {
+                continue;
+            }
+
             $key = $evaluationContext->config->resolveKey($throttleRule->keyExtractor(), $serverRequest);
             if ($key === null) {
                 continue;

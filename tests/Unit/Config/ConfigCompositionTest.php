@@ -163,6 +163,31 @@ final class ConfigCompositionTest extends TestCase
         $this->assertSame($throttleFactory, $composed->throttledResponseFactory);  // inherited from overlay
     }
 
+    public function testIpRuleWithoutExplicitResolverUsesComposedResolver(): void
+    {
+        // Base config: an IP blocklist added WITHOUT an explicit resolver.
+        $base = new Config(new InMemoryCache());
+        $base->blocklists->ip('bad-net', '203.0.113.7');
+
+        // Overlay config: sets a header-based IP resolver (e.g. behind a proxy).
+        $overlay = new Config(new InMemoryCache());
+        $overlay->setIpResolver(static function (ServerRequestInterface $serverRequest): ?string {
+            $value = $serverRequest->getHeaderLine('X-Real-IP');
+            return $value === '' ? null : $value;
+        });
+
+        // Composed config inherits the overlay's resolver; the carried-over IP rule
+        // late-binds to it, so the banned client arriving via X-Real-IP is blocked
+        // even though REMOTE_ADDR is harmless.
+        $firewall = new Firewall($base->with($overlay));
+
+        $blocked = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))->withHeader('X-Real-IP', '203.0.113.7');
+        $clean = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))->withHeader('X-Real-IP', '198.51.100.9');
+
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($blocked)->outcome);
+        $this->assertTrue($firewall->decide($clean)->isPass());
+    }
+
     public function testDefaultValuesDoNotClobberEarlierExplicitValues(): void
     {
         // base makes explicit, non-default choices; overlay leaves everything default.
@@ -313,6 +338,37 @@ final class ConfigCompositionTest extends TestCase
         // blocked, and the replaced backend's entry no longer matches.
         $this->assertSame(Outcome::BLOCKED, $firewall->decide(new ServerRequest('GET', '/new-threat'))->outcome);
         $this->assertTrue($firewall->decide(new ServerRequest('GET', '/old-threat'))->isPass());
+    }
+
+    public function testRepointedPatternRuleStillLateBindsComposedResolver(): void
+    {
+        // Base: a pattern blocklist (IP entry) with no explicit resolver.
+        $base = new Config(new InMemoryCache());
+        $base->blocklists->addPatternBackend('feed', new InMemoryPatternBackend([
+            new PatternEntry(PatternKind::IP, '203.0.113.7'),
+        ]));
+        $base->blocklists->fromBackend('feed-rule', 'feed');
+
+        // Overlay overrides the "feed" backend by name AND sets a header IP resolver.
+        $overlay = new Config(new InMemoryCache());
+        $overlay->blocklists->addPatternBackend('feed', new InMemoryPatternBackend([
+            new PatternEntry(PatternKind::IP, '203.0.113.7'),
+        ]));
+        $overlay->setIpResolver(static function (ServerRequestInterface $serverRequest): ?string {
+            $value = $serverRequest->getHeaderLine('X-Real-IP');
+            return $value === '' ? null : $value;
+        });
+
+        // The rule is re-pointed to the overlay backend (withBackend) AND must still
+        // late-bind to the composed resolver, so the banned client arriving via
+        // X-Real-IP is blocked despite a harmless REMOTE_ADDR.
+        $firewall = new Firewall($base->with($overlay));
+
+        $viaHeader = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))->withHeader('X-Real-IP', '203.0.113.7');
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($viaHeader)->outcome);
+
+        $viaRemoteAddr = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.7']);
+        $this->assertTrue($firewall->decide($viaRemoteAddr)->isPass());
     }
 
     public function testTypedRulesAreCarriedAcrossEverySection(): void

@@ -15,11 +15,15 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final readonly class TrackEvaluator implements EvaluatorInterface
 {
+    use ResolvesClientIpForMatchers;
+
     public function evaluate(ServerRequestInterface $serverRequest, EvaluationContext $evaluationContext): ?FirewallResult
     {
+        $defaultIpResolver = $evaluationContext->config->clientIpResolver();
+
         foreach ($evaluationContext->config->tracks->rules() as $trackRule) {
             $name = $trackRule->name();
-            if ($trackRule->filter()->match($serverRequest)->isMatch()) {
+            if ($this->matchWithClientIpResolver($trackRule->filter(), $serverRequest, $defaultIpResolver)->isMatch()) {
                 $key = $evaluationContext->config->resolveKey($trackRule->keyExtractor(), $serverRequest);
                 if ($key !== null) {
                     $normalizedKey = ($evaluationContext->normalize)((string) $key);

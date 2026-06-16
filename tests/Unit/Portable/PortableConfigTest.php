@@ -12,6 +12,7 @@ use Flowd\Phirewall\Portable\PortableConfig;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\ServerRequestInterface;
 
 final class PortableConfigTest extends TestCase
 {
@@ -79,6 +80,39 @@ final class PortableConfigTest extends TestCase
         $otherRequest = new ServerRequest('GET', '/public', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.9']);
         for ($i = 0; $i < 5; ++$i) {
             $this->assertTrue($firewall->decide($otherRequest)->isPass());
+        }
+    }
+
+    public function testIpScopedThrottleLateBindsToConfigResolver(): void
+    {
+        $portableConfig = PortableConfig::create()
+            ->throttle(
+                'ip-scoped',
+                limit: 1,
+                period: 60,
+                key: PortableConfig::keyIp(),
+                scope: PortableConfig::filterIp(['203.0.113.7']),
+            );
+
+        // Materialize first, then set the resolver: late-binding means the scope
+        // honours it regardless of ordering (a materialization-time capture would not).
+        $config = (new Config(new InMemoryCache()))->with($portableConfig);
+        $config->setIpResolver(static function (ServerRequestInterface $serverRequest): ?string {
+            $value = $serverRequest->getHeaderLine('X-Real-IP');
+            return $value === '' ? null : $value;
+        });
+        $firewall = new Firewall($config);
+
+        // In-scope client identified via X-Real-IP (REMOTE_ADDR is the proxy): the
+        // scope matches through the Config's resolver, so the throttle counts it.
+        $inScope = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))->withHeader('X-Real-IP', '203.0.113.7');
+        $this->assertTrue($firewall->decide($inScope)->isPass());
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($inScope)->outcome);
+
+        // A client outside the scope (different forwarded IP) is never throttled.
+        $outOfScope = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))->withHeader('X-Real-IP', '198.51.100.9');
+        for ($i = 0; $i < 3; ++$i) {
+            $this->assertTrue($firewall->decide($outOfScope)->isPass());
         }
     }
 

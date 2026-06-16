@@ -245,7 +245,9 @@ final class PortableConfig implements ConfigLayer
     /**
      * Match requests whose client IP is in the given list of IPs and/or CIDR ranges.
      *
-     * Backed by {@see IpMatcher}; resolves the client IP from REMOTE_ADDR.
+     * Backed by {@see IpMatcher}: the client IP is resolved through the resolver of
+     * the {@see Config} this filter is evaluated under (set via `setIpResolver()`),
+     * falling back to REMOTE_ADDR when none is configured.
      *
      * @param list<string> $ipsOrCidrs
      * @return FilterIp
@@ -869,17 +871,13 @@ final class PortableConfig implements ConfigLayer
 
         // Throttles
         foreach ($this->schema['throttles'] as $t) {
-            $keyExtractor = $this->compileKey($t['key']);
-            if (isset($t['scope'])) {
-                $keyExtractor = $this->scopeKeyExtractor($keyExtractor, $this->compileFilterMatcher($t['scope']));
-            }
-
             $config->throttles->addRule(new ThrottleRule(
                 $t['name'],
                 (int)$t['limit'],
                 (int)$t['period'],
-                new ClosureKeyExtractor($keyExtractor),
+                new ClosureKeyExtractor($this->compileKey($t['key'])),
                 ($t['sliding'] ?? false) === true,
+                isset($t['scope']) ? $this->compileFilterMatcher($t['scope']) : null,
             ));
         }
 
@@ -1008,25 +1006,6 @@ final class PortableConfig implements ConfigLayer
             'header' => (static fn(string $name): \Closure => KeyExtractors::header($name))((string)($key['name'] ?? '')),
             'hashed_header' => (static fn(string $name): \Closure => KeyExtractors::hashedHeader($name))((string)($key['name'] ?? '')),
             default => throw new \InvalidArgumentException('Unsupported key extractor type: ' . $type),
-        };
-    }
-
-    /**
-     * Wrap a key extractor so it only yields a discriminator when the request
-     * matches the scope filter. When the filter does not match, the extractor
-     * returns null and the throttle evaluator skips the rule for that request.
-     *
-     * @param \Closure(ServerRequestInterface): ?string $keyExtractor
-     * @return \Closure(ServerRequestInterface): ?string
-     */
-    private function scopeKeyExtractor(\Closure $keyExtractor, RequestMatcherInterface $requestMatcher): \Closure
-    {
-        return static function (ServerRequestInterface $serverRequest) use ($keyExtractor, $requestMatcher): ?string {
-            if (!$requestMatcher->match($serverRequest)->isMatch()) {
-                return null;
-            }
-
-            return $keyExtractor($serverRequest);
         };
     }
 

@@ -87,8 +87,8 @@ final class Config implements ConfigLayer
         public readonly ?EventDispatcherInterface $eventDispatcher = null,
         public readonly ?ClockInterface $clock = null,
     ) {
-        $this->safelists = new SafelistSection($this);
-        $this->blocklists = new BlocklistSection($this);
+        $this->safelists = new SafelistSection();
+        $this->blocklists = new BlocklistSection();
         $this->throttles = new ThrottleSection();
         $this->fail2ban = new Fail2BanSection();
         $this->allow2ban = new Allow2BanSection();
@@ -127,13 +127,15 @@ final class Config implements ConfigLayer
      *    is taken from the LAST layer whose value differs from the field default.
      *    A layer that simply left an option at its default does not clobber an
      *    explicit value set by an earlier layer; consequently a layer cannot
-     *    re-assert a field's DEFAULT value to override a lower layer. Caveat for
-     *    the IP resolver: IP-aware matchers (IpMatcher, the file/snapshot IP
-     *    blocklists, TrustedBotMatcher) capture their resolver when the rule is
-     *    constructed, so the composed resolver applies only to rules added
-     *    afterwards — it does not rewrite IP rules carried over from earlier
-     *    layers. Exception: counter rules added without an explicit key resolve
-     *    their default IP key against the composed Config ({@see resolveKey()}).
+     *    re-assert a field's DEFAULT value to override a lower layer. The IP
+     *    resolver also propagates to rules at evaluation time: IP-aware matchers
+     *    ({@see Matchers\ClientIpResolverAware}, used as safelist/blocklist rules,
+     *    as fail2ban/track filters or as throttle scope filters) and counter rules
+     *    added without an explicit resolver/key resolve the client IP against the
+     *    composed Config
+     *    ({@see clientIpResolver()}, {@see resolveKey()}), so a later layer's
+     *    resolver applies to rules carried over from earlier layers. Only a matcher
+     *    given an EXPLICIT resolver at construction keeps it regardless of layering.
      *  - **Infrastructure** (the PSR-16 cache, the PSR-14 event dispatcher and the
      *    clock) is inherited from the base layer; overlays do not override it.
      *
@@ -354,11 +356,23 @@ final class Config implements ConfigLayer
         if ($keyExtractor instanceof KeyExtractorInterface) {
             $key = $keyExtractor->extract($serverRequest);
         } else {
-            $resolver = $this->ipResolver ?? KeyExtractors::ip();
-            $key = $resolver($serverRequest);
+            $key = ($this->clientIpResolver())($serverRequest);
         }
 
         return $key === '' ? null : $key;
+    }
+
+    /**
+     * This Config's client-IP resolver, falling back to {@see KeyExtractors::ip()}
+     * (REMOTE_ADDR) when none is set. Supplied to {@see Matchers\ClientIpResolverAware}
+     * matchers at evaluation time so an IP rule added without an explicit resolver
+     * reads the client IP through the Config it actually runs under.
+     *
+     * @return callable(ServerRequestInterface): ?string
+     */
+    public function clientIpResolver(): callable
+    {
+        return $this->ipResolver ?? KeyExtractors::ip();
     }
 
     // ── Discriminator normalizer ────────────────────────────────────────

@@ -15,8 +15,12 @@ use Psr\Http\Message\ServerRequestInterface;
  *
  * Supports both IPv4 and IPv6 addresses and CIDR notation.
  * Used internally by SafelistSection::ip() and BlocklistSection::ip().
+ *
+ * When constructed without an explicit resolver the client IP is read through
+ * the evaluating Config's resolver at match time ({@see ClientIpResolverAware});
+ * standalone use falls back to {@see KeyExtractors::ip()} (REMOTE_ADDR).
  */
-final class IpMatcher implements RequestMatcherInterface
+final class IpMatcher implements RequestMatcherInterface, ClientIpResolverAware
 {
     /** @var list<array{network: string, bits: int}> */
     private array $compiled = [];
@@ -24,16 +28,16 @@ final class IpMatcher implements RequestMatcherInterface
     /** @var array<string, bool> */
     private array $exactIps = [];
 
-    /** @var callable(ServerRequestInterface): ?string */
+    /** @var (callable(ServerRequestInterface): ?string)|null */
     private $ipResolver;
 
     /**
      * @param list<string> $ipsOrCidrs List of IPs and/or CIDR ranges (e.g. '10.0.0.1', '192.168.0.0/16', '::1')
-     * @param (callable(ServerRequestInterface): ?string)|null $ipResolver Custom IP resolver. Defaults to KeyExtractors::ip().
+     * @param (callable(ServerRequestInterface): ?string)|null $ipResolver Explicit IP resolver. When omitted, the evaluating Config's resolver is used (falling back to KeyExtractors::ip()).
      */
     public function __construct(array $ipsOrCidrs, ?callable $ipResolver = null)
     {
-        $this->ipResolver = $ipResolver ?? KeyExtractors::ip();
+        $this->ipResolver = $ipResolver;
         foreach ($ipsOrCidrs as $i => $ipOrCidr) {
             if (!is_string($ipOrCidr)) {
                 throw new \InvalidArgumentException(sprintf('IP/CIDR entry at index %d must be a string.', $i));
@@ -58,7 +62,13 @@ final class IpMatcher implements RequestMatcherInterface
 
     public function match(ServerRequestInterface $serverRequest): MatchResult
     {
-        $ip = ($this->ipResolver)($serverRequest);
+        return $this->matchWithResolver($serverRequest, KeyExtractors::ip());
+    }
+
+    public function matchWithResolver(ServerRequestInterface $serverRequest, callable $defaultResolver): MatchResult
+    {
+        $resolver = $this->ipResolver ?? $defaultResolver;
+        $ip = $resolver($serverRequest);
         if ($ip === null) {
             return MatchResult::noMatch();
         }

@@ -11,6 +11,7 @@ use Flowd\Phirewall\Matchers\TrustedBotMatcher;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\ServerRequestInterface;
 
 final class TrustedBotMatcherTest extends TestCase
 {
@@ -280,5 +281,47 @@ final class TrustedBotMatcherTest extends TestCase
         ], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']); // REMOTE_ADDR is ignored
 
         $this->assertTrue($trustedBotMatcher->match($serverRequest)->isMatch());
+    }
+
+    public function testMatchWithResolverUsesSuppliedDefaultWhenNoExplicitResolver(): void
+    {
+        // No explicit ipResolver: the evaluator's default resolver decides the client IP.
+        $trustedBotMatcher = new TrustedBotMatcher(
+            reverseResolve: fn(string $ip): string => 'crawl-66-249-66-1.googlebot.com',
+            forwardResolve: fn(string $host): array => ['66.249.66.1'],
+        );
+        $serverRequest = (new ServerRequest('GET', '/', ['User-Agent' => 'Googlebot/2.1'], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Real-IP', '66.249.66.1');
+
+        $this->assertTrue($trustedBotMatcher->matchWithResolver($serverRequest, $this->headerResolver('X-Real-IP'))->isMatch());
+    }
+
+    public function testMatchWithResolverExplicitResolverWinsOverDefault(): void
+    {
+        // The explicit resolver (X-Trusted-IP) is used even when a different default is supplied:
+        // the bot verifies via X-Trusted-IP, while X-Real-IP would not verify against the forward set.
+        $trustedBotMatcher = new TrustedBotMatcher(
+            reverseResolve: fn(string $ip): string => 'crawl-66-249-66-1.googlebot.com',
+            forwardResolve: fn(string $host): array => ['66.249.66.1'],
+            ipResolver: $this->headerResolver('X-Trusted-IP'),
+        );
+        $serverRequest = (new ServerRequest('GET', '/', ['User-Agent' => 'Googlebot/2.1'], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Trusted-IP', '66.249.66.1')
+            ->withHeader('X-Real-IP', '198.51.100.9');
+
+        $this->assertTrue($trustedBotMatcher->matchWithResolver($serverRequest, $this->headerResolver('X-Real-IP'))->isMatch());
+    }
+
+    /**
+     * A resolver that reads the client IP from the named header (null when absent).
+     *
+     * @return callable(ServerRequestInterface): ?string
+     */
+    private function headerResolver(string $header): callable
+    {
+        return static function (ServerRequestInterface $serverRequest) use ($header): ?string {
+            $value = $serverRequest->getHeaderLine($header);
+            return $value === '' ? null : $value;
+        };
     }
 }

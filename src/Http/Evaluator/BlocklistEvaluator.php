@@ -16,11 +16,15 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final readonly class BlocklistEvaluator implements EvaluatorInterface
 {
+    use ResolvesClientIpForMatchers;
+
     public function evaluate(ServerRequestInterface $serverRequest, EvaluationContext $evaluationContext): ?FirewallResult
     {
+        $defaultIpResolver = $evaluationContext->config->clientIpResolver();
+
         foreach ($evaluationContext->config->blocklists->rules() as $blocklistRule) {
             $name = $blocklistRule->name();
-            $match = $blocklistRule->matcher()->match($serverRequest);
+            $match = $this->matchWithClientIpResolver($blocklistRule->matcher(), $serverRequest, $defaultIpResolver);
             if ($match->isMatch()) {
                 $evaluationContext->dispatch(new BlocklistMatched($name, $serverRequest));
 

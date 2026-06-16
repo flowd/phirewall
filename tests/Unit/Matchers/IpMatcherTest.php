@@ -11,6 +11,7 @@ use Flowd\Phirewall\Matchers\IpMatcher;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\ServerRequestInterface;
 
 final class IpMatcherTest extends TestCase
 {
@@ -151,6 +152,62 @@ final class IpMatcherTest extends TestCase
         $this->assertTrue($ipMatcher->match($serverRequest)->isMatch());
     }
 
+    // ── IP resolver late binding ────────────────────────────────────────
+
+    public function testMatchUsesRemoteAddrByDefaultWhenStandalone(): void
+    {
+        // No explicit resolver: standalone match() falls back to REMOTE_ADDR.
+        $ipMatcher = new IpMatcher(['10.0.0.1']);
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
+
+        $this->assertTrue($ipMatcher->match($serverRequest)->isMatch());
+    }
+
+    public function testMatchWithResolverUsesDefaultWhenNoExplicitResolverSet(): void
+    {
+        // No explicit resolver: the supplied default resolver decides the client IP.
+        $ipMatcher = new IpMatcher(['203.0.113.7']);
+        $serverRequest = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Real-IP', '203.0.113.7');
+
+        $this->assertTrue($ipMatcher->matchWithResolver($serverRequest, $this->headerResolver('X-Real-IP'))->isMatch());
+    }
+
+    public function testExplicitResolverWinsOverSuppliedDefault(): void
+    {
+        // An explicit resolver captured at construction is never overridden by the default.
+        $ipMatcher = new IpMatcher(['203.0.113.7'], $this->headerResolver('X-Trusted-IP'));
+        $serverRequest = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Trusted-IP', '203.0.113.7')
+            ->withHeader('X-Real-IP', '198.51.100.9');
+
+        // Matches on the explicit (X-Trusted-IP) resolver, not the default (X-Real-IP).
+        $this->assertTrue($ipMatcher->matchWithResolver($serverRequest, $this->headerResolver('X-Real-IP'))->isMatch());
+    }
+
+    public function testMatchWithResolverDoesNotMatchWhenResolverYieldsNull(): void
+    {
+        // No explicit resolver and the default resolver cannot read a client IP
+        // (header absent) -> no match, regardless of the listed entries.
+        $ipMatcher = new IpMatcher(['203.0.113.7']);
+        $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.7']);
+
+        $this->assertFalse($ipMatcher->matchWithResolver($serverRequest, $this->headerResolver('X-Real-IP'))->isMatch());
+    }
+
+    /**
+     * A resolver that reads the client IP from the named header (null when absent).
+     *
+     * @return \Closure(ServerRequestInterface): ?string
+     */
+    private function headerResolver(string $header): \Closure
+    {
+        return static function (ServerRequestInterface $serverRequest) use ($header): ?string {
+            $value = $serverRequest->getHeaderLine($header);
+            return $value === '' ? null : $value;
+        };
+    }
+
     public function testMultipleEntries(): void
     {
         $ipMatcher = new IpMatcher(['10.0.0.1', '192.168.0.0/16', '::1']);
@@ -225,6 +282,49 @@ final class IpMatcherTest extends TestCase
 
         $this->assertArrayHasKey('bad-actors', $config->blocklists->rules());
         $this->assertSame($config->blocklists, $blocklistSection); // fluent
+    }
+
+    // ── Late binding through the evaluating Config ──────────────────────
+
+    public function testSafelistIpRuleLateBindsToConfigResolver(): void
+    {
+        // The safelist ip() rule has no explicit resolver; the evaluator supplies
+        // the Config's resolver, so the trusted IP arriving via X-Real-IP (behind a
+        // proxy) is safelisted even though REMOTE_ADDR is something else.
+        $config = new Config(new InMemoryCache());
+        $config->setIpResolver($this->headerResolver('X-Real-IP'));
+
+        $config->safelists->ip('trusted', '203.0.113.7');
+        $config->blocklists->add('block-all', static fn($request): bool => true);
+
+        $firewall = new Firewall($config);
+
+        $trusted = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))->withHeader('X-Real-IP', '203.0.113.7');
+        $this->assertSame(Outcome::SAFELISTED, $firewall->decide($trusted)->outcome);
+
+        // A different forwarded client is not safelisted and falls through to block-all.
+        $other = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))->withHeader('X-Real-IP', '198.51.100.9');
+        $this->assertTrue($firewall->decide($other)->isBlocked());
+    }
+
+    public function testIpRuleAddedBeforeResolverStillUsesItPerRequest(): void
+    {
+        // Ordering independence on a single Config: the ip() rule is added BEFORE
+        // the resolver is set, yet late-binding picks up the resolver at request time.
+        $config = new Config(new InMemoryCache());
+        $config->blocklists->ip('bad', '203.0.113.7');     // added first, no explicit resolver
+        $config->setIpResolver($this->headerResolver('X-Real-IP')); // set afterwards
+
+        $firewall = new Firewall($config);
+
+        // Banned IP arrives via the resolver's header -> blocked.
+        $viaHeader = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))->withHeader('X-Real-IP', '203.0.113.7');
+        $this->assertTrue($firewall->decide($viaHeader)->isBlocked());
+
+        // The same address only in REMOTE_ADDR is ignored, because the rule now reads
+        // the configured resolver (X-Real-IP), not REMOTE_ADDR.
+        $viaRemoteAddr = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.7']);
+        $this->assertTrue($firewall->decide($viaRemoteAddr)->isPass());
     }
 
 }
