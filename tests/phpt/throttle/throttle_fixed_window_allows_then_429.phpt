@@ -7,14 +7,13 @@ declare(strict_types=1);
 require __DIR__ . '/../_bootstrap.inc';
 
 use Flowd\Phirewall\Config;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Flowd\Phirewall\Tests\Support\FakeClock;
 
 $fakeClock = new FakeClock(1_200_000_000.0);
 $cache = new InMemoryCache($fakeClock);
 $config = new Config($cache, clock: $fakeClock);
-$config->throttles->add('limit', 3, 60, KeyExtractors::ip());
+$config->throttles->add('limit', 3, 60);
 
 $middleware = phpt_middleware($config);
 $handler = phpt_handler();

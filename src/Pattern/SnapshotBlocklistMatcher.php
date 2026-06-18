@@ -6,7 +6,6 @@ namespace Flowd\Phirewall\Pattern;
 
 use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Config\RequestMatcherInterface;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Matchers\ClientIpResolverAware;
 use Flowd\Phirewall\Matchers\Support\CidrMatcher;
 use Flowd\Phirewall\Matchers\Support\RegexMatcher;
@@ -60,7 +59,10 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientI
 
     public function match(ServerRequestInterface $serverRequest): MatchResult
     {
-        return $this->matchWithResolver($serverRequest, KeyExtractors::ip());
+        return $this->matchWithResolver($serverRequest, static function (ServerRequestInterface $serverRequest): ?string {
+            $remoteAddr = $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
+            return is_string($remoteAddr) && $remoteAddr !== '' ? $remoteAddr : null;
+        });
     }
 
     public function matchWithResolver(ServerRequestInterface $serverRequest, callable $defaultResolver): MatchResult

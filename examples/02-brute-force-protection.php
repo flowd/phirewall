@@ -19,7 +19,6 @@ use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\Config\DiagnosticsDispatcher;
 use Flowd\Phirewall\Context\RequestContext;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -60,8 +59,7 @@ $config->fail2ban->add(
     threshold: 5,           // Number of failures before ban
     period: 300,            // Time window in seconds (5 minutes)
     ban: 3600,              // Ban duration in seconds (1 hour)
-    filter: fn(ServerRequestInterface $serverRequest): bool => false,
-    key: KeyExtractors::ip()
+    filter: fn(ServerRequestInterface $serverRequest): bool => false
 );
 echo "1. Fail2Ban configured: 5 failures in 5 min = 1 hour ban (handler signals failures)\n";
 

@@ -23,7 +23,6 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Context\RequestContext;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -54,7 +53,6 @@ $config->fail2ban->add(
     period: 300,
     ban: 3600,
     filter: fn(ServerRequestInterface $serverRequest): bool => false,
-    key: KeyExtractors::ip(),
 );
 
 echo "  Fail2Ban rule 'login-failures': 3 failures in 5 min = 1 hour ban\n";

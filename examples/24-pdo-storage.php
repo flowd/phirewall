@@ -17,7 +17,6 @@ require __DIR__ . '/../vendor/autoload.php';
 use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\PdoCache;
 use Nyholm\Psr7\ServerRequest;
 
@@ -34,11 +33,10 @@ echo "Table auto-created on first use.\n\n";
 
 // --- Configure rate limiting ---
 
-$config->throttles->add('api', limit: 5, period: 60, key: KeyExtractors::ip());
+$config->throttles->add('api', limit: 5, period: 60);
 
 $config->fail2ban->add('login', threshold: 3, period: 300, ban: 600,
-    filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1',
-    key: KeyExtractors::ip()
+    filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1'
 );
 
 $firewall = new Firewall($config);

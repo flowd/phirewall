@@ -6,7 +6,6 @@ namespace Flowd\Phirewall\Matchers;
 
 use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Config\RequestMatcherInterface;
-use Flowd\Phirewall\KeyExtractors;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\SimpleCache\CacheInterface;
 
@@ -72,7 +71,7 @@ final class TrustedBotMatcher implements RequestMatcherInterface, ClientIpResolv
      * @param list<array{ua: string, hostname: string}> $additionalBots
      * @param (callable(string): string)|null $reverseResolve Override for gethostbyaddr() (for testing).
      * @param (callable(string): list<string>)|null $forwardResolve Override for gethostbynamel() (for testing).
-     * @param (callable(ServerRequestInterface): ?string)|null $ipResolver Explicit IP resolver. When omitted, the evaluating Config's resolver is used (falling back to KeyExtractors::ip()).
+     * @param (callable(ServerRequestInterface): ?string)|null $ipResolver Explicit IP resolver. When omitted, the evaluating Config's resolver is used (falling back to REMOTE_ADDR).
      * @param CacheInterface|null $cache PSR-16 cache for DNS results. Avoids repeated lookups for the same IP.
      * @param positive-int $cacheTtl Cache TTL in seconds. Default: 86400 (24 hours).
      */
@@ -129,7 +128,10 @@ final class TrustedBotMatcher implements RequestMatcherInterface, ClientIpResolv
 
     public function match(ServerRequestInterface $serverRequest): MatchResult
     {
-        return $this->matchWithResolver($serverRequest, KeyExtractors::ip());
+        return $this->matchWithResolver($serverRequest, static function (ServerRequestInterface $serverRequest): ?string {
+            $remoteAddr = $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
+            return is_string($remoteAddr) && $remoteAddr !== '' ? $remoteAddr : null;
+        });
     }
 
     public function matchWithResolver(ServerRequestInterface $serverRequest, callable $defaultResolver): MatchResult

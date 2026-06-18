@@ -21,7 +21,6 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 
@@ -35,7 +34,6 @@ $config->throttles->sliding(
     name: 'api-sliding',
     limit: 10,
     period: 60,
-    key: KeyExtractors::ip(),
 );
 
 echo "Sliding throttle configured: 10 req/60s per IP\n\n";

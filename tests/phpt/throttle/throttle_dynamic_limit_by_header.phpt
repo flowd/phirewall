@@ -7,7 +7,6 @@ declare(strict_types=1);
 require __DIR__ . '/../_bootstrap.inc';
 
 use Flowd\Phirewall\Config;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Flowd\Phirewall\Tests\Support\FakeClock;
 
@@ -17,8 +16,7 @@ $config = new Config($cache, clock: $fakeClock);
 $config->throttles->add(
     'role-limit',
     fn($r) => $r->getHeaderLine('X-User-Role') === 'admin' ? 5 : 2,
-    60,
-    KeyExtractors::ip()
+    60
 );
 
 $middleware = phpt_middleware($config);

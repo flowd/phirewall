@@ -22,7 +22,6 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -140,8 +139,7 @@ $config = new Config($cache, $dispatcher);
 $config->throttles->add(
     name: 'ip-limit',
     limit: 3,
-    period: 60,
-    key: KeyExtractors::ip()
+    period: 60
 );
 echo "Throttle rule configured: 3 requests/min per IP\n";
 

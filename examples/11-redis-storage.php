@@ -27,7 +27,6 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\RedisCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -95,8 +94,7 @@ $config->enableResponseHeaders();
 $config->throttles->add(
     name: 'ip-limit',
     limit: 3,           // Only 3 requests
-    period: 30,         // Per 30 seconds
-    key: KeyExtractors::ip()
+    period: 30          // Per 30 seconds
 );
 echo "Throttle rule: 3 requests per 30 seconds per IP\n";
 
@@ -106,8 +104,7 @@ $config->fail2ban->add(
     threshold: 2,       // 2 blocked requests
     period: 60,         // In 1 minute
     ban: 300,           // 5 minute ban
-    filter: fn($req): bool => $req->getHeaderLine('X-Abuse') === '1',
-    key: KeyExtractors::ip()
+    filter: fn($req): bool => $req->getHeaderLine('X-Abuse') === '1'
 );
 echo "Fail2Ban rule: 2 abuse markers = 5 minute ban\n\n";
 

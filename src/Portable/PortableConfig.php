@@ -1005,7 +1005,6 @@ final class PortableConfig implements ConfigLayer
     {
         $type = (string)($key['type'] ?? '');
         return match ($type) {
-            'ip' => KeyExtractors::ip(),
             'method' => KeyExtractors::method(),
             'path' => KeyExtractors::path(),
             'header' => (static fn(string $name): \Closure => KeyExtractors::header($name))((string)($key['name'] ?? '')),

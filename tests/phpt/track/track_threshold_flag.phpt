@@ -8,7 +8,6 @@ require __DIR__ . '/../_bootstrap.inc';
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Events\TrackHit;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Flowd\Phirewall\Tests\Support\FakeClock;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -32,7 +31,6 @@ $config->tracks->add(
     'api',
     period: 60,
     filter: fn() => true,
-    key: KeyExtractors::ip(),
     limit: 3,
 );
 

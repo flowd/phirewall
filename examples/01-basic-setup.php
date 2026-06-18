@@ -18,7 +18,6 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -71,8 +70,7 @@ echo "3b. Blocklist rule added: WordPress probes\n";
 $config->throttles->add(
     name: 'ip-limit',
     limit: 5,
-    period: 60,
-    key: KeyExtractors::ip()
+    period: 60
 );
 echo "3c. Throttle rule added: 5 requests/minute per IP\n";
 

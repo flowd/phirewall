@@ -22,7 +22,6 @@ require __DIR__ . '/../vendor/autoload.php';
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\Response\Psr17BlocklistedResponseFactory;
 use Flowd\Phirewall\Config\Response\Psr17ThrottledResponseFactory;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -75,7 +74,7 @@ $config = new Config($cache);
 $config->enableResponseHeaders();
 $config->usePsr17Responses($psr17Factory, $psr17Factory);
 $config->blocklists->add('admin', fn(ServerRequestInterface $serverRequest): bool => str_starts_with($serverRequest->getUri()->getPath(), '/admin'));
-$config->throttles->add('ip', 2, 60, KeyExtractors::ip());
+$config->throttles->add('ip', 2, 60);
 
 $middleware = new Middleware($config, $psr17Factory);
 
@@ -120,7 +119,7 @@ $config2->throttledResponseFactory = new Psr17ThrottledResponseFactory(
     'Rate limit exceeded. Please slow down.',
 );
 $config2->blocklists->add('blocked', fn(ServerRequestInterface $serverRequest): bool => $serverRequest->getUri()->getPath() === '/secret');
-$config2->throttles->add('ip', 1, 30, KeyExtractors::ip());
+$config2->throttles->add('ip', 1, 30);
 
 $middleware2 = new Middleware($config2, $psr17Factory);
 

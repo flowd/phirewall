@@ -8,7 +8,6 @@ require __DIR__ . '/../_bootstrap.inc';
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Context\RequestContext;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Flowd\Phirewall\Tests\Support\FakeClock;
 use Nyholm\Psr7\Response;
@@ -25,7 +24,6 @@ $config->fail2ban->add(
     period: 300,
     ban: 3600,
     filter: fn() => false,
-    key: KeyExtractors::ip(),
 );
 
 $middleware = phpt_middleware($config);

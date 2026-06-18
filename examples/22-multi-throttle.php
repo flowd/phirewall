@@ -15,7 +15,6 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 
@@ -32,7 +31,7 @@ $config->enableResponseHeaders();
 $config->throttles->multi('api', [
     1  => 3,   // 3 req/s burst limit
     60 => 60,  // 60 req/min sustained limit
-], KeyExtractors::ip());
+]);
 
 echo "Rules registered:\n";
 foreach ($config->throttles->rules() as $name => $rule) {

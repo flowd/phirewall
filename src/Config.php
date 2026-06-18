@@ -365,8 +365,8 @@ final class Config implements ConfigLayer
     }
 
     /**
-     * This Config's client-IP resolver, falling back to {@see KeyExtractors::ip()}
-     * (REMOTE_ADDR) when none is set. Supplied to {@see Matchers\ClientIpResolverAware}
+     * This Config's client-IP resolver, falling back to the raw REMOTE_ADDR peer
+     * address when none is set. Supplied to {@see Matchers\ClientIpResolverAware}
      * matchers at evaluation time so an IP rule added without an explicit resolver
      * reads the client IP through the Config it actually runs under.
      *
@@ -374,7 +374,10 @@ final class Config implements ConfigLayer
      */
     public function clientIpResolver(): callable
     {
-        return $this->ipResolver ?? KeyExtractors::ip();
+        return $this->ipResolver ?? static function (ServerRequestInterface $serverRequest): ?string {
+            $remoteAddr = $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
+            return is_string($remoteAddr) && $remoteAddr !== '' ? $remoteAddr : null;
+        };
     }
 
     // ── Discriminator normalizer ────────────────────────────────────────

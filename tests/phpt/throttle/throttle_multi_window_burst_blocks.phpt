@@ -7,7 +7,6 @@ declare(strict_types=1);
 require __DIR__ . '/../_bootstrap.inc';
 
 use Flowd\Phirewall\Config;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Flowd\Phirewall\Tests\Support\FakeClock;
 
@@ -15,7 +14,7 @@ $fakeClock = new FakeClock(1_200_000_000.0);
 $cache = new InMemoryCache($fakeClock);
 $config = new Config($cache, clock: $fakeClock);
 // Burst limit: 2 per 10s, sustained: 100 per 60s
-$config->throttles->multi('api', [10 => 2, 60 => 100], KeyExtractors::ip());
+$config->throttles->multi('api', [10 => 2, 60 => 100]);
 
 $middleware = phpt_middleware($config);
 $handler = phpt_handler();

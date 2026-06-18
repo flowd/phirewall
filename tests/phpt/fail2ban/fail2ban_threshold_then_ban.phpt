@@ -7,7 +7,6 @@ declare(strict_types=1);
 require __DIR__ . '/../_bootstrap.inc';
 
 use Flowd\Phirewall\Config;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Flowd\Phirewall\Tests\Support\FakeClock;
 
@@ -19,7 +18,6 @@ $config->fail2ban->add(
     period: 300,
     ban: 3600,
     filter: fn($request) => $request->getHeaderLine('X-Auth-Failed') === '1',
-    key: KeyExtractors::ip(),
 );
 
 $middleware = phpt_middleware($config);

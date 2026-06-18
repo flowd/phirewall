@@ -6,7 +6,6 @@ namespace Flowd\Phirewall\Infrastructure;
 
 use Flowd\Phirewall\Events\BlocklistMatched;
 use Flowd\Phirewall\Events\Fail2BanBanned;
-use Flowd\Phirewall\KeyExtractors;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -38,8 +37,8 @@ final class InfrastructureBanListener
          */
         ?callable $keyToIp = null,
         /**
-         * Extract IP address from a ServerRequestInterface. Defaults to
-         * {@see KeyExtractors::ip()} (REMOTE_ADDR). Deployments behind a
+         * Extract IP address from a ServerRequestInterface. Defaults to the
+         * raw `REMOTE_ADDR` peer address. Deployments behind a
          * CDN, load balancer, or reverse proxy should pass
          * `(new TrustedProxyResolver([...]))->resolve(...)` so the
          * infrastructure ban targets the originating client rather than the
@@ -50,7 +49,10 @@ final class InfrastructureBanListener
         ?callable $requestToIp = null,
     ) {
         $this->keyToIp = $keyToIp ?? static fn(string $key): string => $key;
-        $this->requestToIp = $requestToIp ?? KeyExtractors::ip();
+        $this->requestToIp = $requestToIp ?? static function (ServerRequestInterface $serverRequest): ?string {
+            $remoteAddr = $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
+            return is_string($remoteAddr) && $remoteAddr !== '' ? $remoteAddr : null;
+        };
     }
 
     /** Listener for Fail2Ban bans. */
