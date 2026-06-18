@@ -55,6 +55,10 @@ $proxyResolver = new TrustedProxyResolver([
     '192.168.0.0/16',
 ]);
 
+// Make the proxy-resolved client IP the default for every rule: keyless counter
+// rules, IP matchers, keyIp() and filterIp() all key on the real client from here on.
+$config->setIpResolver($proxyResolver->resolve(...));
+
 echo "Configuration:\n";
 echo "  Key prefix: prod\n";
 echo "  Rate limit headers: enabled\n\n";
@@ -150,7 +154,6 @@ $config->fail2ban->add('login-brute',
     period: 300,
     ban: 3600,
     filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1',
-    key: KeyExtractors::clientIp($proxyResolver)
 );
 echo "  - Login: 5 failures in 5min = 1 hour ban\n";
 
@@ -160,7 +163,6 @@ $config->fail2ban->add('api-abuse',
     period: 60,
     ban: 1800,
     filter: fn($req): bool => $req->getHeaderLine('X-API-Error') === '1',
-    key: KeyExtractors::clientIp($proxyResolver)
 );
 echo "  - API: 10 errors in 1min = 30 min ban\n\n";
 
@@ -171,7 +173,7 @@ echo "  - API: 10 errors in 1min = 30 min ban\n\n";
 echo "Layer 5: Throttling\n";
 
 // Global limit
-$config->throttles->add('global', limit: 200, period: 60, key: KeyExtractors::clientIp($proxyResolver));
+$config->throttles->add('global', limit: 200, period: 60);
 echo "  - Global: 200/min per IP\n";
 
 // Write operations
@@ -199,7 +201,7 @@ $config->throttles->add('user', limit: 1000, period: 60, key: KeyExtractors::hea
 echo "  - Authenticated: 1000/min per user\n";
 
 // Burst detection
-$config->throttles->add('burst', limit: 30, period: 5, key: KeyExtractors::clientIp($proxyResolver));
+$config->throttles->add('burst', limit: 30, period: 5);
 echo "  - Burst: 30/5s per IP\n\n";
 
 // =============================================================================

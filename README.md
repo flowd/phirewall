@@ -202,21 +202,26 @@ Enable `$config->enableRateLimitHeaders()` for standard `X-RateLimit-*` headers.
 
 ## Client IP Behind Proxies
 
-When behind load balancers or CDNs, use `TrustedProxyResolver`:
+Rules key on the **client IP** by default. Behind a load balancer or CDN, set a
+`TrustedProxyResolver` once so "client IP" becomes the real client from the forwarded
+chain. It only trusts the forwarded headers when the connecting peer is one of your
+declared proxies, so a direct client cannot spoof its IP:
 
 ```php
 use Flowd\Phirewall\Http\TrustedProxyResolver;
-use Flowd\Phirewall\KeyExtractors;
 
-$resolver = new TrustedProxyResolver([
+$config->setIpResolver((new TrustedProxyResolver([
     '10.0.0.0/8',      // Internal network
     '172.16.0.0/12',   // Docker
-]);
+]))->resolve(...));
 
-$config->throttles->add('api', limit: 100, period: 60,
-    key: KeyExtractors::clientIp($resolver)
-);
+// Every rule now resolves the real client IP: keyless counter rules, IP matchers,
+// and PortableConfig::keyIp()/filterIp(). Omit the key to use it:
+$config->throttles->add('api', limit: 100, period: 60);
 ```
+
+When no resolver is set the client IP is `REMOTE_ADDR`. For the raw connecting peer
+address regardless of proxy configuration, use `KeyExtractors::ip()`.
 
 ## Custom Responses
 

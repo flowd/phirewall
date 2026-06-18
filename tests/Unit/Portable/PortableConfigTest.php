@@ -57,6 +57,94 @@ final class PortableConfigTest extends TestCase
         $this->assertGreaterThanOrEqual(1, (int)($throttled->headers['X-RateLimit-Reset'] ?? '0'));
     }
 
+    public function testKeyIpKeysOnResolvedClientIpWhenResolverSet(): void
+    {
+        $portableConfig = PortableConfig::create()
+            ->throttle('ip', 1, 60, PortableConfig::keyIp());
+
+        $config = (new Config(new InMemoryCache()))->with($portableConfig);
+        // Header-based resolver: proves keyIp() keys on the resolved client IP, not REMOTE_ADDR.
+        $config->setIpResolver(static function (ServerRequestInterface $serverRequest): ?string {
+            $client = $serverRequest->getHeaderLine('X-Real-Client');
+            return $client === '' ? null : $client;
+        });
+        $firewall = new Firewall($config);
+
+        $clientA = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']))->withHeader('X-Real-Client', 'client-a');
+        $clientB = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']))->withHeader('X-Real-Client', 'client-b');
+
+        // Client A is throttled on its second request.
+        $this->assertTrue($firewall->decide($clientA)->isPass());
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($clientA)->outcome);
+
+        // Client B shares REMOTE_ADDR 9.9.9.9 but resolves to a different client -> its own counter.
+        $this->assertTrue($firewall->decide($clientB)->isPass());
+    }
+
+    public function testKeyIpFallsBackToRemoteAddrWithoutResolver(): void
+    {
+        $portableConfig = PortableConfig::create()
+            ->throttle('ip', 1, 60, PortableConfig::keyIp());
+
+        $config = (new Config(new InMemoryCache()))->with($portableConfig); // no IP resolver set
+        $firewall = new Firewall($config);
+
+        $first = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.5']);
+        $this->assertTrue($firewall->decide($first)->isPass());
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($first)->outcome);
+
+        // A different REMOTE_ADDR keeps its own counter (keyless falls back to REMOTE_ADDR).
+        $second = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.6']);
+        $this->assertTrue($firewall->decide($second)->isPass());
+    }
+
+    public function testKeyIpWireFormatRoundTripsUnchanged(): void
+    {
+        $array = PortableConfig::create()
+            ->throttle('ip', 5, 60, PortableConfig::keyIp())
+            ->toArray();
+
+        // Wire form unchanged: keyIp() still serializes to {type:'ip'}.
+        $this->assertSame(['type' => 'ip'], $array['throttles'][0]['key']);
+
+        // Round-trips byte-identically through fromArray()/toArray().
+        $this->assertSame($array, PortableConfig::fromArray($array)->toArray());
+    }
+
+    public function testKeyIpSignedConfigRoundTrips(): void
+    {
+        $secretKey = str_repeat('k', 32);
+        $signed = PortableConfig::create()
+            ->throttle('ip', 5, 60, PortableConfig::keyIp())
+            ->toSignedJson($secretKey);
+
+        $loaded = PortableConfig::loadSigned($signed, $secretKey);
+        $this->assertSame(['type' => 'ip'], $loaded->toArray()['throttles'][0]['key']);
+    }
+
+    public function testKeyIpHonoursResolverFromComposedLayer(): void
+    {
+        $portableConfig = PortableConfig::create()
+            ->throttle('ip', 1, 60, PortableConfig::keyIp());
+
+        // The resolver lives on a later overlay layer, not on the base the rule rides in.
+        $overlay = (new Config(new InMemoryCache()))
+            ->setIpResolver(static function (ServerRequestInterface $serverRequest): ?string {
+                $client = $serverRequest->getHeaderLine('X-Real-Client');
+                return $client === '' ? null : $client;
+            });
+
+        $config = (new Config(new InMemoryCache()))->with($portableConfig, $overlay);
+        $firewall = new Firewall($config);
+
+        $clientA = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']))->withHeader('X-Real-Client', 'client-a');
+        $clientB = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']))->withHeader('X-Real-Client', 'client-b');
+
+        $this->assertTrue($firewall->decide($clientA)->isPass());
+        $this->assertSame(Outcome::THROTTLED, $firewall->decide($clientA)->outcome);
+        $this->assertTrue($firewall->decide($clientB)->isPass());
+    }
+
     public function testThrottleScopeOnlyCountsMatchingRequests(): void
     {
         $portableConfig = PortableConfig::create()

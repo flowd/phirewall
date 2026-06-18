@@ -9,15 +9,21 @@ use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * Common key extractor helpers you can pass directly into Config::throttle(), ::fail2ban() or ::track().
+ * Common key extractor helpers for counter rules (throttle / fail2ban / allow2ban / track).
  *
- * These helpers intentionally avoid trusting proxy headers by default. For trusted proxy/client IP resolution,
- * use KeyExtractors::clientIp() with a TrustedProxyResolver.
+ * The client IP is the default discriminator: omit a rule's key (or use
+ * PortableConfig::keyIp()) and the firewall resolves it through the Config's IP resolver,
+ * falling back to REMOTE_ADDR when none is set. Configure proxy trust once with
+ * $config->setIpResolver((new TrustedProxyResolver([...]))->resolve(...)). Reach for
+ * {@see ip()} only when you deliberately want the raw REMOTE_ADDR peer address.
  */
 final class KeyExtractors
 {
     /**
-     * Extract client IP from REMOTE_ADDR server param. Does not trust proxies.
+     * The raw REMOTE_ADDR peer address - the explicit escape hatch for when you
+     * deliberately want the connecting peer rather than the resolved client IP. Does
+     * NOT consult the Config IP resolver. The default client IP comes from that resolver
+     * (omit a rule key / PortableConfig::keyIp()); use this only for the raw peer address.
      * @return Closure(ServerRequestInterface): ?string
      */
     public static function ip(): Closure
@@ -114,7 +120,12 @@ final class KeyExtractors
     }
 
     /**
-     * Extract client IP using a TrustedProxyResolver. Safe for deployments behind trusted proxies.
+     * Extract the client IP using a TrustedProxyResolver.
+     *
+     * @deprecated The client IP is now the default for every rule via the Config IP
+     *   resolver, so a dedicated extractor is no longer needed. Configure proxy trust
+     *   once with $config->setIpResolver($trustedProxyResolver->resolve(...)) and omit
+     *   the rule key (or use PortableConfig::keyIp()); both resolve the client IP.
      * @return Closure(ServerRequestInterface): ?string
      */
     public static function clientIp(TrustedProxyResolver $trustedProxyResolver): Closure

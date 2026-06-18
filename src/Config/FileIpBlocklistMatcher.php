@@ -41,8 +41,8 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface, ClientIpR
      *                                                                     verbatim, no proxy headers) when used standalone or when that
      *                                                                     Config sets none. Deployments behind a CDN, load balancer, or
      *                                                                     reverse proxy must configure a trusted client-IP resolver - set
-     *                                                                     it on the Config via `setIpResolver()`, or pass one explicitly
-     *                                                                     here as `KeyExtractors::clientIp(new TrustedProxyResolver([...]))`
+     *                                                                     it on the Config via `setIpResolver((new TrustedProxyResolver([...]))->resolve(...))`,
+     *                                                                     or pass one explicitly here as `(new TrustedProxyResolver([...]))->resolve(...)`
      *                                                                     - otherwise every request appears to come from the proxy's
      *                                                                     address and the blocklist will either fail to match real
      *                                                                     attackers or end up banning the proxy itself. An explicitly

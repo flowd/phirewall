@@ -7,6 +7,7 @@ namespace Flowd\Phirewall\Portable;
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\ClosureKeyExtractor;
 use Flowd\Phirewall\Config\ClosureRequestMatcher;
+use Flowd\Phirewall\Config\KeyExtractorInterface;
 use Flowd\Phirewall\Config\RequestMatcherInterface;
 use Flowd\Phirewall\Config\Rule\Allow2BanRule;
 use Flowd\Phirewall\Config\Rule\BlocklistRule;
@@ -303,6 +304,10 @@ final class PortableConfig implements ConfigLayer
     }
 
     /**
+     * Key on the client IP. Materializes keyless: at evaluation it resolves the
+     * client IP through the Config it is applied to (its IP resolver, else
+     * REMOTE_ADDR), like keyless counter rules, filterIp(), and IP-aware matchers.
+     *
      * @return array{type: 'ip'}
      */
     public static function keyIp(): array
@@ -875,7 +880,7 @@ final class PortableConfig implements ConfigLayer
                 $t['name'],
                 (int)$t['limit'],
                 (int)$t['period'],
-                new ClosureKeyExtractor($this->compileKey($t['key'])),
+                $this->compileKeyExtractor($t['key']),
                 ($t['sliding'] ?? false) === true,
                 isset($t['scope']) ? $this->compileFilterMatcher($t['scope']) : null,
             ));
@@ -889,7 +894,7 @@ final class PortableConfig implements ConfigLayer
                 (int)$f['period'],
                 (int)$f['ban'],
                 $this->compileFilterMatcher($f['filter']),
-                new ClosureKeyExtractor($this->compileKey($f['key'])),
+                $this->compileKeyExtractor($f['key']),
             ));
         }
 
@@ -900,7 +905,7 @@ final class PortableConfig implements ConfigLayer
                 (int)$a['threshold'],
                 (int)$a['period'],
                 (int)$a['ban'],
-                new ClosureKeyExtractor($this->compileKey($a['key'])),
+                $this->compileKeyExtractor($a['key']),
             ));
         }
 
@@ -911,7 +916,7 @@ final class PortableConfig implements ConfigLayer
                 $t['name'],
                 (int)$t['period'],
                 $this->compileFilterMatcher($t['filter']),
-                new ClosureKeyExtractor($this->compileKey($t['key'])),
+                $this->compileKeyExtractor($t['key']),
                 $trackLimit,
             ));
         }
@@ -1007,6 +1012,22 @@ final class PortableConfig implements ConfigLayer
             'hashed_header' => (static fn(string $name): \Closure => KeyExtractors::hashedHeader($name))((string)($key['name'] ?? '')),
             default => throw new \InvalidArgumentException('Unsupported key extractor type: ' . $type),
         };
+    }
+
+    /**
+     * Compile a portable key into a rule key extractor. The `ip` type materializes
+     * as null (keyless) so the rule keys on the evaluating Config's client-IP
+     * resolver (else REMOTE_ADDR), like keyless rules, filterIp(), and IP matchers.
+     *
+     * @param array<string,scalar> $key
+     */
+    private function compileKeyExtractor(array $key): ?KeyExtractorInterface
+    {
+        if ((string)($key['type'] ?? '') === 'ip') {
+            return null;
+        }
+
+        return new ClosureKeyExtractor($this->compileKey($key));
     }
 
     /**
