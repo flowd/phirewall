@@ -6,7 +6,6 @@ namespace Flowd\Phirewall\Tests\Store;
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\PdoCache;
 use Nyholm\Psr7\ServerRequest;
 use PDO;
@@ -263,7 +262,7 @@ final class PdoCacheFunctionalTest extends TestCase
         $cache = $this->createCache();
         $config = new Config($cache);
 
-        $config->throttles->add('api', limit: 3, period: 60, key: KeyExtractors::ip());
+        $config->throttles->add('api', limit: 3, period: 60);
 
         $firewall = new Firewall($config);
         $request = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']);
@@ -285,7 +284,6 @@ final class PdoCacheFunctionalTest extends TestCase
             period: 60,
             ban: 300,
             filter: fn($request): bool => $request->getHeaderLine('X-Failed') === '1',
-            key: KeyExtractors::ip()
         );
 
         $firewall = new Firewall($config);

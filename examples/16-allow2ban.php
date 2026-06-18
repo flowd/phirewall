@@ -31,7 +31,6 @@ $config->allow2ban->add(
     threshold: 100,
     period: 60,
     banSeconds: 3600,
-    key: KeyExtractors::ip(),
 );
 
 // Multiple rules can coexist. E.g., also ban by API key for authenticated routes

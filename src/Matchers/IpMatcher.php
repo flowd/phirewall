@@ -6,7 +6,6 @@ namespace Flowd\Phirewall\Matchers;
 
 use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Config\RequestMatcherInterface;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Matchers\Support\CidrMatcher;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -18,7 +17,7 @@ use Psr\Http\Message\ServerRequestInterface;
  *
  * When constructed without an explicit resolver the client IP is read through
  * the evaluating Config's resolver at match time ({@see ClientIpResolverAware});
- * standalone use falls back to {@see KeyExtractors::ip()} (REMOTE_ADDR).
+ * standalone use falls back to the raw REMOTE_ADDR peer address.
  */
 final class IpMatcher implements RequestMatcherInterface, ClientIpResolverAware
 {
@@ -33,7 +32,7 @@ final class IpMatcher implements RequestMatcherInterface, ClientIpResolverAware
 
     /**
      * @param list<string> $ipsOrCidrs List of IPs and/or CIDR ranges (e.g. '10.0.0.1', '192.168.0.0/16', '::1')
-     * @param (callable(ServerRequestInterface): ?string)|null $ipResolver Explicit IP resolver. When omitted, the evaluating Config's resolver is used (falling back to KeyExtractors::ip()).
+     * @param (callable(ServerRequestInterface): ?string)|null $ipResolver Explicit IP resolver. When omitted, the evaluating Config's resolver is used (falling back to REMOTE_ADDR).
      */
     public function __construct(array $ipsOrCidrs, ?callable $ipResolver = null)
     {
@@ -62,7 +61,10 @@ final class IpMatcher implements RequestMatcherInterface, ClientIpResolverAware
 
     public function match(ServerRequestInterface $serverRequest): MatchResult
     {
-        return $this->matchWithResolver($serverRequest, KeyExtractors::ip());
+        return $this->matchWithResolver($serverRequest, static function (ServerRequestInterface $serverRequest): ?string {
+            $remoteAddr = $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
+            return is_string($remoteAddr) && $remoteAddr !== '' ? $remoteAddr : null;
+        });
     }
 
     public function matchWithResolver(ServerRequestInterface $serverRequest, callable $defaultResolver): MatchResult

@@ -221,7 +221,8 @@ $config->throttles->add('api', limit: 100, period: 60);
 ```
 
 When no resolver is set the client IP is `REMOTE_ADDR`. For the raw connecting peer
-address regardless of proxy configuration, use `KeyExtractors::ip()`.
+address regardless of proxy configuration, read `$req->getServerParams()['REMOTE_ADDR']`
+directly.
 
 ## Custom Responses
 

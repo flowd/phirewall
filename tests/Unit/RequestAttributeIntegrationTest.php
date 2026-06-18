@@ -8,7 +8,6 @@ use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Context\RequestContext;
 use Flowd\Phirewall\Events\Fail2BanBanned;
 use Flowd\Phirewall\Events\FirewallError;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -89,7 +88,6 @@ final class RequestAttributeIntegrationTest extends TestCase
             period: 300,
             ban: 3600,
             filter: fn($request): bool => false,
-            key: KeyExtractors::ip(),
         );
 
         $middleware = new Middleware($config, new Psr17Factory());
@@ -115,7 +113,6 @@ final class RequestAttributeIntegrationTest extends TestCase
             period: 300,
             ban: 3600,
             filter: fn($request): bool => false,
-            key: KeyExtractors::ip(),
         );
 
         $middleware = new Middleware($config, new Psr17Factory());
@@ -211,7 +208,6 @@ final class RequestAttributeIntegrationTest extends TestCase
             period: 300,
             ban: 3600,
             filter: fn($request): bool => false,
-            key: KeyExtractors::ip(),
         );
 
         $middleware = new Middleware($config, new Psr17Factory());
@@ -297,7 +293,6 @@ final class RequestAttributeIntegrationTest extends TestCase
             period: 300,
             ban: 3600,
             filter: fn($request): bool => false,
-            key: KeyExtractors::ip(),
         );
 
         $middleware = new Middleware($config, new Psr17Factory());
@@ -379,7 +374,6 @@ final class RequestAttributeIntegrationTest extends TestCase
             period: 300,
             ban: 3600,
             filter: fn($request): bool => false,
-            key: KeyExtractors::ip(),
         );
 
         $middleware = new Middleware($config, new Psr17Factory());
@@ -406,7 +400,6 @@ final class RequestAttributeIntegrationTest extends TestCase
             period: 300,
             ban: 3600,
             filter: fn($request): bool => false,
-            key: KeyExtractors::ip(),
         );
 
         $middleware = new Middleware($config, new Psr17Factory());
@@ -439,7 +432,6 @@ final class RequestAttributeIntegrationTest extends TestCase
             period: 300,
             ban: 3600,
             filter: fn($request): bool => false,
-            key: KeyExtractors::ip(),
         );
 
         $middleware = new Middleware($config, new Psr17Factory());

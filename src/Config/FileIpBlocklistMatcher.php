@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Config;
 
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Matchers\ClientIpResolverAware;
 use Flowd\Phirewall\Matchers\Support\CidrMatcher;
 use Psr\Http\Message\ServerRequestInterface;
@@ -37,8 +36,8 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface, ClientIpR
      *                                                                     How to extract the client IP from a request. When omitted
      *                                                                     ({@see ClientIpResolverAware}), the matcher late-binds to the
      *                                                                     resolver of the {@see \Flowd\Phirewall\Config} it is evaluated
-     *                                                                     under, falling back to {@see KeyExtractors::ip()} (`REMOTE_ADDR`
-     *                                                                     verbatim, no proxy headers) when used standalone or when that
+     *                                                                     under, falling back to `REMOTE_ADDR` (the raw peer address,
+     *                                                                     no proxy headers) when used standalone or when that
      *                                                                     Config sets none. Deployments behind a CDN, load balancer, or
      *                                                                     reverse proxy must configure a trusted client-IP resolver - set
      *                                                                     it on the Config via `setIpResolver((new TrustedProxyResolver([...]))->resolve(...))`,
@@ -65,7 +64,10 @@ final class FileIpBlocklistMatcher implements RequestMatcherInterface, ClientIpR
 
     public function match(ServerRequestInterface $serverRequest): MatchResult
     {
-        return $this->matchWithResolver($serverRequest, KeyExtractors::ip());
+        return $this->matchWithResolver($serverRequest, static function (ServerRequestInterface $serverRequest): ?string {
+            $remoteAddr = $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
+            return is_string($remoteAddr) && $remoteAddr !== '' ? $remoteAddr : null;
+        });
     }
 
     public function matchWithResolver(ServerRequestInterface $serverRequest, callable $defaultResolver): MatchResult

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Tests\Config;
 
 use Flowd\Phirewall\Config;
-use Flowd\Phirewall\Config\ClosureKeyExtractor;
 use Flowd\Phirewall\Config\ClosureRequestMatcher;
 use Flowd\Phirewall\Config\Response\BlocklistedResponseFactoryInterface;
 use Flowd\Phirewall\Config\Response\ThrottledResponseFactoryInterface;
@@ -17,7 +16,6 @@ use Flowd\Phirewall\Config\Rule\ThrottleRule;
 use Flowd\Phirewall\Config\Rule\TrackRule;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Http\Outcome;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Pattern\InMemoryPatternBackend;
 use Flowd\Phirewall\Pattern\PatternEntry;
 use Flowd\Phirewall\Pattern\PatternKind;
@@ -375,10 +373,10 @@ final class ConfigCompositionTest extends TestCase
     {
         $base = new Config(new InMemoryCache());
         $base->safelists->addRule(new SafelistRule('s', new ClosureRequestMatcher(static fn(): bool => false)));
-        $base->throttles->addRule(new ThrottleRule('t', 1, 60, new ClosureKeyExtractor(KeyExtractors::ip())));
-        $base->fail2ban->addRule(new Fail2BanRule('f', 1, 60, 60, new ClosureRequestMatcher(static fn(): bool => false), new ClosureKeyExtractor(KeyExtractors::ip())));
-        $base->allow2ban->addRule(new Allow2BanRule('a', 1, 60, 60, new ClosureKeyExtractor(KeyExtractors::ip())));
-        $base->tracks->addRule(new TrackRule('tr', 60, new ClosureRequestMatcher(static fn(): bool => false), new ClosureKeyExtractor(KeyExtractors::ip())));
+        $base->throttles->addRule(new ThrottleRule('t', 1, 60, null));
+        $base->fail2ban->addRule(new Fail2BanRule('f', 1, 60, 60, new ClosureRequestMatcher(static fn(): bool => false), null));
+        $base->allow2ban->addRule(new Allow2BanRule('a', 1, 60, 60, null));
+        $base->tracks->addRule(new TrackRule('tr', 60, new ClosureRequestMatcher(static fn(): bool => false), null));
 
         $composed = $base->with(new Config(new InMemoryCache()));
 

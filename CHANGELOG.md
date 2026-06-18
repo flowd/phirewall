@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 
-- **`KeyExtractors::clientIp(TrustedProxyResolver)`** - the resolved client IP is now the default discriminator for every rule via the `Config` IP resolver, so a dedicated key extractor is no longer needed. Configure proxy trust once with `$config->setIpResolver($trustedProxyResolver->resolve(...))` and omit the rule's key (or use `PortableConfig::keyIp()`); both resolve the client IP. For the raw connecting peer address, `KeyExtractors::ip()` (REMOTE_ADDR) remains the explicit escape hatch.
+- **`KeyExtractors::clientIp(TrustedProxyResolver)`** - the resolved client IP is now the default discriminator for every rule via the `Config` IP resolver, so a dedicated key extractor is no longer needed. Configure proxy trust once with `$config->setIpResolver($trustedProxyResolver->resolve(...))` and omit the rule's key (or use `PortableConfig::keyIp()`); both resolve the client IP.
+- **`KeyExtractors::ip()`** - the name is ambiguous (it reads like "the client IP" but returns the raw `REMOTE_ADDR` peer, which behind a proxy is the proxy itself) and it bypasses the `Config` IP resolver. To key on the client IP, omit the rule's key (or use `PortableConfig::keyIp()`) so it resolves through the resolver. For the raw connecting peer, read `$request->getServerParams()['REMOTE_ADDR']` directly.
 
 ## 0.6.0 - 2026-06-17
 

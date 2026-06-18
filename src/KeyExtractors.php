@@ -20,10 +20,12 @@ use Psr\Http\Message\ServerRequestInterface;
 final class KeyExtractors
 {
     /**
-     * The raw REMOTE_ADDR peer address - the explicit escape hatch for when you
-     * deliberately want the connecting peer rather than the resolved client IP. Does
-     * NOT consult the Config IP resolver. The default client IP comes from that resolver
-     * (omit a rule key / PortableConfig::keyIp()); use this only for the raw peer address.
+     * The raw REMOTE_ADDR peer address.
+     *
+     * @deprecated The name is ambiguous and it bypasses the Config IP resolver. To key on
+     *   the client IP, omit the rule's key (or use PortableConfig::keyIp()) so it resolves
+     *   through the Config's IP resolver (else REMOTE_ADDR). For the raw connecting peer,
+     *   read $request->getServerParams()['REMOTE_ADDR'] directly.
      * @return Closure(ServerRequestInterface): ?string
      */
     public static function ip(): Closure

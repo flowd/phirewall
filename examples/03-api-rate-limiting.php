@@ -48,8 +48,7 @@ $config->enableResponseHeaders();  // Send X-Phirewall headers
 $config->throttles->add(
     name: 'global-ip',
     limit: 100,     // 100 requests
-    period: 60,     // per minute
-    key: KeyExtractors::ip()
+    period: 60      // per minute
 );
 echo "1. Global limit: 100 req/min per IP\n";
 
@@ -59,8 +58,7 @@ echo "1. Global limit: 100 req/min per IP\n";
 $config->throttles->add(
     name: 'burst',
     limit: 20,      // 20 requests
-    period: 5,      // in 5 seconds
-    key: KeyExtractors::ip()
+    period: 5       // in 5 seconds
 );
 echo "2. Burst limit: 20 req/5s per IP\n";
 

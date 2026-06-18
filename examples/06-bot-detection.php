@@ -19,7 +19,6 @@ require __DIR__ . '/../vendor/autoload.php';
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\Config\DiagnosticsDispatcher;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -225,8 +224,7 @@ $config->fail2ban->add(
     filter: fn(ServerRequestInterface $serverRequest): bool =>
         // This filter matches requests that hit our blocklist rules
         // In practice, you'd track this via events
-        $serverRequest->getHeaderLine('X-Scanner-Detected') === '1',
-    key: KeyExtractors::ip()
+        $serverRequest->getHeaderLine('X-Scanner-Detected') === '1'
 );
 echo "5. Fail2Ban for persistent scanners configured\n";
 
@@ -237,8 +235,7 @@ echo "5. Fail2Ban for persistent scanners configured\n";
 $config->throttles->add(
     name: 'rapid-requests',
     limit: 30,          // 30 requests
-    period: 10,         // In 10 seconds
-    key: KeyExtractors::ip()
+    period: 10          // In 10 seconds
 );
 echo "6. Rapid request throttling configured (30/10s)\n\n";
 
