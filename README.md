@@ -25,7 +25,6 @@ composer require flowd/phirewall
 ```php
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Middleware;
-use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Store\InMemoryCache;
 
 // Create the firewall
@@ -38,14 +37,13 @@ $config->safelists->add('health', fn($req) => $req->getUri()->getPath() === '/he
 $config->blocklists->add('scanners', fn($req) => str_starts_with($req->getUri()->getPath(), '/wp-admin'));
 
 // Rate limit: 100 requests per minute per IP
-$config->throttles->add('api', limit: 100, period: 60 /* seconds */, key: KeyExtractors::ip());
+$config->throttles->add('api', limit: 100, period: 60 /* seconds */);
 
 // Ban IP after 5 failed logins in 5 minutes. The filter never matches at
 // request time — failures are signaled from the handler via RequestContext
 // (see "Login Protection" below for the handler-side snippet).
 $config->fail2ban->add('login', threshold: 5, period: 300 /* seconds */, ban: 3600 /* seconds */,
     filter: fn($req) => false,
-    key: KeyExtractors::ip()
 );
 
 // Add to your middleware stack
@@ -221,7 +219,7 @@ $config->throttles->add('api', limit: 100, period: 60);
 ```
 
 When no resolver is set the client IP is `REMOTE_ADDR`. For the raw connecting peer
-address regardless of proxy configuration, read `$req->getServerParams()['REMOTE_ADDR']`
+address regardless of proxy configuration, read `$request->getServerParams()['REMOTE_ADDR']`
 directly.
 
 ## Custom Responses
@@ -413,13 +411,13 @@ See [31-presets.php](examples/31-presets.php) for standalone use, portable inspe
 use Flowd\Phirewall\KeyExtractors;
 
 // Global limit
-$config->throttles->add('global', limit: 1000, period: 60, key: KeyExtractors::ip());
+$config->throttles->add('global', limit: 1000, period: 60);
 
 // Burst + sustained rate limiting with multiThrottle
 $config->throttles->multi('api', [
     1  => 5,     // 5 req/s burst
     60 => 200,   // 200 req/min sustained
-], KeyExtractors::ip());
+]);
 
 // Dynamic limits based on user role
 // Note: a header-keyed rule is skipped when the header is absent, so a client can avoid the
@@ -432,8 +430,6 @@ $config->throttles->add('user', fn($req) => $req->getHeaderLine('X-Plan') === 'p
 ### Login Protection
 
 ```php
-use Flowd\Phirewall\KeyExtractors;
-
 // Throttle login attempts
 $config->throttles->add('login', limit: 10, period: 60, key: function($req) {
     return $req->getUri()->getPath() === '/login'
@@ -444,7 +440,6 @@ $config->throttles->add('login', limit: 10, period: 60, key: function($req) {
 // Ban after failures — signaled via RequestContext from your handler
 $config->fail2ban->add('login-ban', threshold: 5, period: 300, ban: 3600,
     filter: fn($request): bool => false,
-    key: KeyExtractors::ip()
 );
 ```
 
