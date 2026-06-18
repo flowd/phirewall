@@ -324,11 +324,13 @@ final class Config implements ConfigLayer
     // ── IP Resolution ────────────────────────────────────────────────────
 
     /**
-     * Set a global IP resolver for all IP-aware matchers created through Config sections.
+     * Set the IP resolver that defines the client IP for every rule and IP-aware
+     * matcher: keyless counter rules, IpMatcher, TrustedBotMatcher, the file/snapshot
+     * IP blocklists, and PortableConfig::keyIp()/filterIp(). When unset the client IP
+     * is REMOTE_ADDR.
      *
-     * Use this when running behind a trusted proxy/load balancer:
-     *   $proxy = new TrustedProxyResolver(['10.0.0.0/8']);
-     *   $config->setIpResolver(KeyExtractors::clientIp($proxy));
+     * Behind a trusted proxy/load balancer, resolve it from the forwarded chain:
+     *   $config->setIpResolver((new TrustedProxyResolver(['10.0.0.0/8']))->resolve(...));
      */
     public function setIpResolver(\Closure $ipResolver): self
     {

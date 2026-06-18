@@ -5,6 +5,16 @@ All notable changes to Phirewall are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased - 0.7.0
+
+### Changed
+
+- **BREAKING (behavioural): `PortableConfig::keyIp()` (and the portable `{type:'ip'}` key) now keys on the resolved client IP of the `Config` it is materialized under, not the raw `REMOTE_ADDR` it always used before.** It materializes as a keyless rule, so it late-binds to the evaluating `Config`'s IP resolver (else `REMOTE_ADDR`) at request time - aligning the portable key with keyless counter rules, `PortableConfig::filterIp()`, and every `ClientIpResolverAware` matcher (the 0.6.0 matcher change, #99). A `Config` with no IP resolver set is unaffected (resolved client IP falls back to `REMOTE_ADDR`), so every shipped preset and proxy-less deployment behaves identically. The wire format is unchanged (`keyIp()` still serializes to `{type:'ip'}`) and `typ` stays `phirewall.config.v1`, so existing serialized and signed configs load and round-trip unchanged - only their evaluation keys on the real client IP when a resolver is configured.
+
+### Deprecated
+
+- **`KeyExtractors::clientIp(TrustedProxyResolver)`** - the resolved client IP is now the default discriminator for every rule via the `Config` IP resolver, so a dedicated key extractor is no longer needed. Configure proxy trust once with `$config->setIpResolver($trustedProxyResolver->resolve(...))` and omit the rule's key (or use `PortableConfig::keyIp()`); both resolve the client IP. For the raw connecting peer address, `KeyExtractors::ip()` (REMOTE_ADDR) remains the explicit escape hatch.
+
 ## 0.6.0 - 2026-06-17
 
 ### Changed

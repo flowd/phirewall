@@ -41,7 +41,7 @@ final class InfrastructureBanListener
          * Extract IP address from a ServerRequestInterface. Defaults to
          * {@see KeyExtractors::ip()} (REMOTE_ADDR). Deployments behind a
          * CDN, load balancer, or reverse proxy should pass
-         * `KeyExtractors::clientIp(new TrustedProxyResolver([...]))` so the
+         * `(new TrustedProxyResolver([...]))->resolve(...)` so the
          * infrastructure ban targets the originating client rather than the
          * upstream proxy itself.
          *
