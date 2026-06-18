@@ -12,7 +12,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * Common key extractor helpers for counter rules (throttle / fail2ban / allow2ban / track).
  *
  * The client IP is the default discriminator: omit a rule's key (or use
- * PortableConfig::keyIp()) and the firewall resolves it through the Config's IP resolver,
+ * \Flowd\Phirewall\Portable\PortableConfig::keyIp()) and the firewall resolves it through the Config's IP resolver,
  * falling back to REMOTE_ADDR when none is set. Configure proxy trust once with
  * $config->setIpResolver((new TrustedProxyResolver([...]))->resolve(...)). Reach for
  * {@see ip()} only when you deliberately want the raw REMOTE_ADDR peer address.
@@ -23,7 +23,7 @@ final class KeyExtractors
      * The raw REMOTE_ADDR peer address.
      *
      * @deprecated The name is ambiguous and it bypasses the Config IP resolver. To key on
-     *   the client IP, omit the rule's key (or use PortableConfig::keyIp()) so it resolves
+     *   the client IP, omit the rule's key (or use \Flowd\Phirewall\Portable\PortableConfig::keyIp()) so it resolves
      *   through the Config's IP resolver (else REMOTE_ADDR). For the raw connecting peer,
      *   read $request->getServerParams()['REMOTE_ADDR'] directly.
      * @return Closure(ServerRequestInterface): ?string
@@ -127,7 +127,7 @@ final class KeyExtractors
      * @deprecated The client IP is now the default for every rule via the Config IP
      *   resolver, so a dedicated extractor is no longer needed. Configure proxy trust
      *   once with $config->setIpResolver($trustedProxyResolver->resolve(...)) and omit
-     *   the rule key (or use PortableConfig::keyIp()); both resolve the client IP.
+     *   the rule key (or use \Flowd\Phirewall\Portable\PortableConfig::keyIp()); both resolve the client IP.
      * @return Closure(ServerRequestInterface): ?string
      */
     public static function clientIp(TrustedProxyResolver $trustedProxyResolver): Closure
