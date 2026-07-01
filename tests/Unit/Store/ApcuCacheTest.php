@@ -48,6 +48,82 @@ final class ApcuCacheTest extends TestCase
         $this->assertFalse($apcuCache->has($key));
     }
 
+    public function testStoresKeysUnderNamespace(): void
+    {
+        $this->requireApcuOrSkip();
+        $namespace = 'test.apcu.ns.' . uniqid('', true) . ':';
+        $apcuCache = new ApcuCache($namespace);
+        $key = 'scoped.key';
+
+        $this->assertTrue($apcuCache->set($key, 'v', 30));
+        $this->assertTrue(apcu_exists($namespace . $key));
+        $this->assertFalse(apcu_exists($key));
+        $this->assertSame('v', $apcuCache->get($key));
+
+        $apcuCache->clear();
+    }
+
+    public function testDifferentNamespacesDoNotCollide(): void
+    {
+        $this->requireApcuOrSkip();
+        $suffix = uniqid('', true);
+        $cacheA = new ApcuCache('test.apcu.nsA.' . $suffix . ':');
+        $cacheB = new ApcuCache('test.apcu.nsB.' . $suffix . ':');
+        $key = 'shared.key';
+
+        $cacheA->set($key, 'a', 30);
+        $cacheB->set($key, 'b', 30);
+
+        $this->assertSame('a', $cacheA->get($key));
+        $this->assertSame('b', $cacheB->get($key));
+
+        $cacheA->clear();
+        $cacheB->clear();
+    }
+
+    public function testClearRemovesOnlyOwnNamespace(): void
+    {
+        $this->requireApcuOrSkip();
+        $suffix = uniqid('', true);
+        $ownCache = new ApcuCache('test.apcu.own.' . $suffix . ':');
+        $foreignCache = new ApcuCache('test.apcu.foreign.' . $suffix . ':');
+        $unprefixedKey = 'test.apcu.bare.' . $suffix;
+
+        $ownCache->set('key', 'own', 30);
+        $foreignCache->set('key', 'foreign', 30);
+        apcu_store($unprefixedKey, 'bare', 30);
+
+        $this->assertTrue($ownCache->clear());
+
+        $this->assertFalse($ownCache->has('key'));
+        $this->assertSame('foreign', $foreignCache->get('key'));
+        $this->assertTrue(apcu_exists($unprefixedKey));
+
+        $foreignCache->clear();
+        apcu_delete($unprefixedKey);
+    }
+
+    public function testIncrementAndTtlRemainingUseNamespace(): void
+    {
+        $this->requireApcuOrSkip();
+        $namespace = 'test.apcu.nsinc.' . uniqid('', true) . ':';
+        $apcuCache = new ApcuCache($namespace);
+        $key = 'counter';
+        $period = 2;
+
+        $this->assertSame(1, $apcuCache->increment($key, $period));
+        $this->assertSame(2, $apcuCache->increment($key, $period));
+        $this->assertTrue(apcu_exists($namespace . $key));
+        $this->assertTrue(apcu_exists($namespace . $key . '::exp'));
+        $this->assertFalse(apcu_exists($key));
+
+        $ttl = $apcuCache->ttlRemaining($key);
+        $this->assertGreaterThanOrEqual(1, $ttl);
+        $this->assertLessThanOrEqual($period, $ttl);
+
+        $apcuCache->clear();
+    }
+
     public function testRejectsKeyWithReservedCharacter(): void
     {
         $this->requireApcuOrSkip();
