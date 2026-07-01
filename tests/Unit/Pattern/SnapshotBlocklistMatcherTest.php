@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Tests\Pattern;
 
+use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Http\Firewall;
+use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Pattern\FilePatternBackend;
 use Flowd\Phirewall\Pattern\InMemoryPatternBackend;
 use Flowd\Phirewall\Pattern\PatternEntry;
 use Flowd\Phirewall\Pattern\PatternKind;
 use Flowd\Phirewall\Pattern\SnapshotBlocklistMatcher;
+use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\ServerRequest;
 use org\bovigo\vfs\vfsStream;
 use PHPUnit\Framework\TestCase;
@@ -225,6 +229,132 @@ final class SnapshotBlocklistMatcherTest extends TestCase
 
         $this->assertTrue($rebound->match($serverRequest)->isMatch());
         $this->assertFalse($rebound->match(new ServerRequest('GET', '/any', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.10']))->isMatch());
+    }
+
+    /**
+     * With the default fail-open policy a blocklist regex that errors at match
+     * time (backtrack limit exceeded) counts as no match: a broken pattern must
+     * not block legitimate traffic.
+     */
+    public function testBlocklistRegexEngineErrorIsNoMatchWhenFailOpen(): void
+    {
+        $snapshotBlocklistMatcher = new SnapshotBlocklistMatcher($this->engineErrorBackend());
+
+        $this->withEngineErrorLimits(function () use ($snapshotBlocklistMatcher): void {
+            $this->assertFalse(
+                $snapshotBlocklistMatcher->match($this->engineErrorRequest())->isMatch(),
+                'Under fail-open a blocklist regex engine error must not count as a match'
+            );
+        });
+    }
+
+    /**
+     * Under a fail-closed policy the same engine error counts as a match, so an
+     * attacker who can force the error cannot slip a request past a block rule.
+     */
+    public function testBlocklistRegexEngineErrorIsMatchWhenFailClosed(): void
+    {
+        $snapshotBlocklistMatcher = new SnapshotBlocklistMatcher($this->engineErrorBackend());
+        $snapshotBlocklistMatcher->useFailOpen(false);
+
+        $this->withEngineErrorLimits(function () use ($snapshotBlocklistMatcher): void {
+            $this->assertTrue(
+                $snapshotBlocklistMatcher->match($this->engineErrorRequest())->isMatch(),
+                'Under fail-closed a blocklist regex engine error must count as a match'
+            );
+        });
+    }
+
+    /**
+     * withBackend() rebinding preserves an injected fail-closed policy.
+     */
+    public function testWithBackendPreservesFailurePolicy(): void
+    {
+        $snapshotBlocklistMatcher = new SnapshotBlocklistMatcher($this->engineErrorBackend());
+        $snapshotBlocklistMatcher->useFailOpen(false);
+
+        $rebound = $snapshotBlocklistMatcher->withBackend($this->engineErrorBackend());
+
+        $this->withEngineErrorLimits(function () use ($rebound): void {
+            $this->assertTrue(
+                $rebound->match($this->engineErrorRequest())->isMatch(),
+                'A rebound matcher must keep the fail-closed policy'
+            );
+        });
+    }
+
+    /**
+     * The Firewall hands Config::isFailOpen() to the pattern blocklist matcher,
+     * so a fail-closed firewall blocks on the engine error while the fail-open
+     * default passes the request.
+     */
+    public function testFirewallInjectsFailurePolicyIntoPatternBlocklist(): void
+    {
+        $failClosedConfig = new Config(new InMemoryCache());
+        $failClosedConfig->setFailOpen(false);
+
+        $failClosedConfig->blocklists->patternBlocklist('probes', [
+            new PatternEntry(PatternKind::PATH_REGEX, '/(?:a+)+$/D'),
+        ]);
+        $failClosedFirewall = new Firewall($failClosedConfig);
+
+        $failOpenConfig = new Config(new InMemoryCache());
+        $failOpenConfig->blocklists->patternBlocklist('probes', [
+            new PatternEntry(PatternKind::PATH_REGEX, '/(?:a+)+$/D'),
+        ]);
+        $failOpenFirewall = new Firewall($failOpenConfig);
+
+        $this->withEngineErrorLimits(function () use ($failClosedFirewall, $failOpenFirewall): void {
+            $this->assertSame(Outcome::BLOCKED, $failClosedFirewall->decide($this->engineErrorRequest())->outcome);
+            $this->assertTrue($failOpenFirewall->decide($this->engineErrorRequest())->isPass());
+        });
+    }
+
+    /**
+     * Backend with a compile-valid PATH_REGEX that errors at match time once
+     * the PCRE limits from withEngineErrorLimits() are in effect.
+     */
+    private function engineErrorBackend(): InMemoryPatternBackend
+    {
+        return new InMemoryPatternBackend([
+            new PatternEntry(PatternKind::PATH_REGEX, '/(?:a+)+$/D'),
+        ]);
+    }
+
+    private function engineErrorRequest(): ServerRequest
+    {
+        $path = '/' . str_repeat('a', 100) . '!';
+        return new ServerRequest('GET', $path, [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.5']);
+    }
+
+    /**
+     * Run $assertions under PCRE limits that force a backtrack-limit engine
+     * error for the engineErrorBackend() pattern, restoring the limits after.
+     */
+    private function withEngineErrorLimits(callable $assertions): void
+    {
+        $originalBacktrackLimit = ini_get('pcre.backtrack_limit');
+        $originalJit = ini_get('pcre.jit');
+        ini_set('pcre.backtrack_limit', '10');
+        ini_set('pcre.jit', '0');
+
+        try {
+            // Prove the error path: under these limits preg_match itself errors out.
+            $this->assertFalse(
+                @preg_match('/(?:a+)+$/D', '/' . str_repeat('a', 100) . '!'),
+                'Precondition: the pattern must trigger a PCRE engine error'
+            );
+
+            $assertions();
+        } finally {
+            if ($originalBacktrackLimit !== false) {
+                ini_set('pcre.backtrack_limit', $originalBacktrackLimit);
+            }
+
+            if ($originalJit !== false) {
+                ini_set('pcre.jit', $originalJit);
+            }
+        }
     }
 
     /**

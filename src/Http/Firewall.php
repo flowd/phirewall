@@ -18,6 +18,7 @@ use Flowd\Phirewall\Http\Evaluator\SafelistEvaluator;
 use Flowd\Phirewall\Http\Evaluator\ThrottleEvaluator;
 use Flowd\Phirewall\Http\Evaluator\TrackEvaluator;
 use Flowd\Phirewall\Matchers\CompiledDataCacheAware;
+use Flowd\Phirewall\Matchers\FailOpenAware;
 use Flowd\Phirewall\Support\CompiledDataCache;
 use Flowd\Phirewall\Throttle\FixedWindowCounter;
 use Psr\Http\Message\ServerRequestInterface;
@@ -73,24 +74,26 @@ final readonly class Firewall
             $this->allow2BanEvaluator,
         ];
 
-        $this->injectCompiledDataCache();
+        $this->injectMatcherCapabilities();
     }
 
     /**
-     * Hand the Config's compiled-data cache to every aware matcher, filter,
-     * and throttle scope. Runs at construction, so rules must be registered
-     * before the Firewall (and thus the Middleware) is built.
+     * Hand the Config's compiled-data cache and failure policy to every aware
+     * matcher, filter, and throttle scope. Runs at construction, so rules must
+     * be registered before the Firewall (and thus the Middleware) is built.
      */
-    private function injectCompiledDataCache(): void
+    private function injectMatcherCapabilities(): void
     {
         $compiledDataCache = $this->config->compiledDataCache();
-        if (!$compiledDataCache instanceof CompiledDataCache) {
-            return;
-        }
+        $failOpen = $this->config->isFailOpen();
 
         foreach ($this->collectMatchers() as $requestMatcher) {
-            if ($requestMatcher instanceof CompiledDataCacheAware) {
+            if ($compiledDataCache instanceof CompiledDataCache && $requestMatcher instanceof CompiledDataCacheAware) {
                 $requestMatcher->useCompiledDataCache($compiledDataCache);
+            }
+
+            if ($requestMatcher instanceof FailOpenAware) {
+                $requestMatcher->useFailOpen($failOpen);
             }
         }
     }

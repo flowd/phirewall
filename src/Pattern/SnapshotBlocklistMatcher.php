@@ -7,11 +7,12 @@ namespace Flowd\Phirewall\Pattern;
 use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Config\RequestMatcherInterface;
 use Flowd\Phirewall\Matchers\ClientIpResolverAware;
+use Flowd\Phirewall\Matchers\FailOpenAware;
 use Flowd\Phirewall\Matchers\Support\CidrMatcher;
 use Flowd\Phirewall\Matchers\Support\RegexMatcher;
 use Psr\Http\Message\ServerRequestInterface;
 
-final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientIpResolverAware
+final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientIpResolverAware, FailOpenAware
 {
     private ?PatternSnapshot $patternSnapshot = null;
 
@@ -22,6 +23,9 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientI
 
     /** @var (callable(ServerRequestInterface): ?string)|null */
     private $ipExtractor;
+
+    /** Fail-open default, matching {@see \Flowd\Phirewall\Config::isFailOpen()}. */
+    private bool $failOpen = true;
 
     public function __construct(
         private readonly PatternBackendInterface $patternBackend,
@@ -54,7 +58,26 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientI
             return $this;
         }
 
-        return new self($patternBackend, $this->ipExtractor, $this->backendName);
+        $rebound = new self($patternBackend, $this->ipExtractor, $this->backendName);
+        $rebound->failOpen = $this->failOpen;
+        return $rebound;
+    }
+
+    public function useFailOpen(bool $failOpen): void
+    {
+        $this->failOpen = $failOpen;
+    }
+
+    /**
+     * Regex match honouring the failure policy: fail-open treats a PCRE engine
+     * error as no match, fail-closed treats it as a match so the error cannot
+     * be forced to slip past a block rule.
+     */
+    private function matchesRegex(?string $pattern, string $subject): bool
+    {
+        return $this->failOpen
+            ? RegexMatcher::matches($pattern, $subject)
+            : RegexMatcher::matchesFailClosed($pattern, $subject);
     }
 
     public function match(ServerRequestInterface $serverRequest): MatchResult
@@ -116,7 +139,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientI
                     break;
                 case PatternKind::PATH_REGEX:
                     $pathPattern = is_string($compiled) ? $compiled : null;
-                    if (RegexMatcher::matches($pathPattern, $path)) {
+                    if ($this->matchesRegex($pathPattern, $path)) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
@@ -144,7 +167,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientI
                     $normalizedHeaders ??= $this->normalizeHeaders($serverRequest->getHeaders());
                     $requestSubject ??= $this->buildRequestSubject($path, $query, $normalizedHeaders);
                     $requestPattern = is_string($compiled) ? $compiled : null;
-                    if (RegexMatcher::matches($requestPattern, $requestSubject)) {
+                    if ($this->matchesRegex($requestPattern, $requestSubject)) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
@@ -228,7 +251,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientI
         }
 
         foreach ($values as $value) {
-            if (RegexMatcher::matches($pattern, $value)) {
+            if ($this->matchesRegex($pattern, $value)) {
                 return true;
             }
         }
