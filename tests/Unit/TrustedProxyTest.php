@@ -403,11 +403,40 @@ final class TrustedProxyTest extends TestCase
         $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
     }
 
-    public function testResolverSkipsUnparseableChainEntries(): void
+    public function testUnparsableXffEntryBetweenClientAndProxyIsTerminal(): void
     {
-        // A chain with garbage between trusted and untrusted entries should
-        // step over the garbage (normalizeIp returns null → resolve continues)
-        // rather than fall back to REMOTE_ADDR.
+        // A garbage entry between the client and the trusted proxy breaks the
+        // verifiable chain: the right-to-left walk stops at it and falls back to
+        // REMOTE_ADDR rather than returning the entry to its left.
+        $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
+        $config = new Config(new InMemoryCache());
+        $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
+
+        $firewall = new Firewall($config);
+
+        // XFF: client 198.51.100.42, garbage, trusted proxy. Walk: 10.0.0.1
+        // (trusted, skip), "not-an-ip" (unparsable, terminal) → REMOTE_ADDR.
+        // Two requests behind DIFFERENT trusted proxies share the same client
+        // and garbage but must NOT share a bucket: each keys on its own peer.
+        // If the hop were skipped, both would resolve to 198.51.100.42 and the
+        // second would be throttled.
+        $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
+            ->withHeader('X-Forwarded-For', '198.51.100.42, not-an-ip, 10.0.0.1');
+        $this->assertTrue($firewall->decide($first)->isPass());
+
+        $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
+            ->withHeader('X-Forwarded-For', '198.51.100.42, not-an-ip, 10.0.0.2');
+        $this->assertTrue(
+            $firewall->decide($second)->isPass(),
+            'Unparsable hop is terminal: different REMOTE_ADDRs give different buckets',
+        );
+    }
+
+    public function testUnparsableEntryLeftOfClientIsNeverReached(): void
+    {
+        // Garbage sitting to the LEFT of the first untrusted hop is irrelevant:
+        // the right-to-left walk returns the client before it ever reaches the
+        // garbage, so the terminal fallback never triggers on it.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8']);
         $config = new Config(new InMemoryCache());
         $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
@@ -416,16 +445,15 @@ final class TrustedProxyTest extends TestCase
 
         $remote = ['REMOTE_ADDR' => '10.0.0.1'];
 
-        // XFF: client 198.51.100.42, then a garbage entry, then trusted proxy.
-        // Right-to-left walk: 10.0.0.1 (trusted, skip), "garbage" (null, skip),
-        // 198.51.100.42 (untrusted, returned).
+        // XFF: garbage, client 198.51.100.42, trusted proxy. Walk: 10.0.0.1
+        // (trusted, skip), 198.51.100.42 (untrusted, returned); "not-an-ip" to
+        // its left is never visited. Both requests share the client bucket.
         $first = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
-            ->withHeader('X-Forwarded-For', '198.51.100.42, not-an-ip, 10.0.0.1');
+            ->withHeader('X-Forwarded-For', 'not-an-ip, 198.51.100.42, 10.0.0.1');
         $this->assertTrue($firewall->decide($first)->isPass());
 
-        // Second request from same client IP — same throttle bucket, throttled.
         $second = (new ServerRequest('GET', '/', [], null, '1.1', $remote))
-            ->withHeader('X-Forwarded-For', '198.51.100.42, not-an-ip, 10.0.0.1');
+            ->withHeader('X-Forwarded-For', 'not-an-ip, 198.51.100.42, 10.0.0.1');
         $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
     }
 
@@ -498,25 +526,36 @@ final class TrustedProxyTest extends TestCase
         $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
     }
 
-    public function testForwardedObfuscatedIdentifiersAreSkipped(): void
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function provideUnparsableForwardedForValues(): iterable
     {
-        // RFC 7239 §6 allows obfuscated identifiers (`unknown`, `_secret`) in
-        // `for=`. They are not IPs — normalizeIp must reject them and the
-        // walker must *skip and continue*, not skip and bail. A mixed chain
-        // with an obfuscated rightmost entry and a valid IP to its left must
-        // resolve to the valid IP, not REMOTE_ADDR.
+        // RFC 7239 §6 allows an obfuscated identifier or the reserved `unknown`
+        // token in `for=`. Neither is an IP.
+        yield 'unknown token' => ['unknown'];
+        yield 'obfuscated identifier' => ['_hidden'];
+    }
+
+    #[DataProvider('provideUnparsableForwardedForValues')]
+    public function testForwardedUnparsableHopBetweenClientAndProxyIsTerminal(string $unparsableFor): void
+    {
+        // An unidentifiable `for=` hop (RFC 7239 `unknown` or an obfuscated
+        // identifier) between the client and the trusted proxy breaks the
+        // verifiable chain. The walk stops at it and falls back to REMOTE_ADDR
+        // instead of returning the entry to its left.
         $trustedProxyResolver = new TrustedProxyResolver(['10.0.0.0/8'], ['Forwarded']);
         $config = new Config(new InMemoryCache());
         $config->throttles->add('by_client', 1, 30, KeyExtractors::clientIp($trustedProxyResolver));
 
         $firewall = new Firewall($config);
 
-        // Two requests behind DIFFERENT trusted proxies, same Forwarded chain:
-        // `for="198.51.100.7", for=unknown`. Right-to-left walk: `unknown`
-        // (null, skip), `198.51.100.7` (untrusted, returned). If the walker
-        // bailed at the first skip, it would fall back to REMOTE_ADDR and the
-        // two requests would land in different buckets.
-        $forwarded = 'for="198.51.100.7", for=unknown';
+        // Chain: client, unparsable hop, trusted proxy. Right-to-left walk:
+        // 10.0.0.1 (trusted, skip), the unparsable hop (terminal) → REMOTE_ADDR.
+        // Two requests behind DIFFERENT trusted proxies therefore key on their
+        // own peer and do not share a bucket. If the hop were skipped, both
+        // would resolve to 198.51.100.7 and the second would be throttled.
+        $forwarded = 'for="198.51.100.7", for=' . $unparsableFor . ', for="10.0.0.1"';
 
         $first = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.1']))
             ->withHeader('Forwarded', $forwarded);
@@ -524,7 +563,10 @@ final class TrustedProxyTest extends TestCase
 
         $second = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
             ->withHeader('Forwarded', $forwarded);
-        $this->assertSame(Outcome::THROTTLED, $firewall->decide($second)->outcome);
+        $this->assertTrue(
+            $firewall->decide($second)->isPass(),
+            'Unparsable for= hop is terminal: different REMOTE_ADDRs give different buckets',
+        );
     }
 
     public function testMultiInstanceXffIsFlattenedInReceiveOrder(): void

@@ -14,7 +14,11 @@ use Psr\Http\Message\ServerRequestInterface;
  * - Only consults proxy headers when the direct peer (REMOTE_ADDR) is trusted.
  * - Flattens every received instance of X-Forwarded-For (or Forwarded) into one
  *   chain, then walks it from right to left, skipping trusted proxy hops.
- * - Returns the first untrusted address in the chain; falls back to REMOTE_ADDR when uncertain.
+ * - Returns the first untrusted address in the chain. An unparsable hop
+ *   (for=unknown, an obfuscated identifier, or a malformed value) is terminal:
+ *   an unidentifiable hop breaks the verifiable chain, so the walk stops and
+ *   falls back to the direct peer (REMOTE_ADDR). REMOTE_ADDR is also the
+ *   fallback when every hop is trusted.
  * - The security boundary is the trusted-hop walk, not the number or ordering of
  *   header instances: whether intermediaries fold the field-lines into one
  *   comma-separated value (RFC 7230 §3.2.2, the nginx default) or keep them as
@@ -135,8 +139,11 @@ final readonly class TrustedProxyResolver
         for ($i = count($chain) - 1; $i >= 0; --$i) {
             $ip = $this->normalizeIp($chain[$i]);
             if ($ip === null) {
-                // Skip unparsable values
-                continue;
+                // An unidentifiable hop (for=unknown, an obfuscated identifier,
+                // or a malformed value) breaks the verifiable chain: every
+                // entry further left is now unverifiable, so stop and fall back
+                // to the direct peer instead of trusting it.
+                return $remoteAddr;
             }
 
             if ($this->isTrusted($ip)) {
@@ -148,7 +155,7 @@ final readonly class TrustedProxyResolver
             return $ip;
         }
 
-        // If all hops were trusted or unparsable, fall back to REMOTE_ADDR
+        // Every hop was trusted; fall back to REMOTE_ADDR
         return $remoteAddr;
     }
 
