@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`KeyExtractors::clientIp(TrustedProxyResolver)`** - the resolved client IP is now the default discriminator for every rule via the `Config` IP resolver, so a dedicated key extractor is no longer needed. Configure proxy trust once with `$config->setIpResolver($trustedProxyResolver->resolve(...))` and omit the rule's key (or use `PortableConfig::keyIp()`); both resolve the client IP.
 - **`KeyExtractors::ip()`** - the name is ambiguous (it reads like "the client IP" but returns the raw `REMOTE_ADDR` peer, which behind a proxy is the proxy itself) and it bypasses the `Config` IP resolver. To key on the client IP, omit the rule's key (or use `PortableConfig::keyIp()`) so it resolves through the resolver. For the raw connecting peer, read `$request->getServerParams()['REMOTE_ADDR']` directly.
 
+### Security
+
+- **`TrustedProxyResolver` treats an unparsable forwarded hop as terminal.** The right-to-left walk over the forwarded chain previously stepped past an unparsable hop (`for=unknown`, an RFC 7239 obfuscated identifier such as `for=_hidden`, or a malformed value) and kept looking further left. An unidentifiable hop breaks the verifiable chain, so entries to its left are attacker-controlled and must not be returned as the client IP. The walk now stops at the first unparsable hop and falls back to the direct peer (`REMOTE_ADDR`), the same fallback used when every hop is trusted.
+
 ## 0.6.0 - 2026-06-17
 
 ### Changed

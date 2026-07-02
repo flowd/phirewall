@@ -14,7 +14,11 @@ use Psr\Http\Message\ServerRequestInterface;
  * - Only consults proxy headers when the direct peer (REMOTE_ADDR) is trusted.
  * - Flattens every received instance of X-Forwarded-For (or Forwarded) into one
  *   chain, then walks it from right to left, skipping trusted proxy hops.
- * - Returns the first untrusted address in the chain; falls back to REMOTE_ADDR when uncertain.
+ * - Returns the first untrusted address in the chain. An unparsable hop
+ *   (for=unknown, an obfuscated identifier, or a malformed value) is terminal:
+ *   an unidentifiable hop breaks the verifiable chain, so the walk stops and
+ *   falls back to the direct peer (REMOTE_ADDR). REMOTE_ADDR is also the
+ *   fallback when every hop is trusted.
  * - The security boundary is the trusted-hop walk, not the number or ordering of
  *   header instances: whether intermediaries fold the field-lines into one
  *   comma-separated value (RFC 7230 §3.2.2, the nginx default) or keep them as
@@ -45,9 +49,18 @@ final readonly class TrustedProxyResolver
      * The trailing positive lookahead `(?=[\s;,"]|$)` requires the value to
      * end at a valid token boundary, so a malformed element like
      * `for="203.0.113.1]:443"` (stray `]` without a matching `[`) is rejected
-     * outright rather than silently parsed as `203.0.113.1`.
+     * outright rather than silently parsed as `203.0.113.1`. Such an element
+     * still enters the chain as an unparsable hop (see extractFromForwarded()).
      */
     private const FORWARDED_FOR_PATTERN = '/(?:^|;| )for=\"?(\[[^\[\]\s]+](?::\d+)?|[^;,\"\s\[\]]+)(?=[\s;,\"]|$)/i';
+
+    /**
+     * Detects that a forwarded-element carries a `for=` parameter at all,
+     * independent of whether its value parses. An element whose `for=` value
+     * fails FORWARDED_FOR_PATTERN extraction must still enter the chain as an
+     * unparsable hop so the walk in resolve() stops there.
+     */
+    private const FORWARDED_FOR_PRESENT_PATTERN = '/(?:^|;| )for=/i';
 
     /**
      * Bracketed IPv6 + optional port — RFC 7239 form for IPv6 hosts and the
@@ -135,8 +148,11 @@ final readonly class TrustedProxyResolver
         for ($i = count($chain) - 1; $i >= 0; --$i) {
             $ip = $this->normalizeIp($chain[$i]);
             if ($ip === null) {
-                // Skip unparsable values
-                continue;
+                // An unidentifiable hop (for=unknown, an obfuscated identifier,
+                // or a malformed value) breaks the verifiable chain: every
+                // entry further left is now unverifiable, so stop and fall back
+                // to the direct peer instead of trusting it.
+                return $remoteAddr;
             }
 
             if ($this->isTrusted($ip)) {
@@ -148,7 +164,7 @@ final readonly class TrustedProxyResolver
             return $ip;
         }
 
-        // If all hops were trusted or unparsable, fall back to REMOTE_ADDR
+        // Every hop was trusted; fall back to REMOTE_ADDR
         return $remoteAddr;
     }
 
@@ -229,9 +245,19 @@ final readonly class TrustedProxyResolver
         for ($i = count($elements) - 1; $i >= 0; --$i) {
             if (preg_match(self::FORWARDED_FOR_PATTERN, $elements[$i], $matches) === 1) {
                 $ips[] = $matches[1];
-                if (count($ips) >= $this->normalizedMaxChainEntries) {
-                    break;
-                }
+            } elseif (preg_match(self::FORWARDED_FOR_PRESENT_PATTERN, $elements[$i]) === 1) {
+                // A for= parameter is present but its value failed extraction.
+                // Keep the raw element as a chain entry: normalizeIp() rejects
+                // it, so the walk treats the malformed hop as terminal instead
+                // of stepping past it. Elements without any for= (by=-only)
+                // are legitimately skipped.
+                $ips[] = $elements[$i];
+            } else {
+                continue;
+            }
+
+            if (count($ips) >= $this->normalizedMaxChainEntries) {
+                break;
             }
         }
 
