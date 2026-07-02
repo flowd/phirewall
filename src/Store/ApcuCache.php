@@ -67,7 +67,7 @@ final readonly class ApcuCache implements CacheInterface, CounterStoreInterface
 
     public function clear(): bool
     {
-        $iterator = new \APCUIterator('/^' . preg_quote($this->namespace, '/') . '/');
+        $iterator = new \APCUIterator('/^' . preg_quote($this->namespace, '/') . '/', APC_ITER_KEY);
         apcu_delete($iterator);
         return true;
     }
