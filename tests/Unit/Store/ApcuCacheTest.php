@@ -117,9 +117,38 @@ final class ApcuCacheTest extends TestCase
         $this->assertTrue(apcu_exists($namespace . $key . '::exp'));
         $this->assertFalse(apcu_exists($key));
 
+        // A second can tick over between increment() and ttlRemaining(), so 0 is legitimate.
         $ttl = $apcuCache->ttlRemaining($key);
-        $this->assertGreaterThanOrEqual(1, $ttl);
+        $this->assertGreaterThanOrEqual(0, $ttl);
         $this->assertLessThanOrEqual($period, $ttl);
+
+        $apcuCache->clear();
+    }
+
+    public function testIncrementRejectsNonPositivePeriod(): void
+    {
+        $this->requireApcuOrSkip();
+        $apcuCache = new ApcuCache('test.apcu.period.' . uniqid('', true) . ':');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $apcuCache->increment('counter', 0);
+    }
+
+    public function testSetWithNegativeTtlRemovesExpirySidecar(): void
+    {
+        $this->requireApcuOrSkip();
+        $namespace = 'test.apcu.negttl.' . uniqid('', true) . ':';
+        $apcuCache = new ApcuCache($namespace);
+        $key = 'counter';
+
+        $apcuCache->increment($key, 60);
+        $this->assertTrue(apcu_exists($namespace . $key . '::exp'));
+
+        $this->assertTrue($apcuCache->set($key, 'value', -1));
+
+        $this->assertFalse(apcu_exists($namespace . $key));
+        $this->assertFalse(apcu_exists($namespace . $key . '::exp'));
+        $this->assertSame(0, $apcuCache->ttlRemaining($key));
 
         $apcuCache->clear();
     }

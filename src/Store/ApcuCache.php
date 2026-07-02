@@ -47,8 +47,9 @@ final readonly class ApcuCache implements CacheInterface, CounterStoreInterface
         $namespacedKey = $this->prefixKey($key);
         $ttl = $this->ttlToSeconds($ttl);
         if ($ttl !== null && $ttl < 0) {
-            // Expired
+            // Expired: remove the key and its expiry sidecar, like delete()
             apcu_delete($namespacedKey);
+            apcu_delete($namespacedKey . self::EXP_SUFFIX);
             return true;
         }
 
@@ -84,6 +85,12 @@ final readonly class ApcuCache implements CacheInterface, CounterStoreInterface
     public function increment(string $key, int $period): int
     {
         $this->validateKey($key);
+        if ($period < 1) {
+            throw new \InvalidArgumentException(
+                sprintf('Period must be at least 1, got %d.', $period),
+            );
+        }
+
         $namespacedKey = $this->prefixKey($key);
         $expKey = $namespacedKey . self::EXP_SUFFIX;
         $now = time();
