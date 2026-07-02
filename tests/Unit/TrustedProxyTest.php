@@ -532,9 +532,11 @@ final class TrustedProxyTest extends TestCase
     public static function provideUnparsableForwardedForValues(): iterable
     {
         // RFC 7239 §6 allows an obfuscated identifier or the reserved `unknown`
-        // token in `for=`. Neither is an IP.
+        // token in `for=`. Neither is an IP. A malformed value whose `for=`
+        // extraction itself fails (stray bracket) must be terminal as well.
         yield 'unknown token' => ['unknown'];
         yield 'obfuscated identifier' => ['_hidden'];
+        yield 'malformed value failing extraction' => ['"203.0.113.1]:443"'];
     }
 
     #[DataProvider('provideUnparsableForwardedForValues')]

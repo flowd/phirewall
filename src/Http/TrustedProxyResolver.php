@@ -49,9 +49,18 @@ final readonly class TrustedProxyResolver
      * The trailing positive lookahead `(?=[\s;,"]|$)` requires the value to
      * end at a valid token boundary, so a malformed element like
      * `for="203.0.113.1]:443"` (stray `]` without a matching `[`) is rejected
-     * outright rather than silently parsed as `203.0.113.1`.
+     * outright rather than silently parsed as `203.0.113.1`. Such an element
+     * still enters the chain as an unparsable hop (see extractFromForwarded()).
      */
     private const FORWARDED_FOR_PATTERN = '/(?:^|;| )for=\"?(\[[^\[\]\s]+](?::\d+)?|[^;,\"\s\[\]]+)(?=[\s;,\"]|$)/i';
+
+    /**
+     * Detects that a forwarded-element carries a `for=` parameter at all,
+     * independent of whether its value parses. An element whose `for=` value
+     * fails FORWARDED_FOR_PATTERN extraction must still enter the chain as an
+     * unparsable hop so the walk in resolve() stops there.
+     */
+    private const FORWARDED_FOR_PRESENT_PATTERN = '/(?:^|;| )for=/i';
 
     /**
      * Bracketed IPv6 + optional port — RFC 7239 form for IPv6 hosts and the
@@ -236,9 +245,19 @@ final readonly class TrustedProxyResolver
         for ($i = count($elements) - 1; $i >= 0; --$i) {
             if (preg_match(self::FORWARDED_FOR_PATTERN, $elements[$i], $matches) === 1) {
                 $ips[] = $matches[1];
-                if (count($ips) >= $this->normalizedMaxChainEntries) {
-                    break;
-                }
+            } elseif (preg_match(self::FORWARDED_FOR_PRESENT_PATTERN, $elements[$i]) === 1) {
+                // A for= parameter is present but its value failed extraction.
+                // Keep the raw element as a chain entry: normalizeIp() rejects
+                // it, so the walk treats the malformed hop as terminal instead
+                // of stepping past it. Elements without any for= (by=-only)
+                // are legitimately skipped.
+                $ips[] = $elements[$i];
+            } else {
+                continue;
+            }
+
+            if (count($ips) >= $this->normalizedMaxChainEntries) {
+                break;
             }
         }
 
