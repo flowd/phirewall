@@ -60,7 +60,7 @@ $vendorBaseline = (new Config($cache))->with(PortableConfig::create()
 // ─────────────────────────────────────────────────────────────────────────
 $environmentOverlay = (new Config($cache))->with(PortableConfig::create()
     ->enableResponseHeaders()
-    ->blocklist('admin-probe', PortableConfig::filterPathPrefix('/wp-admin')));
+    ->blocklist('repo-probe', PortableConfig::filterPathPrefix('/.git')));
 
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 3 — tenant overlay: OVERRIDES "scanners" by name + adds a volume cap.
@@ -122,7 +122,7 @@ assertDecision(
     'pass',
     'vendor default scanner list was replaced (sqlmap now passes)',
 );
-assertDecision($firewall, new ServerRequest('GET', '/wp-admin/setup-config.php'), 'blocked', 'environment overlay (admin-probe)');
+assertDecision($firewall, new ServerRequest('GET', '/.git/config'), 'blocked', 'environment overlay (repo-probe)');
 assertDecision(
     $firewall,
     new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.42']),

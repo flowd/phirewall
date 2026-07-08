@@ -99,13 +99,6 @@ echo "2. Empty User-Agent blocklist configured\n";
 // -----------------------------------------------------------------------------
 
 $scannerPaths = [
-    // WordPress
-    '/wp-admin',
-    '/wp-login.php',
-    '/wp-config.php',
-    '/wp-content/plugins',
-    '/xmlrpc.php',
-
     // phpMyAdmin
     '/phpmyadmin',
     '/pma',
@@ -124,7 +117,7 @@ $scannerPaths = [
     '/configuration.php',
     '/settings.php',
     '/config.inc.php',
-    '/wp-config.php.bak',
+    '/config.php.bak',
 
     // Debug/info
     '/phpinfo.php',
@@ -288,8 +281,8 @@ $testRequest('Whitespace User-Agent', '/api/users', ['User-Agent' => '   ']);
 echo "\n";
 
 echo "Test 4: Scanner path probes\n";
-$testRequest('WordPress admin', '/wp-admin/', ['User-Agent' => 'Mozilla/5.0']);
-$testRequest('WordPress login', '/wp-login.php', ['User-Agent' => 'Mozilla/5.0']);
+$testRequest('Repo leak (.git)', '/.git/', ['User-Agent' => 'Mozilla/5.0']);
+$testRequest('Repo leak (.svn)', '/.svn/', ['User-Agent' => 'Mozilla/5.0']);
 $testRequest('phpMyAdmin', '/phpmyadmin/', ['User-Agent' => 'Mozilla/5.0']);
 $testRequest('.env file', '/.env', ['User-Agent' => 'Mozilla/5.0']);
 $testRequest('.git folder', '/.git/HEAD', ['User-Agent' => 'Mozilla/5.0']);

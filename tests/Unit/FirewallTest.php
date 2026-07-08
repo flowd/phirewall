@@ -86,26 +86,26 @@ final class FirewallTest extends TestCase
         $config->enableResponseHeaders();
 
         $config->fail2ban->add(
-            'login',
+            'scanner-probes',
             2,
             5,
             10,
-            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1'
         );
         $firewall = new Firewall($config);
 
-        $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
-        $failedRequest = $serverRequest->withHeader('X-Login-Failed', '1');
+        $probe = new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
         // threshold=2 (>= semantic): every match is blocked, the 2nd match triggers the ban.
-        $this->assertTrue($firewall->decide($failedRequest)->isBlocked());
-        $second = $firewall->decide($failedRequest);
+        $this->assertTrue($firewall->decide($probe)->isBlocked());
+        $second = $firewall->decide($probe);
         $this->assertTrue($second->isBlocked());
-        // Now even a normal request should be banned
-        $firewallResult = $firewall->decide($serverRequest);
+        // Now even a non-matching request from the banned IP is blocked.
+        $normal = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
+        $firewallResult = $firewall->decide($normal);
         $this->assertTrue($firewallResult->isBlocked());
         $this->assertSame('fail2ban', $firewallResult->headers['X-Phirewall'] ?? '');
-        $this->assertSame('login', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
+        $this->assertSame('scanner-probes', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
     }
 
     public function testThrottleWindowExpiresAndResetsCounter(): void
@@ -153,18 +153,17 @@ final class FirewallTest extends TestCase
             return new \Nyholm\Psr7\Response(403, ['X-Banned' => $rule], 'banned');
         });
         $config->fail2ban->add(
-            'login',
+            'scanner-probes',
             threshold: 3,
             period: 60,
             ban: 600,
-            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1',
         );
 
         $middleware = new \Flowd\Phirewall\Middleware($config, new \Nyholm\Psr7\Factory\Psr17Factory());
 
-        $serverRequest = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']))
-            ->withHeader('X-Login-Failed', '1');
+        $serverRequest = new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
         $handler = new class () implements \Psr\Http\Server\RequestHandlerInterface {
             public function handle(\Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface
             {
@@ -176,14 +175,14 @@ final class FirewallTest extends TestCase
         // Each blocked match runs the blockedResponse factory.
         $firstResponse = $middleware->process($serverRequest, $handler);
         $this->assertSame(403, $firstResponse->getStatusCode(), '1st match must be blocked below the threshold');
-        $this->assertSame('login', $firstResponse->getHeaderLine('X-Banned'));
+        $this->assertSame('scanner-probes', $firstResponse->getHeaderLine('X-Banned'));
 
         $secondResponse = $middleware->process($serverRequest, $handler);
         $this->assertSame(403, $secondResponse->getStatusCode(), '2nd match must be blocked below the threshold');
 
         $thirdResponse = $middleware->process($serverRequest, $handler);
         $this->assertSame(403, $thirdResponse->getStatusCode(), '3rd match must trigger the ban');
-        $this->assertSame('login', $thirdResponse->getHeaderLine('X-Banned'));
+        $this->assertSame('scanner-probes', $thirdResponse->getHeaderLine('X-Banned'));
         $this->assertSame(3, $blockedResponseInvocations, 'blockedResponse factory runs for every blocked match');
     }
 
@@ -196,31 +195,31 @@ final class FirewallTest extends TestCase
         $banSeconds = 5;
 
         $config->fail2ban->add(
-            'login-reset',
+            'scanner-reset',
             $threshold,
             $period,
             $banSeconds,
-            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1'
         );
 
         $firewall = new Firewall($config);
-        $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '4.3.2.1']);
-        $failedRequest = $serverRequest->withHeader('X-Login-Failed', '1');
+        $probe = new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => '4.3.2.1']);
+        $normal = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '4.3.2.1']);
 
-        // One failed attempt in the first window: the match is blocked, but the key is not banned yet.
-        $this->assertTrue($firewall->decide($failedRequest)->isBlocked());
-        $this->assertFalse($firewall->isBanned('login-reset', '4.3.2.1', BanType::Fail2Ban));
+        // One matching probe in the first window: the match is blocked, but the key is not banned yet.
+        $this->assertTrue($firewall->decide($probe)->isBlocked());
+        $this->assertFalse($firewall->isBanned('scanner-reset', '4.3.2.1', BanType::Fail2Ban));
 
-        // Let the window expire before issuing a second failure
+        // Let the window expire before issuing a second probe
         sleep($period + 1);
 
         // After expiration, counting starts again from 1: still only a match, no ban.
-        $this->assertTrue($firewall->decide($failedRequest)->isBlocked());
-        $this->assertFalse($firewall->isBanned('login-reset', '4.3.2.1', BanType::Fail2Ban));
+        $this->assertTrue($firewall->decide($probe)->isBlocked());
+        $this->assertFalse($firewall->isBanned('scanner-reset', '4.3.2.1', BanType::Fail2Ban));
 
-        // A clean (non-matching) request is not blocked because the key was never banned.
-        $firewallResult = $firewall->decide($serverRequest);
+        // A non-matching request is not blocked because the key was never banned.
+        $firewallResult = $firewall->decide($normal);
         $this->assertTrue($firewallResult->isPass());
     }
 }

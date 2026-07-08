@@ -71,33 +71,33 @@ final class DiagnosticsCountersTest extends TestCase
         $diagnosticsCounters = new DiagnosticsCounters();
         $config = new Config(new InMemoryCache(), new DiagnosticsDispatcher($diagnosticsCounters));
         $config->fail2ban->add(
-            'login',
+            'scanner-probes',
             threshold: 2,
             period: 10,
             ban: 60,
-            filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($req): bool => str_starts_with($req->getUri()->getPath(), '/.env'),
             key: fn($req): ?string => $req->getServerParams()['REMOTE_ADDR'] ?? null,
         );
         $firewall = new Firewall($config);
 
-        $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
-        $fail = $serverRequest->withHeader('X-Login-Failed', '1');
-        $this->assertTrue($firewall->decide($fail)->isBlocked()); // 1st — match blocked below threshold
-        $blockedResult = $firewall->decide($fail); // 2nd — reaches threshold (>= 2), banned
+        $probe = new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
+        $this->assertTrue($firewall->decide($probe)->isBlocked()); // 1st — match blocked below threshold
+        $blockedResult = $firewall->decide($probe); // 2nd — reaches threshold (>= 2), banned
         $this->assertTrue($blockedResult->isBlocked());
 
         $counters = $diagnosticsCounters->all();
         $this->assertSame(1, $counters['fail2ban_matched']['total'] ?? 0);
-        $this->assertSame(1, $counters['fail2ban_matched']['by_rule']['login'] ?? 0);
+        $this->assertSame(1, $counters['fail2ban_matched']['by_rule']['scanner-probes'] ?? 0);
         $this->assertSame(1, $counters['fail2ban_banned']['total'] ?? 0);
-        $this->assertSame(1, $counters['fail2ban_banned']['by_rule']['login'] ?? 0);
+        $this->assertSame(1, $counters['fail2ban_banned']['by_rule']['scanner-probes'] ?? 0);
 
-        // Now a normal request should be blocked due to ban
-        $firewallResult = $firewall->decide($serverRequest);
+        // Now a non-matching request from the banned IP is still blocked by the ban.
+        $normal = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
+        $firewallResult = $firewall->decide($normal);
         $this->assertTrue($firewallResult->isBlocked());
         $counters = $diagnosticsCounters->all();
         $this->assertSame(1, $counters['fail2ban_blocked']['total'] ?? 0);
-        $this->assertSame(1, $counters['fail2ban_blocked']['by_rule']['login'] ?? 0);
+        $this->assertSame(1, $counters['fail2ban_blocked']['by_rule']['scanner-probes'] ?? 0);
     }
 
     public function testTrackHitAndPassCountersIncrement(): void

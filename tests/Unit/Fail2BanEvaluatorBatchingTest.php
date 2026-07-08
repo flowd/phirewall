@@ -18,21 +18,20 @@ use PHPUnit\Framework\TestCase;
  */
 final class Fail2BanEvaluatorBatchingTest extends TestCase
 {
-    private function makeFailedLoginRequest(string $ip = '5.6.7.8'): ServerRequest
+    private function makeProbeRequest(string $ip = '5.6.7.8'): ServerRequest
     {
-        return (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => $ip]))
-            ->withHeader('X-Login-Failed', '1');
+        return new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => $ip]);
     }
 
     private function configureRules(Config $config, int $ruleCount): void
     {
         for ($index = 0; $index < $ruleCount; ++$index) {
             $config->fail2ban->add(
-                'login-' . $index,
+                'scanner-' . $index,
                 threshold: 2,
                 period: 5,
                 ban: 10,
-                filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+                filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
                 key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1',
             );
         }
@@ -48,7 +47,7 @@ final class Fail2BanEvaluatorBatchingTest extends TestCase
         $countingCache->resetCounts();
 
         // Nothing banned yet: a single batched getMultiple covers all four rules' ban keys.
-        $firewall->decide($this->makeFailedLoginRequest());
+        $firewall->decide($this->makeProbeRequest());
 
         $this->assertSame(1, $countingCache->getMultipleCalls, 'Ban-key existence should be batched into one getMultiple');
         $this->assertSame(0, $countingCache->hasCalls, 'No per-rule has() round-trips should remain on the common path');
@@ -70,7 +69,7 @@ final class Fail2BanEvaluatorBatchingTest extends TestCase
         $firewall = new Firewall($config);
         $countingCache->resetCounts();
 
-        $this->assertTrue($firewall->decide($this->makeFailedLoginRequest())->isPass());
+        $this->assertTrue($firewall->decide($this->makeProbeRequest())->isPass());
         $this->assertSame(0, $countingCache->getMultipleCalls, 'A request matching no candidate rule must not touch the cache');
         $this->assertSame(0, $countingCache->hasCalls);
     }
@@ -87,7 +86,7 @@ final class Fail2BanEvaluatorBatchingTest extends TestCase
             threshold: 2,
             period: 5,
             ban: 10,
-            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1',
         );
         $config->fail2ban->add(
@@ -95,12 +94,12 @@ final class Fail2BanEvaluatorBatchingTest extends TestCase
             threshold: 2,
             period: 5,
             ban: 10,
-            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1',
         );
 
         $firewall = new Firewall($config);
-        $request = $this->makeFailedLoginRequest('9.9.9.9');
+        $request = $this->makeProbeRequest('9.9.9.9');
 
         // threshold=2: every match blocks; the 1st match is owned by the first rule below the
         // threshold, the 2nd match bans it. The first rule (by insertion order) always wins.

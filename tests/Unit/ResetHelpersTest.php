@@ -47,31 +47,31 @@ final class ResetHelpersTest extends TestCase
         $cache = new InMemoryCache();
         $config = new Config($cache);
         $config->fail2ban->add(
-            'login',
+            'scanner-probes',
             2,
             60,
             300,
-            fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1',
         );
 
         $firewall = new Firewall($config);
-        $request = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
-        $failedRequest = $request->withHeader('X-Login-Failed', '1');
+        $probe = new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
+        $normal = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
 
-        // Trigger the ban (threshold=2 means 2 allowed, 3rd exceeds)
-        $firewall->decide($failedRequest);
-        $firewall->decide($failedRequest);
-        $firewall->decide($failedRequest);
+        // Trigger the ban (threshold=2: the 2nd match bans; a 3rd is already banned)
+        $firewall->decide($probe);
+        $firewall->decide($probe);
+        $firewall->decide($probe);
 
-        $result = $firewall->decide($request);
+        $result = $firewall->decide($normal);
         $this->assertTrue($result->isBlocked());
-        $this->assertTrue($firewall->isBanned('login', '5.6.7.8', BanType::Fail2Ban));
+        $this->assertTrue($firewall->isBanned('scanner-probes', '5.6.7.8', BanType::Fail2Ban));
 
         // Reset and verify the key is unbanned
-        $firewall->resetFail2Ban('login', '5.6.7.8');
-        $this->assertFalse($firewall->isBanned('login', '5.6.7.8', BanType::Fail2Ban));
-        $result = $firewall->decide($request);
+        $firewall->resetFail2Ban('scanner-probes', '5.6.7.8');
+        $this->assertFalse($firewall->isBanned('scanner-probes', '5.6.7.8', BanType::Fail2Ban));
+        $result = $firewall->decide($normal);
         $this->assertTrue($result->isPass());
     }
 
@@ -123,11 +123,11 @@ final class ResetHelpersTest extends TestCase
             fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1',
         );
         $config->fail2ban->add(
-            'login',
+            'scanner-probes',
             2,
             60,
             300,
-            fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1',
         );
 
@@ -141,12 +141,11 @@ final class ResetHelpersTest extends TestCase
         $result = $firewall->decide($throttleRequest);
         $this->assertSame(Outcome::THROTTLED, $result->outcome);
 
-        // Trigger fail2ban ban (threshold=2 → 2nd failure triggers the ban under >= semantic)
-        $banRequest = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']))
-            ->withHeader('X-Login-Failed', '1');
+        // Trigger fail2ban ban (threshold=2 → 2nd match triggers the ban under >= semantic)
+        $banRequest = new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
         $firewall->decide($banRequest);
         $firewall->decide($banRequest);
-        $this->assertTrue($firewall->isBanned('login', '5.6.7.8', BanType::Fail2Ban));
+        $this->assertTrue($firewall->isBanned('scanner-probes', '5.6.7.8', BanType::Fail2Ban));
 
         // Reset everything
         $firewall->resetAll();
@@ -156,7 +155,7 @@ final class ResetHelpersTest extends TestCase
         $this->assertTrue($result->isPass());
 
         // Ban should be cleared
-        $this->assertFalse($firewall->isBanned('login', '5.6.7.8', BanType::Fail2Ban));
+        $this->assertFalse($firewall->isBanned('scanner-probes', '5.6.7.8', BanType::Fail2Ban));
     }
 
     public function testResetThrottleOnlyAffectsSpecificKey(): void
@@ -196,29 +195,28 @@ final class ResetHelpersTest extends TestCase
         $cache = new InMemoryCache();
         $config = new Config($cache);
         $config->fail2ban->add(
-            'login',
+            'scanner-probes',
             3,
             60,
             300,
-            fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1',
         );
 
         $firewall = new Firewall($config);
-        $failedRequest = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']))
-            ->withHeader('X-Login-Failed', '1');
-        $normalRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
+        $probe = new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
+        $normalRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
 
-        // Accumulate 2 failures (below threshold of 3)
-        $firewall->decide($failedRequest);
-        $firewall->decide($failedRequest);
+        // Accumulate 2 matches (below threshold of 3)
+        $firewall->decide($probe);
+        $firewall->decide($probe);
 
         // Reset -- should clear the fail counter as well
-        $firewall->resetFail2Ban('login', '9.9.9.9');
+        $firewall->resetFail2Ban('scanner-probes', '9.9.9.9');
 
-        // Now 2 more failures should not trigger a ban (counter was reset)
-        $firewall->decide($failedRequest);
-        $firewall->decide($failedRequest);
+        // Now 2 more matches should not trigger a ban (counter was reset)
+        $firewall->decide($probe);
+        $firewall->decide($probe);
 
         $result = $firewall->decide($normalRequest);
         $this->assertTrue($result->isPass(), 'Request should pass because fail counter was reset');
@@ -269,32 +267,31 @@ final class ResetHelpersTest extends TestCase
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
         $config->fail2ban->add(
-            'login',
+            'scanner-probes',
             2,
             60,
             300,
-            fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             fn($request): string => $request->getHeaderLine('X-User-Id'),
         );
 
         $firewall = new Firewall($config);
-        $failedRequest = (new ServerRequest('POST', '/login'))
-            ->withHeader('X-Login-Failed', '1')
+        $probe = (new ServerRequest('GET', '/.env'))
             ->withHeader('X-User-Id', 'USER_A');
 
-        // Trigger the ban (threshold=2 allows 2, 3rd exceeds; normalized key: "user_a")
-        $firewall->decide($failedRequest);
-        $firewall->decide($failedRequest);
-        $firewall->decide($failedRequest);
+        // Trigger the ban (threshold=2: the 2nd match bans; normalized key: "user_a")
+        $firewall->decide($probe);
+        $firewall->decide($probe);
+        $firewall->decide($probe);
 
-        $this->assertTrue($firewall->isBanned('login', 'USER_A', BanType::Fail2Ban));
+        $this->assertTrue($firewall->isBanned('scanner-probes', 'USER_A', BanType::Fail2Ban));
 
         // Reset using mixed-case variant -- should normalize internally
-        $firewall->resetFail2Ban('login', 'User_A');
-        $this->assertFalse($firewall->isBanned('login', 'user_a', BanType::Fail2Ban));
+        $firewall->resetFail2Ban('scanner-probes', 'User_A');
+        $this->assertFalse($firewall->isBanned('scanner-probes', 'user_a', BanType::Fail2Ban));
 
         // Verify requests pass after reset
-        $cleanRequest = (new ServerRequest('POST', '/login'))
+        $cleanRequest = (new ServerRequest('GET', '/'))
             ->withHeader('X-User-Id', 'USER_A');
         $result = $firewall->decide($cleanRequest);
         $this->assertTrue($result->isPass(), 'Request should pass after resetFail2Ban with normalized key');
@@ -306,33 +303,32 @@ final class ResetHelpersTest extends TestCase
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
         $config->fail2ban->add(
-            'login',
+            'scanner-probes',
             2,
             60,
             300,
-            fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             fn($request): string => $request->getHeaderLine('X-User-Id'),
         );
 
         $firewall = new Firewall($config);
-        $failedRequest = (new ServerRequest('POST', '/login'))
-            ->withHeader('X-Login-Failed', '1')
+        $probe = (new ServerRequest('GET', '/.env'))
             ->withHeader('X-User-Id', 'user_a');
 
-        // Trigger the ban with lowercase variant (threshold=2 allows 2, 3rd exceeds)
-        $firewall->decide($failedRequest);
-        $firewall->decide($failedRequest);
-        $firewall->decide($failedRequest);
+        // Trigger the ban with lowercase variant (threshold=2: the 2nd match bans)
+        $firewall->decide($probe);
+        $firewall->decide($probe);
+        $firewall->decide($probe);
 
         // Check with uppercase -- should normalize and find the ban
         $this->assertTrue(
-            $firewall->isBanned('login', 'USER_A', BanType::Fail2Ban),
+            $firewall->isBanned('scanner-probes', 'USER_A', BanType::Fail2Ban),
             'isBanned should find bans using normalized key regardless of input casing'
         );
 
         // Check with mixed-case
         $this->assertTrue(
-            $firewall->isBanned('login', 'User_A', BanType::Fail2Ban),
+            $firewall->isBanned('scanner-probes', 'User_A', BanType::Fail2Ban),
             'isBanned should find bans using normalized key regardless of input casing'
         );
     }

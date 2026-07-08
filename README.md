@@ -34,7 +34,7 @@ $config = new Config(new InMemoryCache());
 $config->safelists->add('health', fn($req) => $req->getUri()->getPath() === '/health');
 
 // Block common scanner paths
-$config->blocklists->add('scanners', fn($req) => str_starts_with($req->getUri()->getPath(), '/wp-admin'));
+$config->blocklists->add('scanners', fn($req) => str_starts_with($req->getUri()->getPath(), '/.git'));
 
 // Rate limit: 100 requests per minute per IP
 $config->throttles->add('api', limit: 100, period: 60 /* seconds */);
@@ -307,12 +307,12 @@ $portable = PortableConfig::create()
     ->setKeyPrefix('shop')
     ->enableResponseHeaders()
     ->safelist('health', PortableConfig::filterPathEquals('/health'))
-    ->blocklist('admin-probe', PortableConfig::filterPathPrefix('/wp-admin'))
+    ->blocklist('secrets-probe', PortableConfig::filterPathPrefix('/.env'))
     ->blocklist('scanners', PortableConfig::filterKnownScanners())
     ->blocklist('bad-net', PortableConfig::filterIp(['203.0.113.0/24']))
     ->throttle('api', limit: 100, period: 60, key: PortableConfig::keyHashedHeader('X-Api-Key'), sliding: true)
     ->allow2ban('volume-cap', threshold: 1000, period: 60, ban: 300, key: PortableConfig::keyIp())
-    ->fail2ban('login', threshold: 5, period: 60, ban: 900, filter: PortableConfig::filterHeaderEquals('X-Login-Failed', '1'), key: PortableConfig::keyIp())
+    ->fail2ban('repo-probes', threshold: 5, period: 60, ban: 900, filter: PortableConfig::filterPathPrefix('/.git'), key: PortableConfig::keyIp())
     ->patternBlocklist('threats', [
         PortableConfig::patternEntry(PatternKind::CIDR, '10.66.0.0/16'),
         PortableConfig::patternEntry(PatternKind::PATH_REGEX, '#/\.git(/|$)#'),

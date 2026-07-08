@@ -62,9 +62,9 @@ echo "2. Configuration created with prefix 'demo'\n";
 $config->safelists->add('health', fn(ServerRequestInterface $serverRequest): bool => $serverRequest->getUri()->getPath() === '/health');
 echo "3a. Safelist rule added: health endpoint\n";
 
-// BLOCKLIST: Block requests to /wp-admin (WordPress scanner probe)
-$config->blocklists->add('wp-probe', fn(ServerRequestInterface $serverRequest): bool => str_starts_with($serverRequest->getUri()->getPath(), '/wp-admin'));
-echo "3b. Blocklist rule added: WordPress probes\n";
+// BLOCKLIST: Block requests to /.git (repository leak probe)
+$config->blocklists->add('repo-probe', fn(ServerRequestInterface $serverRequest): bool => str_starts_with($serverRequest->getUri()->getPath(), '/.git'));
+echo "3b. Blocklist rule added: repository leak probes\n";
 
 // THROTTLE: Limit to 5 requests per 60 seconds per IP
 $config->throttles->add(
@@ -122,11 +122,11 @@ $testRequest(
 );
 echo "\n";
 
-// Test 2: WordPress probe (blocklisted)
-echo "Test 2: WordPress admin probe (blocklisted)\n";
+// Test 2: Repository leak probe (blocklisted)
+echo "Test 2: Repository leak probe (blocklisted)\n";
 $testRequest(
-    'GET /wp-admin/admin.php',
-    new ServerRequest('GET', '/wp-admin/admin.php', [], null, '1.1', ['REMOTE_ADDR' => '192.168.1.101'])
+    'GET /.git/config',
+    new ServerRequest('GET', '/.git/config', [], null, '1.1', ['REMOTE_ADDR' => '192.168.1.101'])
 );
 echo "\n";
 

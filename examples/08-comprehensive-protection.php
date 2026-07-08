@@ -107,7 +107,7 @@ $config->blocklists->add('scanner-ua', function ($req) use ($scanners): bool {
 echo "  - Scanner User-Agents (" . count($scanners) . " patterns)\n";
 
 // Scanner paths
-$blockedPaths = ['/wp-admin', '/phpmyadmin', '/.env', '/.git', '/phpinfo.php'];
+$blockedPaths = ['/.svn', '/phpmyadmin', '/.env', '/.git', '/phpinfo.php'];
 $config->blocklists->add('scanner-paths', function ($req) use ($blockedPaths): bool {
     $path = strtolower((string) $req->getUri()->getPath());
     foreach ($blockedPaths as $blockedPath) {
@@ -259,7 +259,7 @@ $tests = [
     ['Nikto scanner', 'GET', '/', ['User-Agent' => 'Nikto/2.5'], '1.1.1.2', 403],
 
     // Scanner paths
-    ['WordPress probe', 'GET', '/wp-admin/', [], '1.1.1.3', 403],
+    ['Repo leak probe', 'GET', '/.svn/entries', [], '1.1.1.3', 403],
     ['.env access', 'GET', '/.env', [], '1.1.1.4', 403],
 
     // SQL injection and XSS detection are not built into core; they live in the

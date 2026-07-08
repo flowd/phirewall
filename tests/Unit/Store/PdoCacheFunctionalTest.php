@@ -284,11 +284,11 @@ final class PdoCacheFunctionalTest extends TestCase
             threshold: 2,
             period: 60,
             ban: 300,
-            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/wp-admin'),
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
         );
 
         $firewall = new Firewall($config);
-        $probeRequest = new ServerRequest('GET', '/wp-admin/setup.php', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']);
+        $probeRequest = new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']);
 
         // threshold=2 (>= semantic): every match is blocked, the 2nd match triggers the ban.
         $this->assertSame(Outcome::BLOCKED, $firewall->decide($probeRequest)->outcome);
