@@ -39,8 +39,9 @@ $config->blocklists->add('scanners', fn($req) => str_starts_with($req->getUri()-
 // Rate limit: 100 requests per minute per IP
 $config->throttles->add('api', limit: 100, period: 60 /* seconds */);
 
-// Ban IP after 5 failed logins in 5 minutes. The filter never matches at
-// request time — failures are signaled from the handler via RequestContext
+// Ban IP after 5 failed logins in 5 minutes. Fail2Ban blocks EVERY filter match,
+// so a login rule keeps its filter closed (fn($req) => false) and is driven by
+// handler-signaled failures via RequestContext instead of a request-time filter
 // (see "Login Protection" below for the handler-side snippet).
 $config->fail2ban->add('login', threshold: 5, period: 300 /* seconds */, ban: 3600 /* seconds */,
     filter: fn($req) => false,
@@ -116,8 +117,8 @@ The [examples/](examples/) folder contains runnable examples:
 | **Safelists** | Bypass all checks for trusted requests (health checks, internal IPs) |
 | **Blocklists** | Immediately deny suspicious requests (403) |
 | **Throttling** | Fixed and sliding window rate limiting by IP, user, API key, or custom key (429) with dynamic limits and multiThrottle |
-| **Fail2Ban** | Auto-ban after repeated failures |
-| **Allow2Ban** | Hard volume cap -- ban after too many total requests |
+| **Fail2Ban** | Block every filter match (403); ban the key after repeated matches. For unambiguously malicious requests (scanner paths) or handler-signaled failures |
+| **Allow2Ban** | Count requests (all, or only those an optional filter matches) and ban after too many; matching requests pass until the threshold. A hard volume cap, or a let-through brute-force counter |
 | **Track with Threshold** | Passive counting with optional alert threshold |
 | **OWASP CRS** | SQL injection, XSS, and more via the companion package [flowd/phirewall-preset-owasp-crs](https://github.com/flowd/phirewall-preset-owasp-crs) |
 | **Pattern Backends** | File/Redis-backed blocklists with IP, CIDR, path, and header patterns |
@@ -133,7 +134,7 @@ The [examples/](examples/) folder contains runnable examples:
 
 ### Observability
 
-- **PSR-14 Events** - `SafelistMatched`, `BlocklistMatched`, `ThrottleExceeded`, `Fail2BanBanned`, `Allow2BanBanned`, `TrackHit`, `FirewallError`
+- **PSR-14 Events** - `SafelistMatched`, `BlocklistMatched`, `ThrottleExceeded`, `Fail2BanMatched`, `Fail2BanBanned`, `Allow2BanBanned`, `TrackHit`, `FirewallError`
 - **Fail-Open by Default** - Cache outages don't take down the application; a `FirewallError` event is dispatched via PSR-14. Trade-off: while failing open all rules are skipped, so deployments that must keep blocking during an outage should `setFailOpen(false)` and monitor `FirewallError`
 - **Diagnostics Counters** - Per-rule statistics for monitoring
 - **Standard Headers** - `X-RateLimit-*`, `Retry-After`, `X-Phirewall-*`
@@ -322,7 +323,7 @@ $array = $portable->toArray();
 $config = (new Config($cache))->with(PortableConfig::fromArray($array));
 ```
 
-**Supported rule types:** safelists, blocklists, throttles (incl. `sliding` and an optional `scope` filter that restricts which requests the throttle counts — e.g. `filterPathPrefix('/api')`), fail2ban, allow2ban, tracks, and pattern backends. **Filters:** `all`, `none`, `path_equals`, `path_prefix`, `path_regex`, `method_equals`, `method_in`, `header_equals`, `header_present`, `header_regex`, plus the matcher-backed `ip`, `known_scanners`, and `suspicious_headers`. **Key extractors:** `ip`, `method`, `path`, `header`, `hashed_header`.
+**Supported rule types:** safelists, blocklists, throttles (incl. `sliding` and an optional `scope` filter that restricts which requests the throttle counts — e.g. `filterPathPrefix('/api')`), fail2ban, allow2ban (incl. an optional `filter` that restricts which requests the rule counts), tracks, and pattern backends. **Filters:** `all`, `none`, `path_equals`, `path_prefix`, `path_regex`, `method_equals`, `method_in`, `header_equals`, `header_present`, `header_regex`, plus the matcher-backed `ip`, `known_scanners`, and `suspicious_headers`. **Key extractors:** `ip`, `method`, `path`, `header`, `hashed_header`.
 
 ### Signed transport
 
@@ -437,7 +438,9 @@ $config->throttles->add('login', limit: 10, period: 60, key: function($req) {
         : null;
 });
 
-// Ban after failures — signaled via RequestContext from your handler
+// Ban after failures — signaled via RequestContext from your handler.
+// Fail2Ban blocks on any filter match, and a real login POST is legitimate, so the
+// filter stays closed (fn($request) => false) and the handler reports the failures instead.
 $config->fail2ban->add('login-ban', threshold: 5, period: 300, ban: 3600,
     filter: fn($request): bool => false,
 );
@@ -454,6 +457,19 @@ $context = $request->getAttribute(RequestContext::ATTRIBUTE_NAME);
 if (!$authenticated && $context instanceof RequestContext) {
     $context->recordFailure('login-ban');
 }
+```
+
+No failure signal available from your handler? Use **Allow2Ban with a filter**
+and count every login attempt instead: matching requests are counted but pass
+until the threshold, then the key is banned. Pick the threshold generously,
+because successful attempts count too.
+
+```php
+$config->allow2ban->add('login-brute-force', threshold: 10, period: 300, banSeconds: 3600,
+    key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'],
+    filter: fn($request): bool => $request->getMethod() === 'POST'
+        && $request->getUri()->getPath() === '/login',
+);
 ```
 
 ### Bot Detection

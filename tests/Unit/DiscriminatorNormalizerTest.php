@@ -122,8 +122,8 @@ final class DiscriminatorNormalizerTest extends TestCase
             ->withHeader('X-Login-Failed', '1')
             ->withHeader('X-User-Id', 'user_a');
 
-        // First failure with "USER_A" — count = 1, passes
-        $this->assertSame(Outcome::PASS, $firewall->decide($serverRequest)->outcome);
+        // First failure with "USER_A" — count = 1, match blocked below threshold
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($serverRequest)->outcome);
 
         // Second failure with "user_a" — normalized to same key, count = 2, reaches threshold and triggers ban (>= semantic)
         $firewallResult = $firewall->decide($failedLowerCase);
@@ -256,8 +256,8 @@ final class DiscriminatorNormalizerTest extends TestCase
             ->withHeader('X-Login-Failed', '1')
             ->withHeader('X-User-Id', 'USER_A');
 
-        // First failure — count = 1, passes
-        $this->assertSame(Outcome::PASS, $firewall->decide($serverRequest)->outcome);
+        // First failure — count = 1, match blocked below threshold
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($serverRequest)->outcome);
 
         // Second failure — count = 2 reaches threshold (>= 2), triggers the ban
         $this->assertSame(Outcome::BLOCKED, $firewall->decide($serverRequest)->outcome);

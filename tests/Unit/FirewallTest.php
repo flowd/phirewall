@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Tests;
 
+use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Http\Outcome;
@@ -96,8 +97,8 @@ final class FirewallTest extends TestCase
 
         $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '5.6.7.8']);
         $failedRequest = $serverRequest->withHeader('X-Login-Failed', '1');
-        // threshold=2 (>= semantic): 1st failure passes, 2nd failure triggers the ban.
-        $this->assertTrue($firewall->decide($failedRequest)->isPass());
+        // threshold=2 (>= semantic): every match is blocked, the 2nd match triggers the ban.
+        $this->assertTrue($firewall->decide($failedRequest)->isBlocked());
         $second = $firewall->decide($failedRequest);
         $this->assertTrue($second->isBlocked());
         // Now even a normal request should be banned
@@ -171,17 +172,19 @@ final class FirewallTest extends TestCase
             }
         };
 
-        // threshold=3 with the new >= semantic: the 3rd matching request is the banning one.
+        // threshold=3: every match is blocked (403); the 3rd match is the banning one.
+        // Each blocked match runs the blockedResponse factory.
         $firstResponse = $middleware->process($serverRequest, $handler);
-        $this->assertSame(200, $firstResponse->getStatusCode(), '1st failure must pass');
+        $this->assertSame(403, $firstResponse->getStatusCode(), '1st match must be blocked below the threshold');
+        $this->assertSame('login', $firstResponse->getHeaderLine('X-Banned'));
 
         $secondResponse = $middleware->process($serverRequest, $handler);
-        $this->assertSame(200, $secondResponse->getStatusCode(), '2nd failure must pass');
+        $this->assertSame(403, $secondResponse->getStatusCode(), '2nd match must be blocked below the threshold');
 
         $thirdResponse = $middleware->process($serverRequest, $handler);
-        $this->assertSame(403, $thirdResponse->getStatusCode(), '3rd failure must trigger the ban');
+        $this->assertSame(403, $thirdResponse->getStatusCode(), '3rd match must trigger the ban');
         $this->assertSame('login', $thirdResponse->getHeaderLine('X-Banned'));
-        $this->assertSame(1, $blockedResponseInvocations, 'blockedResponse factory must be invoked exactly once for the banning request');
+        $this->assertSame(3, $blockedResponseInvocations, 'blockedResponse factory runs for every blocked match');
     }
 
     public function testFail2BanFailCounterExpiresBeforeThreshold(): void
@@ -205,16 +208,18 @@ final class FirewallTest extends TestCase
         $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '4.3.2.1']);
         $failedRequest = $serverRequest->withHeader('X-Login-Failed', '1');
 
-        // One failed attempt in the first window
-        $this->assertTrue($firewall->decide($failedRequest)->isPass());
+        // One failed attempt in the first window: the match is blocked, but the key is not banned yet.
+        $this->assertTrue($firewall->decide($failedRequest)->isBlocked());
+        $this->assertFalse($firewall->isBanned('login-reset', '4.3.2.1', BanType::Fail2Ban));
 
         // Let the window expire before issuing a second failure
         sleep($period + 1);
 
-        // After expiration, counting should start again from 1 and not immediately ban
-        $this->assertTrue($firewall->decide($failedRequest)->isPass());
+        // After expiration, counting starts again from 1: still only a match, no ban.
+        $this->assertTrue($firewall->decide($failedRequest)->isBlocked());
+        $this->assertFalse($firewall->isBanned('login-reset', '4.3.2.1', BanType::Fail2Ban));
 
-        // Another normal request should still not be blocked
+        // A clean (non-matching) request is not blocked because the key was never banned.
         $firewallResult = $firewall->decide($serverRequest);
         $this->assertTrue($firewallResult->isPass());
     }

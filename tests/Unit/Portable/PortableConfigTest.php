@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Tests\Portable;
 
+use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Http\Outcome;
@@ -260,8 +261,8 @@ final class PortableConfigTest extends TestCase
 
         $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.20']);
         $fail = $serverRequest->withHeader('X-Login-Failed', '1');
-        // threshold=2 (>= semantic): 1st failure passes, 2nd failure triggers the ban.
-        $this->assertTrue($firewall->decide($fail)->isPass());
+        // threshold=2 (>= semantic): every match is blocked, the 2nd match triggers the ban.
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($fail)->outcome);
         $second = $firewall->decide($fail);
         $this->assertSame(Outcome::BLOCKED, $second->outcome);
         // Subsequent clean request is still banned
@@ -1071,6 +1072,67 @@ final class PortableConfigTest extends TestCase
     /**
      * Export -> JSON -> decode -> import, mirroring how a portable config crosses a process boundary.
      */
+    public function testAllow2BanFilterRoundTripsAndGatesCounting(): void
+    {
+        $portableConfig = PortableConfig::create()
+            ->enableResponseHeaders()
+            ->allow2ban(
+                'login-brute-force',
+                threshold: 2,
+                period: 60,
+                ban: 600,
+                key: PortableConfig::keyIp(),
+                filter: PortableConfig::filterPathPrefix('/login'),
+            );
+
+        $schema = $portableConfig->toArray();
+        $this->assertSame(
+            ['type' => 'path_prefix', 'prefix' => '/login'],
+            $schema['allow2bans'][0]['filter'] ?? null,
+        );
+
+        $config = (new Config(new InMemoryCache()))->with($this->roundTrip($portableConfig));
+        $firewall = new Firewall($config);
+
+        $pageView = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.20']);
+        $loginAttempt = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.20']);
+
+        // Non-matching requests never count toward the ban.
+        $this->assertTrue($firewall->decide($pageView)->isPass());
+        $this->assertTrue($firewall->decide($pageView)->isPass());
+        $this->assertFalse($firewall->isBanned('login-brute-force', '203.0.113.20', BanType::Allow2Ban));
+
+        // Matching requests count: 1st passes, 2nd reaches the threshold and bans.
+        $this->assertTrue($firewall->decide($loginAttempt)->isPass());
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($loginAttempt)->outcome);
+    }
+
+    public function testAllow2BanWithoutFilterOmitsFilterKey(): void
+    {
+        $schema = PortableConfig::create()
+            ->allow2ban('volume-cap', threshold: 2, period: 60, ban: 600, key: PortableConfig::keyIp())
+            ->toArray();
+
+        $this->assertArrayNotHasKey('filter', $schema['allow2bans'][0]);
+    }
+
+    public function testFromArrayRejectsInvalidAllow2BanFilter(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/Invalid filter type/');
+
+        PortableConfig::fromArray([
+            'allow2bans' => [[
+                'name' => 'x',
+                'threshold' => 2,
+                'period' => 60,
+                'ban' => 600,
+                'key' => ['type' => 'ip'],
+                'filter' => ['type' => 'nope'],
+            ]],
+        ]);
+    }
+
     private function roundTrip(PortableConfig $portableConfig): PortableConfig
     {
         $json = json_encode($portableConfig->toArray(), JSON_THROW_ON_ERROR);

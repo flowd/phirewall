@@ -16,6 +16,7 @@ enum DecisionPath: string
     case Safelisted = 'safelisted';
     case Blocklisted = 'blocklisted';
     case Fail2BanBlocked = 'fail2ban_blocked';
+    case Fail2BanMatched = 'fail2ban_matched';
     case Fail2BanBanned = 'fail2ban_banned';
     case Throttled = 'throttled';
     case Allow2BanBlocked = 'allow2ban_blocked';

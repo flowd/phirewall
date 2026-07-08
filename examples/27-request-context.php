@@ -47,6 +47,9 @@ $config->enableResponseHeaders();
 // Configure a fail2ban rule for login failures.
 // With RequestContext, the filter always returns false — failures are recorded
 // programmatically by the handler, not matched by the firewall pre-handler.
+// Fail2ban blocks every request its filter matches, so a filter that matched
+// a real login POST would reject it outright. Keeping the filter closed and
+// signaling from the handler is the correct pattern here.
 $config->fail2ban->add(
     name: 'login-failures',
     threshold: 3,

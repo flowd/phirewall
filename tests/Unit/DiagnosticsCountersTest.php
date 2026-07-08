@@ -82,11 +82,13 @@ final class DiagnosticsCountersTest extends TestCase
 
         $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '9.9.9.9']);
         $fail = $serverRequest->withHeader('X-Login-Failed', '1');
-        $this->assertTrue($firewall->decide($fail)->isPass()); // 1st — within threshold
+        $this->assertTrue($firewall->decide($fail)->isBlocked()); // 1st — match blocked below threshold
         $blockedResult = $firewall->decide($fail); // 2nd — reaches threshold (>= 2), banned
         $this->assertTrue($blockedResult->isBlocked());
 
         $counters = $diagnosticsCounters->all();
+        $this->assertSame(1, $counters['fail2ban_matched']['total'] ?? 0);
+        $this->assertSame(1, $counters['fail2ban_matched']['by_rule']['login'] ?? 0);
         $this->assertSame(1, $counters['fail2ban_banned']['total'] ?? 0);
         $this->assertSame(1, $counters['fail2ban_banned']['by_rule']['login'] ?? 0);
 

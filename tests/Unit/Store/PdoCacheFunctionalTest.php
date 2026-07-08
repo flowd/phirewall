@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Tests\Store;
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Http\Firewall;
+use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\PdoCache;
 use Nyholm\Psr7\ServerRequest;
 use PDO;
@@ -279,22 +280,21 @@ final class PdoCacheFunctionalTest extends TestCase
         $config = new Config($cache);
 
         $config->fail2ban->add(
-            'login',
+            'scanner-probes',
             threshold: 2,
             period: 60,
             ban: 300,
-            filter: fn($request): bool => $request->getHeaderLine('X-Failed') === '1',
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/wp-admin'),
         );
 
         $firewall = new Firewall($config);
-        $failedRequest = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
-            ->withHeader('X-Failed', '1');
+        $probeRequest = new ServerRequest('GET', '/wp-admin/setup.php', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']);
 
-        // threshold=2 (>= semantic): 1st failure passes, 2nd failure triggers the ban.
-        $this->assertTrue($firewall->decide($failedRequest)->isPass());
-        $this->assertFalse($firewall->decide($failedRequest)->isPass());
+        // threshold=2 (>= semantic): every match is blocked, the 2nd match triggers the ban.
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($probeRequest)->outcome);
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($probeRequest)->outcome);
         // Clean request from same IP is now banned
         $cleanRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']);
-        $this->assertFalse($firewall->decide($cleanRequest)->isPass());
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($cleanRequest)->outcome);
     }
 }

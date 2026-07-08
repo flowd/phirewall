@@ -5,13 +5,15 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Config\Rule;
 
 use Flowd\Phirewall\Config\KeyExtractorInterface;
+use Flowd\Phirewall\Config\RequestMatcherInterface;
 
 /**
- * Allow2Ban rule: allows all requests until a threshold is crossed within a time window,
- * then bans the key for a configurable duration.
+ * Allow2Ban rule: lets matching requests through until a threshold is crossed within a
+ * time window, then bans the key for a configurable duration.
  *
- * This is the inverse of Fail2Ban -- instead of counting only filtered "bad" requests,
- * it counts every request for the extracted key and bans once the threshold is exceeded.
+ * Like Fail2Ban it counts filter matches, but unlike Fail2Ban it lets matching requests
+ * pass until the threshold is reached instead of blocking each match. A null filter
+ * matches every request, which is the classic hard volume cap.
  */
 final readonly class Allow2BanRule implements RuleInterface
 {
@@ -21,6 +23,7 @@ final readonly class Allow2BanRule implements RuleInterface
         private int $period,
         private int $banSeconds,
         private ?KeyExtractorInterface $keyExtractor,
+        private ?RequestMatcherInterface $requestMatcher = null,
     ) {
         if ($name === '') {
             throw new \InvalidArgumentException('Allow2BanRule name must not be empty.');
@@ -63,5 +66,11 @@ final readonly class Allow2BanRule implements RuleInterface
     public function keyExtractor(): ?KeyExtractorInterface
     {
         return $this->keyExtractor;
+    }
+
+    /** Null when no filter was specified; the rule then counts every request. */
+    public function filter(): ?RequestMatcherInterface
+    {
+        return $this->requestMatcher;
     }
 }

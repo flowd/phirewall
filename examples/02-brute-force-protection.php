@@ -4,9 +4,20 @@
  * Example 02: Brute Force Protection
  *
  * This example demonstrates how to protect against brute force attacks using:
- * - Fail2Ban-style IP blocking after repeated failures
- * - Throttling for rate limiting login attempts
- * - Custom failure detection via headers or response inspection
+ * - Allow2Ban with a filter: count login attempts, ban the IP after too many
+ *   within a window (matching requests pass until the threshold)
+ * - Throttling for rate limiting the login endpoint
+ *
+ * Why Allow2Ban and not Fail2Ban here? Fail2Ban blocks EVERY filter match on the
+ * spot, which is right for unambiguously malicious traffic (scanner paths) but
+ * wrong for a login endpoint, where an attempt is still a legitimate request
+ * that should be allowed a few retries. Allow2Ban with a filter counts the
+ * attempts and only bans once they cross the threshold.
+ *
+ * A request filter cannot tell a failed login from a successful one (the result
+ * only exists after the handler ran), so the filter counts every attempt; pick
+ * the threshold generously. To count only actual failures, report them from the
+ * handler with RequestContext::recordHit() instead, see example 27.
  *
  * Run: php examples/02-brute-force-protection.php
  */
@@ -18,7 +29,6 @@ require __DIR__ . '/../vendor/autoload.php';
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\Config\DiagnosticsDispatcher;
-use Flowd\Phirewall\Context\RequestContext;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -40,28 +50,22 @@ $config = new Config($cache, new DiagnosticsDispatcher($diagnostics));
 $config->enableResponseHeaders();
 
 // -----------------------------------------------------------------------------
-// Strategy 1: Fail2Ban - Ban IP after X failed login attempts
+// Strategy 1: Allow2Ban with a filter - ban IP after too many login attempts
 // -----------------------------------------------------------------------------
-// This is the most effective protection against brute force attacks.
-// After 5 failed login attempts within 5 minutes, the IP is banned for 1 hour.
-//
-// The filter never matches at request time (`fn() => false`): the firewall
-// cannot know whether a login was successful before the handler runs.
-// Instead, the handler signals failures back to the firewall through the
-// PSR-7 RequestContext attribute set up by Middleware (see the handler
-// implementation below). This is the recommended pattern; the older
-// "request header marker" approach can only succeed if a separate
-// pre-handler middleware reliably sets the header, and tends to be
-// brittle.
+// Count only requests the filter matches (POSTs to the login endpoint).
+// Attempts 1-4 pass through; the 5th within the window bans the IP for 1 hour.
+// Page views and other endpoints are never counted.
 
-$config->fail2ban->add(
-    name: 'login-failures',
-    threshold: 5,           // Number of failures before ban
-    period: 300,            // Time window in seconds (5 minutes)
-    ban: 3600,              // Ban duration in seconds (1 hour)
-    filter: fn(ServerRequestInterface $serverRequest): bool => false
+$config->allow2ban->add(
+    name: 'login-brute-force',
+    threshold: 5,           // matching requests before the ban trips (>= semantic)
+    period: 300,            // time window in seconds (5 minutes)
+    banSeconds: 3600,       // ban duration in seconds (1 hour)
+    key: fn(ServerRequestInterface $serverRequest): string => $serverRequest->getServerParams()['REMOTE_ADDR'] ?? '',
+    filter: fn(ServerRequestInterface $serverRequest): bool => $serverRequest->getMethod() === 'POST'
+        && $serverRequest->getUri()->getPath() === '/login',
 );
-echo "1. Fail2Ban configured: 5 failures in 5 min = 1 hour ban (handler signals failures)\n";
+echo "1. Allow2Ban configured: 5 login attempts in 5 min = 1 hour ban (matching requests pass until then)\n";
 
 // -----------------------------------------------------------------------------
 // Strategy 2: Throttle - Limit login attempts per IP
@@ -87,11 +91,13 @@ echo "2. Login throttle configured: 10 attempts/min per IP\n";
 // -----------------------------------------------------------------------------
 // Strategy 3: Account-based throttling
 // -----------------------------------------------------------------------------
-// Also throttle per username to prevent credential stuffing attacks.
+// Also throttle per username to prevent credential stuffing attacks. The limit
+// sits above the allow2ban threshold, so a hammered account still throttles
+// even when the attempts come from many different (not yet banned) IPs.
 
 $config->throttles->add(
     name: 'account-throttle',
-    limit: 5,
+    limit: 8,
     period: 60,
     key: function (ServerRequestInterface $serverRequest): ?string {
         // Only apply to login endpoint
@@ -103,7 +109,7 @@ $config->throttles->add(
         return null;
     }
 );
-echo "3. Account throttle configured: 5 attempts/min per username\n\n";
+echo "3. Account throttle configured: 8 attempts/min per username\n\n";
 
 // =============================================================================
 // SIMULATION
@@ -111,35 +117,25 @@ echo "3. Account throttle configured: 5 attempts/min per username\n\n";
 
 $middleware = new Middleware($config, new Psr17Factory());
 
-// Simulated login handler. The handler reports failed logins back to the
-// firewall via RequestContext::recordFailure(); Middleware applies the
-// signal to the matching fail2ban rule after the response is built.
-//
-// The "admin" account here always fails (simulated credential-stuffing
-// attack); any other username succeeds. A real handler would validate
-// against a credential store.
+// Simulated login handler. The "admin" account here always fails (simulated
+// credential-stuffing attack); any other username succeeds. A real handler
+// would validate against a credential store.
 $handler = new class implements RequestHandlerInterface {
     public function handle(ServerRequestInterface $serverRequest): ResponseInterface
     {
         $path = $serverRequest->getUri()->getPath();
 
-        if ($path === '/login') {
-            $username = $serverRequest->getHeaderLine('X-Username');
-            $context = $serverRequest->getAttribute(RequestContext::ATTRIBUTE_NAME);
-            $remoteAddr = $serverRequest->getServerParams()['REMOTE_ADDR'] ?? '';
+        if ($path === '/login' && $serverRequest->getMethod() === 'POST') {
+            $failed = $serverRequest->getHeaderLine('X-Username') === 'admin';
 
-            if ($username === 'admin') {
-                if ($context instanceof RequestContext && $remoteAddr !== '') {
-                    $context->recordFailure('login-failures', $remoteAddr);
-                }
-
+            if ($failed) {
                 return new Response(401, [
                     'Content-Type' => 'application/json',
                 ], json_encode(['error' => 'Invalid credentials'], JSON_THROW_ON_ERROR));
             }
 
             return new Response(200, ['Content-Type' => 'application/json'],
-                json_encode(['success' => true, 'user' => $username], JSON_THROW_ON_ERROR));
+                json_encode(['success' => true], JSON_THROW_ON_ERROR));
         }
 
         return new Response(200, ['Content-Type' => 'text/plain'], "OK\n");
@@ -147,11 +143,11 @@ $handler = new class implements RequestHandlerInterface {
 };
 
 // Helper function
-$testRequest = function (string $desc, string $path, array $headers = [], string $ip = '192.168.1.50') use ($middleware, $handler): int {
-    $request = new ServerRequest('POST', $path, $headers, null, '1.1', ['REMOTE_ADDR' => $ip]);
+$testRequest = function (string $desc, string $path, array $headers = [], string $ip = '192.168.1.50', string $method = 'POST') use ($middleware, $handler): int {
+    $request = new ServerRequest($method, $path, $headers, null, '1.1', ['REMOTE_ADDR' => $ip]);
     $response = $middleware->process($request, $handler);
     $status = $response->getStatusCode();
-    $banned = $response->getHeaderLine('X-Phirewall') === 'blocked';
+    $banned = $status === 403;
     $throttled = $status === 429;
 
     echo sprintf("  %-50s => %d", $desc, $status);
@@ -169,13 +165,12 @@ $testRequest = function (string $desc, string $path, array $headers = [], string
     return $status;
 };
 
-echo "=== Test 1: Fail2Ban Triggering ===\n";
-echo "Simulating failed login attempts from attacker IP...\n\n";
+echo "=== Test 1: Allow2Ban Triggering ===\n";
+echo "Simulating login attempts from attacker IP...\n\n";
 
 $attackerIp = '10.0.0.100';
 
-// Requests carry no special marker header: the handler observes the failed
-// login and signals it back to the firewall via RequestContext.
+// Every POST to /login counts; the 5th within the window bans the IP.
 for ($i = 1; $i <= 6; ++$i) {
     $testRequest(
         sprintf('Login attempt %d (will fail)', $i),
@@ -188,7 +183,7 @@ for ($i = 1; $i <= 6; ++$i) {
 echo "\n";
 
 // The IP should now be banned - test it
-echo "After 5 failures, trying again...\n";
+echo "After 5 attempts, trying again...\n";
 $testRequest(
     "Login attempt 7 (should be banned)",
     '/login',
@@ -199,7 +194,7 @@ $testRequest(
 echo "\n=== Test 2: Legitimate User from Different IP ===\n";
 $legitIp = '10.0.0.200';
 
-// Legitimate user can still try from different IP
+// The legitimate user's attempts count too, but stay well below the threshold.
 for ($i = 1; $i <= 3; ++$i) {
     $testRequest(
         'Legitimate user attempt ' . $i,
@@ -210,21 +205,22 @@ for ($i = 1; $i <= 3; ++$i) {
 }
 
 echo "\n=== Test 3: Rate Limiting (Throttle) ===\n";
-echo "Rapid requests to /login endpoint...\n\n";
+echo "Rapidly reloading the login page (GET does not count as an attempt)...\n\n";
 
-$rapidIp = '10.0.0.300';
+$rapidIp = '10.0.0.30';
 for ($i = 1; $i <= 12; ++$i) {
     $testRequest(
         'Rapid request ' . $i,
         '/login',
-        ['X-Username' => 'testuser'],
-        $rapidIp
+        [],
+        $rapidIp,
+        'GET'
     );
 }
 
 echo "\n=== Diagnostics ===\n";
 $counters = $diagnostics->all();
-echo "Banned by Fail2Ban: " . ($counters['fail2ban_banned']['total'] ?? 0) . "\n";
+echo "Banned by Allow2Ban: " . ($counters['allow2ban_banned']['total'] ?? 0) . "\n";
 echo "Throttled: " . ($counters['throttle_exceeded']['total'] ?? 0) . "\n";
 echo "Passed: " . ($counters['passed']['total'] ?? 0) . "\n";
 

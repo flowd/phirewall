@@ -48,6 +48,11 @@ final class RequestContext
      * rule's keyExtractor on the current request. Pass an explicit key only
      * when the handler knows a value the firewall cannot derive from the
      * request itself (e.g. a user id looked up from a session).
+     *
+     * The signal bypasses the rule filter: it counts and may ban the key once the
+     * threshold is reached, but never blocks the current request and never dispatches
+     * a Fail2BanMatched event. This is the way to drive a signal-only rule whose
+     * filter is `fn() => false`.
      */
     public function recordFailure(string $ruleName, ?string $key = null): void
     {
@@ -64,6 +69,10 @@ final class RequestContext
      * Useful for counting handler-observable events that the pre-handler
      * path can't see — e.g. an expensive operation completed, a webhook
      * delivered a duplicate payload, a third-party API quota was charged.
+     *
+     * The signal bypasses the rule filter: it counts and may ban the key once the
+     * threshold is reached, but never blocks the current request. This is the way to
+     * drive a signal-only rule whose filter is `fn() => false`.
      */
     public function recordHit(string $ruleName, ?string $key = null): void
     {
