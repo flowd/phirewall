@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Tests\Config;
 
+use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Events\TrackHit;
 use Flowd\Phirewall\Http\Firewall;
@@ -131,17 +132,18 @@ final class SectionDefaultKeyTest extends TestCase
         $config->setIpResolver(
             static fn($request): ?string => $request->getHeaderLine('X-Real-Client') ?: null
         );
-        // threshold 2 (>= semantic): the 2nd matching request for a key bans it.
+        // threshold 2 (>= semantic): every filter match is blocked; the 2nd match for a key bans it.
         $config->fail2ban->add('f', threshold: 2, period: 60, ban: 3600, filter: static fn(): bool => true);
 
         $firewall = new Firewall($config);
 
-        // The attacker is banned on its 2nd request.
-        $this->assertTrue($firewall->decide($this->request('9.9.9.9', 'attacker'))->isPass());
+        // Every match is blocked; the attacker's key is banned on its 2nd match.
         $this->assertTrue($firewall->decide($this->request('9.9.9.9', 'attacker'))->isBlocked());
+        $this->assertTrue($firewall->decide($this->request('9.9.9.9', 'attacker'))->isBlocked());
+        $this->assertTrue($firewall->isBanned('f', 'attacker', BanType::Fail2Ban));
 
         // Bystander: same REMOTE_ADDR, different resolved key -> not banned.
-        $this->assertTrue($firewall->decide($this->request('9.9.9.9', 'bystander'))->isPass());
+        $this->assertFalse($firewall->isBanned('f', 'bystander', BanType::Fail2Ban));
     }
 
     public function testAllow2BanDefaultKeyFallsBackToRemoteAddr(): void

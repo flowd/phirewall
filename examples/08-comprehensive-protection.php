@@ -146,25 +146,28 @@ echo "Layer 3: OWASP CRS - optional, install flowd/phirewall-preset-owasp-crs to
 // LAYER 4: FAIL2BAN (Brute force protection)
 // =============================================================================
 
-echo "Layer 4: Fail2Ban\n";
+echo "Layer 4: Fail2Ban & Allow2Ban\n";
 
-// Login brute force
-$config->fail2ban->add('login-brute',
+// Fail2Ban: an upstream WAF flags a request as malicious. Fail2Ban blocks every
+// such match on sight (403) and bans the source after a few within the window.
+$config->fail2ban->add('waf-flagged',
+    threshold: 3,
+    period: 60,
+    ban: 3600,
+    filter: fn($req): bool => $req->getHeaderLine('X-Threat') === '1',
+);
+echo "  - WAF-flagged: blocked on sight, banned after 3 in 1min\n";
+
+// Allow2Ban with a filter: count login attempts and ban after 5. An attempt
+// is still a legitimate request, so matching attempts pass until the threshold.
+$config->allow2ban->add('login-brute',
     threshold: 5,
     period: 300,
-    ban: 3600,
-    filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1',
+    banSeconds: 3600,
+    key: fn($req): string => $req->getServerParams()['REMOTE_ADDR'] ?? '',
+    filter: fn($req): bool => $req->getMethod() === 'POST' && $req->getUri()->getPath() === '/login',
 );
-echo "  - Login: 5 failures in 5min = 1 hour ban\n";
-
-// API abuse
-$config->fail2ban->add('api-abuse',
-    threshold: 10,
-    period: 60,
-    ban: 1800,
-    filter: fn($req): bool => $req->getHeaderLine('X-API-Error') === '1',
-);
-echo "  - API: 10 errors in 1min = 30 min ban\n\n";
+echo "  - Login: 5 attempts in 5min = 1 hour ban\n\n";
 
 // =============================================================================
 // LAYER 5: THROTTLING (Rate limiting)
@@ -285,14 +288,26 @@ foreach ($tests as [$desc, $method, $path, $headers, $ip, $expected]) {
 
 echo "\n";
 
-// Fail2Ban test
-echo "Fail2Ban Test (simulating login brute force):\n";
+// Fail2Ban test: every WAF-flagged request is blocked on sight; the 3rd bans.
+echo "Fail2Ban Test (WAF-flagged requests, blocked on sight):\n";
+$threatIp = '198.51.100.9';
+for ($i = 1; $i <= 4; ++$i) {
+    $status = $test('Flagged request ' . $i, 'GET', '/', ['X-Threat' => '1'], $threatIp);
+    $desc = $i < 3 ? '(blocked match)' : '(banned)';
+    echo sprintf("  Request %d %s: %d\n", $i, $desc, $status);
+}
+
+echo "\n";
+
+// Allow2Ban test: login attempts pass until the 5th, which bans the IP.
+echo "Allow2Ban Test (simulating login brute force):\n";
 $bruteForceIp = '198.51.100.1';
 for ($i = 1; $i <= 7; ++$i) {
-    // First 5 requests are "failed logins" (filter matches), then 2 normal requests
-    $headers = $i <= 5 ? ['X-Login-Failed' => '1'] : [];
-    $status = $test('Login attempt ' . $i, 'POST', '/login', $headers, $bruteForceIp);
-    $desc = $i <= 5 ? '(failed login)' : '(normal request, should be banned)';
+    // First 5 requests are login attempts (filter matches), then 2 page views
+    $path = $i <= 5 ? '/login' : '/';
+    $method = $i <= 5 ? 'POST' : 'GET';
+    $status = $test('Login attempt ' . $i, $method, $path, [], $bruteForceIp);
+    $desc = $i < 5 ? '(attempt, allowed)' : '(banned)';
     echo sprintf("  Attempt %d %s: %d\n", $i, $desc, $status);
 }
 
@@ -332,7 +347,9 @@ $categories = [
     'safelisted' => 'Safelisted (bypassed)',
     'blocklisted' => 'Blocked by blocklist',
     'throttle_exceeded' => 'Throttled (rate limited)',
+    'fail2ban_matched' => 'Blocked by Fail2Ban (match)',
     'fail2ban_banned' => 'Banned by Fail2Ban',
+    'allow2ban_banned' => 'Banned by Allow2Ban',
     'passed' => 'Passed (allowed)',
 ];
 

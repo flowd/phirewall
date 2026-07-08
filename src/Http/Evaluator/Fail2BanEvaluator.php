@@ -7,17 +7,26 @@ namespace Flowd\Phirewall\Http\Evaluator;
 use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config\Rule\Fail2BanRule;
 use Flowd\Phirewall\Events\Fail2BanBanned;
+use Flowd\Phirewall\Events\Fail2BanMatched;
 use Flowd\Phirewall\Http\DecisionPath;
 use Flowd\Phirewall\Http\FirewallResult;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
- * Evaluates fail2ban rules: blocks already-banned keys and bans keys that reach the threshold.
+ * Evaluates fail2ban rules: blocks already-banned keys, blocks every filter match,
+ * and bans keys that reach the threshold.
+ *
+ * The filter marks a request as malicious by definition, so any match is blocked (403):
+ * a match below the threshold blocks via {@see DecisionPath::Fail2BanMatched} and a
+ * {@see Fail2BanMatched} event; the Nth (threshold) match additionally bans the key and
+ * blocks via {@see DecisionPath::Fail2BanBanned} and a {@see Fail2BanBanned} event. The
+ * banning match dispatches only Fail2BanBanned, never both.
  *
  * threshold = N: increment the failure counter on each match; ban on the Nth match.
- * Both pre-handler matches (the rule filter, evaluated with the Config's client-IP
- * resolver) and post-handler recorded failures share this single semantic via
- * incrementAndBanIfNeeded().
+ * Pre-handler matches (the rule filter, evaluated with the Config's client-IP resolver)
+ * increment via incrementAndBanIfNeeded() and block. Post-handler recorded failures share
+ * the same increment-and-ban semantic but never block the current request nor dispatch
+ * Fail2BanMatched.
  *
  * The per-rule ban-key existence checks are batched into a SINGLE getMultiple() (an MGET
  * on Redis, one SELECT on PDO) at the start of evaluation, so the common "nothing banned"
@@ -78,12 +87,26 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
                 return FirewallResult::blocked($name, 'fail2ban', $evaluationContext->responseHeaders('fail2ban', $name));
             }
 
-            // threshold=N: ban on the Nth matching request (>= comparison).
-            if (
-                $this->matchWithClientIpResolver($candidate['rule']->filter(), $serverRequest, $defaultIpResolver)->isMatch()
-                && $this->incrementAndBanIfNeeded($candidate['rule'], $candidate['normalizedKey'], $serverRequest, $evaluationContext)
-            ) {
-                $evaluationContext->decisionPath = DecisionPath::Fail2BanBanned;
+            // Every filter match is blocked: the Nth match bans (Fail2BanBanned),
+            // an earlier match blocks below the threshold (Fail2BanMatched).
+            if ($this->matchWithClientIpResolver($candidate['rule']->filter(), $serverRequest, $defaultIpResolver)->isMatch()) {
+                $rule = $candidate['rule'];
+                $count = $this->incrementAndBanIfNeeded($rule, $candidate['normalizedKey'], $serverRequest, $evaluationContext);
+
+                if ($count >= $rule->threshold()) {
+                    $evaluationContext->decisionPath = DecisionPath::Fail2BanBanned;
+                } else {
+                    $evaluationContext->dispatch(new Fail2BanMatched(
+                        rule: $name,
+                        key: $candidate['normalizedKey'],
+                        threshold: $rule->threshold(),
+                        period: $rule->period(),
+                        count: $count,
+                        serverRequest: $serverRequest,
+                    ));
+                    $evaluationContext->decisionPath = DecisionPath::Fail2BanMatched;
+                }
+
                 $evaluationContext->decisionRule = $name;
 
                 return FirewallResult::blocked($name, 'fail2ban', $evaluationContext->responseHeaders('fail2ban', $name));
@@ -94,22 +117,25 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
     }
 
     /**
-     * Increment the fail counter and ban if the threshold has been reached.
+     * Increment the fail counter and ban (dispatching {@see Fail2BanBanned}) when
+     * the threshold is reached. Shared by the pre-handler match path and the
+     * post-handler recorded-failure path; the latter neither blocks nor dispatches
+     * {@see Fail2BanMatched}.
      *
-     * @return bool True if the key was banned by this call.
+     * @return int The failure count after incrementing.
      */
     public function incrementAndBanIfNeeded(
         Fail2BanRule $fail2BanRule,
         string $normalizedKey,
         ServerRequestInterface $serverRequest,
         EvaluationContext $evaluationContext,
-    ): bool {
+    ): int {
         $ruleName = $fail2BanRule->name();
         $failKey = $evaluationContext->config->cacheKeyGenerator()->fail2BanFailKey($ruleName, $normalizedKey);
         $count = $evaluationContext->counter->increment($failKey, $fail2BanRule->period())->count;
 
         if ($count < $fail2BanRule->threshold()) {
-            return false;
+            return $count;
         }
 
         $evaluationContext->config->banManager()->ban($ruleName, $normalizedKey, $fail2BanRule->banSeconds(), BanType::Fail2Ban);
@@ -124,6 +150,6 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
             serverRequest: $serverRequest,
         ));
 
-        return true;
+        return $count;
     }
 }

@@ -14,16 +14,18 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\SimpleCache\CacheInterface;
 
 /**
- * Evaluates allow2ban rules: counts all requests per key and bans when the threshold is reached.
+ * Evaluates allow2ban rules: counts matching requests per key and bans when the threshold is reached.
  *
- * Processes ALL rules so every counter is incremented, then returns the first block.
- * threshold = N: increment on each request; ban on the Nth request (>= comparison).
+ * Processes ALL rules, then returns the first block. A rule counts a request only when it
+ * has no filter or the filter matches; non-matching requests skip the rule's counter.
+ * Already-banned keys still block EVERY request regardless of the filter.
+ * threshold = N: increment on each counted request; ban on the Nth request (>= comparison).
  * Retry-After is always included. X-Phirewall headers are conditional on responseHeadersEnabled.
  *
  * Unlike Fail2BanEvaluator (which early-returns on its first decision), this evaluator must
- * keep looping after it has decided to block, so that each rule whose key is not already banned
- * still has its hit counter incremented for the request (an already-banned key is skipped). The
- * first blocking decision is captured in an Allow2BanDecision and applied once the loop is done.
+ * keep looping after it has decided to block, so that each remaining rule the request matches
+ * still has its hit counter incremented (an already-banned key is skipped). The first
+ * blocking decision is captured in an Allow2BanDecision and applied once the loop is done.
  *
  * The per-rule ban-key existence checks are batched into a SINGLE getMultiple() (an MGET on
  * Redis, one SELECT on PDO) at the start of evaluation, so the common "nothing banned" path
@@ -36,10 +38,13 @@ use Psr\SimpleCache\CacheInterface;
  */
 final readonly class Allow2BanEvaluator implements EvaluatorInterface
 {
+    use ResolvesClientIpForMatchers;
+
     public function evaluate(ServerRequestInterface $serverRequest, EvaluationContext $evaluationContext): ?FirewallResult
     {
         $cache = $evaluationContext->config->cache;
         $cacheKeyGenerator = $evaluationContext->config->cacheKeyGenerator();
+        $defaultIpResolver = $evaluationContext->config->clientIpResolver();
 
         /** @var list<array{rule: Allow2BanRule, normalizedKey: string, banKey: string}> $candidates */
         $candidates = [];
@@ -83,6 +88,11 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
                     $evaluationContext,
                 );
 
+                continue;
+            }
+
+            $filter = $candidate['rule']->filter();
+            if ($filter !== null && !$this->matchWithClientIpResolver($filter, $serverRequest, $defaultIpResolver)->isMatch()) {
                 continue;
             }
 
@@ -147,7 +157,9 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
      *
      * Shared between the pre-handler evaluate() loop and the post-handler
      * RequestContext::recordHit() path so both go through the same
-     * increment-and-ban semantic.
+     * increment-and-ban semantic. The rule filter is applied by evaluate() before
+     * this call; the post-handler signal path calls it directly and so bypasses the
+     * filter by design.
      *
      * @return bool True if the key was banned by this call.
      */

@@ -130,7 +130,7 @@ final class Config implements ConfigLayer
      *    re-assert a field's DEFAULT value to override a lower layer. The IP
      *    resolver also propagates to rules at evaluation time: IP-aware matchers
      *    ({@see Matchers\ClientIpResolverAware}, used as safelist/blocklist rules,
-     *    as fail2ban/track filters or as throttle scope filters) and counter rules
+     *    as fail2ban/allow2ban/track filters or as throttle scope filters) and counter rules
      *    added without an explicit resolver/key resolve the client IP against the
      *    composed Config
      *    ({@see clientIpResolver()}, {@see resolveKey()}), so a later layer's

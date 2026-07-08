@@ -1,5 +1,5 @@
 --TEST--
-Phirewall: fail2ban counts pre-handler failures and bans IP once threshold is reached
+Phirewall: fail2ban blocks every filter match and bans IP once threshold is reached
 --FILE--
 <?php
 declare(strict_types=1);
@@ -24,7 +24,7 @@ $middleware = phpt_middleware($config);
 $handler    = phpt_handler();
 
 // Requests 1–2: filter matches, failure counter increments to 1, 2.
-// count >= threshold (3) is false for both, so each request passes through.
+// count >= threshold (3) is false for both, but every match is blocked (403).
 for ($index = 1; $index <= 2; $index++) {
     $request  = phpt_request('POST', '/login', ['REMOTE_ADDR' => '1.2.3.4'], ['X-Auth-Failed' => '1']);
     $response = $middleware->process($request, $handler);
@@ -42,7 +42,7 @@ $response = $middleware->process($request, $handler);
 echo 'still_banned=' . $response->getStatusCode() . "\n";
 ?>
 --EXPECT--
-failure[1]=200
-failure[2]=200
+failure[1]=403
+failure[2]=403
 trigger_ban=403
 still_banned=403

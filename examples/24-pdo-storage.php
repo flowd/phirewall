@@ -35,7 +35,10 @@ echo "Table auto-created on first use.\n\n";
 
 $config->throttles->add('api', limit: 5, period: 60);
 
-$config->fail2ban->add('login', threshold: 3, period: 300, ban: 600,
+// Count failed logins and ban after 3; the first attempts still pass, so this is
+// allow2ban with a filter (fail2ban would block on the very first failure).
+$config->allow2ban->add('login', threshold: 3, period: 300, banSeconds: 600,
+    key: fn($req): string => $req->getServerParams()['REMOTE_ADDR'] ?? '',
     filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1'
 );
 
@@ -68,7 +71,7 @@ $result = $firewall->decide($request);
 echo sprintf("  After reset: %s\n", $result->isPass() ? 'PASS' : 'THROTTLED');
 
 echo "\nChecking ban status for 10.0.0.2...\n";
-echo sprintf("  isBanned: %s\n", $firewall->isBanned('login', '10.0.0.2', BanType::Fail2Ban) ? 'YES' : 'no');
+echo sprintf("  isBanned: %s\n", $firewall->isBanned('login', '10.0.0.2', BanType::Allow2Ban) ? 'YES' : 'no');
 
 // --- Connection examples (not executed, for reference) ---
 

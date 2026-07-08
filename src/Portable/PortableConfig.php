@@ -54,7 +54,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * @phpstan-type SchemaBlocklists list<array{name: string, filter: Filter}>
  * @phpstan-type SchemaThrottles list<array{name: string, limit: int, period: int, key: Key, sliding?: bool, scope?: Filter}>
  * @phpstan-type SchemaFail2Bans list<array{name: string, threshold: int, period: int, ban: int, filter: Filter, key: Key}>
- * @phpstan-type SchemaAllow2Bans list<array{name: string, threshold: int, period: int, ban: int, key: Key}>
+ * @phpstan-type SchemaAllow2Bans list<array{name: string, threshold: int, period: int, ban: int, key: Key, filter?: Filter}>
  * @phpstan-type SchemaTracks list<array{name: string, period: int, filter: Filter, key: Key, limit?: int}>
  * @phpstan-type SchemaPatternBackends list<array{name: string, entries: list<PatternEntryArray>}>
  * @phpstan-type SchemaPatternBlocklists list<array{name: string, backend: string}>
@@ -458,23 +458,33 @@ final class PortableConfig implements ConfigLayer
     }
 
     /**
-     * Add an allow2ban rule: count every request for the extracted key and ban
+     * Add an allow2ban rule: count matching requests for the extracted key and ban
      * once the threshold is reached within the period.
      *
-     * Unlike fail2ban there is no filter — allow2ban is a hard volume cap.
+     * Omit $filter to count every request (a hard volume cap). Pass a $filter to count
+     * only matching requests; matching requests still pass until the threshold is reached.
+     * Use {@see filterNone()} for a signal-only rule driven solely by
+     * `RequestContext::recordHit()`.
      *
      * @param Key $key
+     * @param FilterTypeGeneric|null $filter
      */
-    public function allow2ban(string $name, int $threshold, int $period, int $ban, array $key): self
+    public function allow2ban(string $name, int $threshold, int $period, int $ban, array $key, ?array $filter = null): self
     {
         $this->assertValidKey($key);
-        $this->schema['allow2bans'][] = [
+        $entry = [
             'name' => $name,
             'threshold' => $threshold,
             'period' => $period,
             'ban' => $ban,
             'key' => $key,
         ];
+        if ($filter !== null) {
+            $this->assertValidFilter($filter);
+            $entry['filter'] = $filter;
+        }
+
+        $this->schema['allow2bans'][] = $entry;
         return $this;
     }
 
@@ -633,6 +643,9 @@ final class PortableConfig implements ConfigLayer
         foreach ($self->schema['allow2bans'] as $allow2ban) {
             $allow2ban = self::requireArray($allow2ban, 'Invalid allow2ban entry');
             $self->assertValidKey(self::requireArray($allow2ban['key'] ?? null, 'Invalid allow2ban key'));
+            if (array_key_exists('filter', $allow2ban)) {
+                $self->assertValidFilter(self::requireArray($allow2ban['filter'] ?? null, 'Invalid allow2ban filter'));
+            }
         }
 
         foreach ($self->schema['tracks'] as $track) {
@@ -906,6 +919,7 @@ final class PortableConfig implements ConfigLayer
                 (int)$a['period'],
                 (int)$a['ban'],
                 $this->compileKeyExtractor($a['key']),
+                isset($a['filter']) ? $this->compileFilterMatcher($a['filter']) : null,
             ));
         }
 

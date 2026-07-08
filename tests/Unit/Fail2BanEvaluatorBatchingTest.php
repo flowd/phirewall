@@ -102,8 +102,11 @@ final class Fail2BanEvaluatorBatchingTest extends TestCase
         $firewall = new Firewall($config);
         $request = $this->makeFailedLoginRequest('9.9.9.9');
 
-        // threshold=2: the 1st failure passes; the 2nd failure trips the first rule.
-        $this->assertTrue($firewall->decide($request)->isPass());
+        // threshold=2: every match blocks; the 1st match is owned by the first rule below the
+        // threshold, the 2nd match bans it. The first rule (by insertion order) always wins.
+        $firstMatch = $firewall->decide($request);
+        $this->assertTrue($firstMatch->isBlocked());
+        $this->assertSame('first', $firstMatch->headers['X-Phirewall-Matched'] ?? '');
         $banned = $firewall->decide($request);
         $this->assertTrue($banned->isBlocked());
         $this->assertSame('first', $banned->headers['X-Phirewall-Matched'] ?? '');
