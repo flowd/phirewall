@@ -107,9 +107,14 @@ $config->blocklists->add('scanner-ua', function ($req) use ($scanners): bool {
 echo "  - Scanner User-Agents (" . count($scanners) . " patterns)\n";
 
 // Scanner paths
-$blockedPaths = ['/.svn', '/phpmyadmin', '/.env', '/.git', '/phpinfo.php'];
+$blockedPaths = ['/.svn', '/phpmyadmin', '/.env', '/phpinfo.php'];
 $config->blocklists->add('scanner-paths', function ($req) use ($blockedPaths): bool {
     $path = strtolower((string) $req->getUri()->getPath());
+    // Match the .git directory itself, not paths that merely start with it (e.g. /.github).
+    if (preg_match('#/\.git($|/)#', $path) === 1) {
+        return true;
+    }
+
     foreach ($blockedPaths as $blockedPath) {
         if (str_starts_with($path, $blockedPath)) {
             return true;
@@ -118,7 +123,7 @@ $config->blocklists->add('scanner-paths', function ($req) use ($blockedPaths): b
 
     return false;
 });
-echo "  - Scanner paths (" . count($blockedPaths) . " patterns)\n";
+echo "  - Scanner paths (" . (count($blockedPaths) + 1) . " patterns)\n";
 
 // Path traversal
 $config->blocklists->add('path-traversal', function ($req): bool {

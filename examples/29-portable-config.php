@@ -41,8 +41,8 @@ $portableConfig = PortableConfig::create()
     ->enableResponseHeaders()
     // Safelist health checks so monitoring never gets throttled or banned.
     ->safelist('health', PortableConfig::filterPathEquals('/health'))
-    // Block obvious probes by path prefix and by known scanner User-Agents.
-    ->blocklist('repo-probe', PortableConfig::filterPathPrefix('/.git'))
+    // Block obvious probes by path and by known scanner User-Agents.
+    ->blocklist('repo-probe', PortableConfig::filterPathRegex('#/\.git($|/)#'))
     ->blocklist('scanners', PortableConfig::filterKnownScanners())
     // Block a hostile network range (CIDR-aware Ip matcher).
     ->blocklist('bad-net', PortableConfig::filterIp(['203.0.113.0/24']))

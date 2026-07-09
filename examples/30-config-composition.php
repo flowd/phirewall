@@ -60,7 +60,7 @@ $vendorBaseline = (new Config($cache))->with(PortableConfig::create()
 // ─────────────────────────────────────────────────────────────────────────
 $environmentOverlay = (new Config($cache))->with(PortableConfig::create()
     ->enableResponseHeaders()
-    ->blocklist('repo-probe', PortableConfig::filterPathPrefix('/.git')));
+    ->blocklist('repo-probe', PortableConfig::filterPathRegex('#/\.git($|/)#')));
 
 // ─────────────────────────────────────────────────────────────────────────
 // Layer 3 — tenant overlay: OVERRIDES "scanners" by name + adds a volume cap.

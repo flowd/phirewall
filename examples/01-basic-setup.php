@@ -63,7 +63,7 @@ $config->safelists->add('health', fn(ServerRequestInterface $serverRequest): boo
 echo "3a. Safelist rule added: health endpoint\n";
 
 // BLOCKLIST: Block requests to /.git (repository leak probe)
-$config->blocklists->add('repo-probe', fn(ServerRequestInterface $serverRequest): bool => str_starts_with($serverRequest->getUri()->getPath(), '/.git'));
+$config->blocklists->add('repo-probe', fn(ServerRequestInterface $serverRequest): bool => (bool) preg_match('#/\.git($|/)#', $serverRequest->getUri()->getPath()));
 echo "3b. Blocklist rule added: repository leak probes\n";
 
 // THROTTLE: Limit to 5 requests per 60 seconds per IP

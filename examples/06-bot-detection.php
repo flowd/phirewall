@@ -109,7 +109,6 @@ $scannerPaths = [
 
     // Config/sensitive files
     '/.env',
-    '/.git',
     '/.svn',
     '/.htaccess',
     '/.htpasswd',
@@ -160,6 +159,11 @@ $config->blocklists->add('scanner-paths', function (ServerRequestInterface $serv
         if (str_starts_with($path, $scannerPath) || $path === $scannerPath) {
             return true;
         }
+    }
+
+    // Match the .git directory itself, not paths that merely start with it (e.g. /.github).
+    if (preg_match('#/\.git($|/)#', $path) === 1) {
+        return true;
     }
 
     // Also check for backup file extensions
