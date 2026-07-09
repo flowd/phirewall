@@ -108,7 +108,7 @@ Example output from `01-basic-setup.php`:
 1. Cache backend created (InMemoryCache)
 2. Configuration created with prefix 'demo'
 3a. Safelist rule added: health endpoint
-3b. Blocklist rule added: WordPress probes
+3b. Blocklist rule added: repository leak probes
 3c. Throttle rule added: 5 requests/minute per IP
 4. Middleware created
 
@@ -118,10 +118,10 @@ Test 1: Health check endpoint (safelisted)
   GET /health                              => 200
     X-Phirewall-Safelist: health
 
-Test 2: WordPress admin probe (blocklisted)
-  GET /wp-admin/admin.php                  => 403
+Test 2: Repository leak probe (blocklisted)
+  GET /.git/config                         => 403
     X-Phirewall: blocklist
-    X-Phirewall-Matched: wp-probe
+    X-Phirewall-Matched: repo-probe
 
 ...
 ```

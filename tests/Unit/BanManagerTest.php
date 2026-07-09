@@ -21,10 +21,9 @@ final class BanManagerTest extends TestCase
         return new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => $ip]);
     }
 
-    private function makeFailedLoginRequest(string $ip = '5.6.7.8'): ServerRequest
+    private function makeProbeRequest(string $ip = '5.6.7.8'): ServerRequest
     {
-        return (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => $ip]))
-            ->withHeader('X-Login-Failed', '1');
+        return new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => $ip]);
     }
 
     /**
@@ -62,7 +61,7 @@ final class BanManagerTest extends TestCase
      */
     private function setupFail2Ban(
         InMemoryCache $inMemoryCache,
-        string $ruleName = 'login-rule',
+        string $ruleName = 'scanner-rule',
         int $threshold = 2,
         int $period = 60,
         int $banSeconds = 3600,
@@ -73,7 +72,7 @@ final class BanManagerTest extends TestCase
             threshold: $threshold,
             period: $period,
             ban: $banSeconds,
-            filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($req): bool => str_starts_with($req->getUri()->getPath(), '/.env'),
             key: fn($req): string => $req->getServerParams()['REMOTE_ADDR'],
         );
 
@@ -96,12 +95,12 @@ final class BanManagerTest extends TestCase
     }
 
     /**
-     * Trigger a fail2ban ban by sending exactly $threshold failed requests
-     * (the Nth failure triggers the ban under the new >= semantic).
+     * Trigger a fail2ban ban by sending exactly $threshold matching probe requests
+     * (the Nth match triggers the ban under the >= semantic).
      */
     private function triggerFail2Ban(Firewall $firewall, string $ip, int $threshold): void
     {
-        $serverRequest = $this->makeFailedLoginRequest($ip);
+        $serverRequest = $this->makeProbeRequest($ip);
         for ($i = 0; $i < $threshold; ++$i) {
             $firewall->decide($serverRequest);
         }
@@ -156,7 +155,7 @@ final class BanManagerTest extends TestCase
 
         // BanManager should report the ban with type='fail2ban'
         $this->assertTrue(
-            $banManager->isBanned('login-rule', '5.6.7.8', BanType::Fail2Ban),
+            $banManager->isBanned('scanner-rule', '5.6.7.8', BanType::Fail2Ban),
             'isBanned should return true for a banned fail2ban key',
         );
     }
@@ -414,11 +413,11 @@ final class BanManagerTest extends TestCase
 
         // One fail2ban rule
         $config->fail2ban->add(
-            'login-abuse',
+            'scanner-abuse',
             threshold: 2,
             period: 60,
             ban: 3600,
-            filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($req): bool => str_starts_with($req->getUri()->getPath(), '/.env'),
             key: fn($req): string => $req->getServerParams()['REMOTE_ADDR'],
         );
 
@@ -433,7 +432,7 @@ final class BanManagerTest extends TestCase
             $firewall->decide($this->makeRequest('10.0.0.2'));
         }
 
-        // Trigger ban on 'login-abuse' (fail2ban)
+        // Trigger ban on 'scanner-abuse' (fail2ban)
         $this->triggerFail2Ban($firewall, '10.0.0.3', 2);
 
         $rulesWithBans = $banManager->listRulesWithBans();
@@ -447,7 +446,7 @@ final class BanManagerTest extends TestCase
         $this->assertContains('page-rate', $rulesWithBans['allow2ban']);
 
         // Verify fail2ban rules
-        $this->assertContains('login-abuse', $rulesWithBans['fail2ban']);
+        $this->assertContains('scanner-abuse', $rulesWithBans['fail2ban']);
     }
 
     // ── Test 10: unban does not affect other keys ───────────────────────
@@ -499,14 +498,14 @@ final class BanManagerTest extends TestCase
         $this->triggerFail2Ban($firewall, '5.6.7.8', 2);
 
         // Verify banned
-        $this->assertTrue($banManager->isBanned('login-rule', '5.6.7.8', BanType::Fail2Ban));
+        $this->assertTrue($banManager->isBanned('scanner-rule', '5.6.7.8', BanType::Fail2Ban));
 
         // Unban
-        $result = $banManager->unban('login-rule', '5.6.7.8', BanType::Fail2Ban);
+        $result = $banManager->unban('scanner-rule', '5.6.7.8', BanType::Fail2Ban);
         $this->assertTrue($result, 'unban should return true for fail2ban ban removal');
 
         // Verify no longer banned
-        $this->assertFalse($banManager->isBanned('login-rule', '5.6.7.8', BanType::Fail2Ban));
+        $this->assertFalse($banManager->isBanned('scanner-rule', '5.6.7.8', BanType::Fail2Ban));
 
         // Normal requests should pass again
         $this->assertTrue(

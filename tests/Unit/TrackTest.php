@@ -30,16 +30,16 @@ final class TrackTest extends TestCase
 
         $config = new Config($inMemoryCache, $events);
         $config->tracks->add(
-            'login_failed',
+            'login_attempts',
             period: 60,
-            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($request): bool => $request->getMethod() === 'POST'
+                && $request->getUri()->getPath() === '/login',
             key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '0.0.0.0'
         );
 
         $firewall = new Firewall($config);
 
-        $request = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']))
-            ->withHeader('X-Login-Failed', '1');
+        $request = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '1.2.3.4']);
 
         $this->assertTrue($firewall->decide($request)->isPass());
         $this->assertTrue($firewall->decide($request)->isPass());
@@ -48,7 +48,7 @@ final class TrackTest extends TestCase
         $hits = array_values(array_filter($events->events, fn($e): bool => $e instanceof TrackHit));
         $this->assertCount(2, $hits);
         $this->assertInstanceOf(TrackHit::class, $hits[0]);
-        $this->assertSame('login_failed', $hits[0]->rule);
+        $this->assertSame('login_attempts', $hits[0]->rule);
         $this->assertSame('1.2.3.4', $hits[0]->key);
         $this->assertSame(60, $hits[0]->period);
         $this->assertSame(1, $hits[0]->count);

@@ -87,11 +87,11 @@ final class EventsTest extends TestCase
         $config->throttles->add('ip', 1, 30, fn($request): ?string => $request->getServerParams()['REMOTE_ADDR'] ?? null);
 
         $config->fail2ban->add(
-            'login',
+            'scanner-probes',
             2,
             10,
             60,
-            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             key: fn($request): ?string => $request->getServerParams()['REMOTE_ADDR'] ?? null
         );
 
@@ -113,11 +113,10 @@ final class EventsTest extends TestCase
 
         $this->assertTrue($foundThrottle, 'ThrottleExceeded event not dispatched');
 
-        // Fail2Ban: threshold=2 → the 2nd failure triggers the ban event (>= semantic).
+        // Fail2Ban: threshold=2 → the 2nd match triggers the ban event (>= semantic).
         // Every match is blocked, so Fail2Ban short-circuits before Throttle can see the request.
         $dispatcher->events = [];
-        $serverRequest = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '8.8.8.8']))
-            ->withHeader('X-Login-Failed', '1');
+        $serverRequest = new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => '8.8.8.8']);
         $this->assertTrue($firewall->decide($serverRequest)->isBlocked()); // 1st — match blocked below threshold (fail count=1)
         $firewall->decide($serverRequest); // 2nd — fail count=2 >= threshold=2, banned
         $foundBan = false;

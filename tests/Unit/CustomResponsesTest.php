@@ -55,25 +55,25 @@ final class CustomResponsesTest extends TestCase
         $config->enableResponseHeaders();
 
         $config->fail2ban->add(
-            'login',
+            'scanner-probes',
             1,
             60,
             600,
-            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             key: fn($request): string => 'ip-1'
         );
         $config->blocklistedResponseFactory = new ClosureBlocklistedResponseFactory(fn(string $rule, string $type, \Psr\Http\Message\ServerRequestInterface $serverRequest): \Psr\Http\Message\ResponseInterface => new Response(499, ['X-Custom' => $type]));
 
         $middleware = new Middleware($config, new Psr17Factory());
         $handler = $this->handler();
-        // threshold=1 (>= semantic): the first failure triggers the ban immediately.
-        $request = (new ServerRequest('POST', '/login'))->withHeader('X-Login-Failed', '1');
+        // threshold=1 (>= semantic): the first match triggers the ban immediately.
+        $request = new ServerRequest('GET', '/.env');
         $middleware->process($request, $handler);
         // Next request should be banned with custom response
         $secondResponse = $middleware->process(new ServerRequest('GET', '/'), $handler);
         $this->assertSame(499, $secondResponse->getStatusCode());
         $this->assertSame('fail2ban', $secondResponse->getHeaderLine('X-Phirewall'));
-        $this->assertSame('login', $secondResponse->getHeaderLine('X-Phirewall-Matched'));
+        $this->assertSame('scanner-probes', $secondResponse->getHeaderLine('X-Phirewall-Matched'));
         $this->assertSame('fail2ban', $secondResponse->getHeaderLine('X-Custom'));
     }
 

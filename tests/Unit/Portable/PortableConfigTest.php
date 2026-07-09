@@ -242,16 +242,16 @@ final class PortableConfigTest extends TestCase
         );
     }
 
-    public function testFail2BanWithHeaderFilterAndIpKey(): void
+    public function testFail2BanWithPathFilterAndIpKey(): void
     {
         $portableConfig = PortableConfig::create()
             ->enableResponseHeaders()
             ->fail2ban(
-                'login',
+                'scanner-probes',
                 threshold: 2,
                 period: 60,
                 ban: 300,
-                filter: PortableConfig::filterHeaderEquals('X-Login-Failed', '1'),
+                filter: PortableConfig::filterPathPrefix('/.env'),
                 key: PortableConfig::keyIp()
             );
 
@@ -259,17 +259,17 @@ final class PortableConfigTest extends TestCase
 
         $firewall = new Firewall($config);
 
-        $serverRequest = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.20']);
-        $fail = $serverRequest->withHeader('X-Login-Failed', '1');
+        $probe = new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.20']);
         // threshold=2 (>= semantic): every match is blocked, the 2nd match triggers the ban.
-        $this->assertSame(Outcome::BLOCKED, $firewall->decide($fail)->outcome);
-        $second = $firewall->decide($fail);
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($probe)->outcome);
+        $second = $firewall->decide($probe);
         $this->assertSame(Outcome::BLOCKED, $second->outcome);
-        // Subsequent clean request is still banned
-        $firewallResult = $firewall->decide($serverRequest);
+        // Subsequent non-matching request is still banned
+        $normal = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.20']);
+        $firewallResult = $firewall->decide($normal);
         $this->assertSame(Outcome::BLOCKED, $firewallResult->outcome);
         $this->assertSame('fail2ban', $firewallResult->headers['X-Phirewall'] ?? '');
-        $this->assertSame('login', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
+        $this->assertSame('scanner-probes', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
     }
 
     public function testSafelistRejectsHeaderEqualsFilter(): void
@@ -349,7 +349,7 @@ final class PortableConfigTest extends TestCase
             ->safelist('health', PortableConfig::filterPathEquals('/health'))
             ->blocklist('admin', PortableConfig::filterPathEquals('/admin'))
             ->throttle('ip', 2, 10, PortableConfig::keyIp())
-            ->track('login_failed', 60, PortableConfig::filterHeaderEquals('X-Login-Failed', '1'), PortableConfig::keyIp());
+            ->track('login_attempts', 60, PortableConfig::filterPathEquals('/login'), PortableConfig::keyIp());
 
         $schema = $portableConfig->toArray();
         $json = json_encode($schema, JSON_THROW_ON_ERROR);
@@ -726,7 +726,7 @@ final class PortableConfigTest extends TestCase
             ->enableResponseHeaders()
             ->patternBlocklist('threats', [
                 PortableConfig::patternEntry(PatternKind::CIDR, '10.0.0.0/8'),
-                PortableConfig::patternEntry(PatternKind::PATH_EXACT, '/wp-login.php'),
+                PortableConfig::patternEntry(PatternKind::PATH_EXACT, '/.git/config'),
                 PortableConfig::patternEntry(PatternKind::HEADER_REGEX, '#curl#i', target: 'User-Agent'),
             ]);
 
@@ -738,7 +738,7 @@ final class PortableConfigTest extends TestCase
         $this->assertSame('blocklist', $cidrResult->headers['X-Phirewall'] ?? '');
         $this->assertSame('threats', $cidrResult->headers['X-Phirewall-Matched'] ?? '');
 
-        $pathHit = new ServerRequest('GET', '/wp-login.php', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.4']);
+        $pathHit = new ServerRequest('GET', '/.git/config', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.4']);
         $this->assertSame(Outcome::BLOCKED, $firewall->decide($pathHit)->outcome);
 
         $headerHit = (new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.4']))

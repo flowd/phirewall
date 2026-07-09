@@ -30,7 +30,7 @@ final class Fail2BanMatchSemanticsTest extends TestCase
 {
     private function probeRequest(string $ip = '203.0.113.5'): ServerRequest
     {
-        return new ServerRequest('GET', '/wp-admin/setup.php', [], null, '1.1', ['REMOTE_ADDR' => $ip]);
+        return new ServerRequest('GET', '/.env', [], null, '1.1', ['REMOTE_ADDR' => $ip]);
     }
 
     public function testFilterMatchBelowThresholdBlocksWithMatchedDecision(): void
@@ -53,7 +53,7 @@ final class Fail2BanMatchSemanticsTest extends TestCase
             threshold: 3,
             period: 60,
             ban: 600,
-            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/wp-admin'),
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'],
         );
 
@@ -97,7 +97,7 @@ final class Fail2BanMatchSemanticsTest extends TestCase
             threshold: 2,
             period: 60,
             ban: 600,
-            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/wp-admin'),
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'],
         );
 
@@ -120,7 +120,7 @@ final class Fail2BanMatchSemanticsTest extends TestCase
             threshold: 2,
             period: 60,
             ban: 600,
-            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/wp-admin'),
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'],
         );
 

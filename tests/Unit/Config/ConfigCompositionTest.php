@@ -304,7 +304,7 @@ final class ConfigCompositionTest extends TestCase
         $overlay = new Config(new InMemoryCache());
         $overlay->blocklists->addPatternBackend('threats', $overlayBackend); // override by name
         $overlay->blocklists->addPatternBackend('extra', new InMemoryPatternBackend([
-            new PatternEntry(PatternKind::PATH_EXACT, '/wp-login.php'),
+            new PatternEntry(PatternKind::PATH_EXACT, '/.git/config'),
         ]));
 
         $composed = $base->with($overlay);

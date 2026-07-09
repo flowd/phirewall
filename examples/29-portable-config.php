@@ -41,8 +41,8 @@ $portableConfig = PortableConfig::create()
     ->enableResponseHeaders()
     // Safelist health checks so monitoring never gets throttled or banned.
     ->safelist('health', PortableConfig::filterPathEquals('/health'))
-    // Block obvious probes by path prefix and by known scanner User-Agents.
-    ->blocklist('admin-probe', PortableConfig::filterPathPrefix('/wp-admin'))
+    // Block obvious probes by path and by known scanner User-Agents.
+    ->blocklist('repo-probe', PortableConfig::filterPathRegex('#/\.git($|/)#'))
     ->blocklist('scanners', PortableConfig::filterKnownScanners())
     // Block a hostile network range (CIDR-aware Ip matcher).
     ->blocklist('bad-net', PortableConfig::filterIp(['203.0.113.0/24']))
@@ -51,7 +51,7 @@ $portableConfig = PortableConfig::create()
     // Hard volume cap per IP: 1000 requests / minute then a 5-minute ban.
     ->allow2ban('volume-cap', threshold: 1000, period: 60, ban: 300, key: PortableConfig::keyIp())
     // Auto-ban IPs that repeatedly probe a path the app does not serve.
-    ->fail2ban('wp-login-probe', threshold: 5, period: 60, ban: 900, filter: PortableConfig::filterPathEquals('/wp-login.php'), key: PortableConfig::keyIp())
+    ->fail2ban('dotenv-probe', threshold: 5, period: 60, ban: 900, filter: PortableConfig::filterPathEquals('/.env'), key: PortableConfig::keyIp())
     // A pattern blocklist, the kind of catalogue you would keep in a database.
     ->patternBlocklist('threats', [
         PortableConfig::patternEntry(PatternKind::CIDR, '10.66.0.0/16'),
@@ -71,7 +71,7 @@ echo '   toArray() -> JSON -> fromArray() round-trips identically: '
 $firewall = new Firewall((new Config(new InMemoryCache()))->with($restored));
 
 assertDecision($firewall, new ServerRequest('GET', '/health'), 'safelisted', 'health check safelisted');
-assertDecision($firewall, new ServerRequest('GET', '/wp-admin/setup-config.php'), 'blocked', 'admin probe blocked');
+assertDecision($firewall, new ServerRequest('GET', '/.git/config'), 'blocked', 'repo probe blocked');
 assertDecision(
     $firewall,
     (new ServerRequest('GET', '/'))->withHeader('User-Agent', 'sqlmap/1.7'),

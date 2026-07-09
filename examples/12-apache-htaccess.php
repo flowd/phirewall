@@ -177,7 +177,7 @@ echo "  Fail2Ban banned: 198.51.100.77\n";
 echo "Simulating Blocklist match event...\n";
 $dispatcher->dispatch(new BlocklistMatched(
     rule: 'scanner-block',
-    serverRequest: new ServerRequest('GET', '/wp-admin', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.250'])
+    serverRequest: new ServerRequest('GET', '/.git/config', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.250'])
 ));
 echo "  Blocklist blocked: 203.0.113.250\n\n";
 

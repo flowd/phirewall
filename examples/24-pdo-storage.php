@@ -35,11 +35,11 @@ echo "Table auto-created on first use.\n\n";
 
 $config->throttles->add('api', limit: 5, period: 60);
 
-// Count failed logins and ban after 3; the first attempts still pass, so this is
-// allow2ban with a filter (fail2ban would block on the very first failure).
-$config->allow2ban->add('login', threshold: 3, period: 300, banSeconds: 600,
+// Count login attempts and ban after 3; the first attempts still pass, so this is
+// allow2ban with a filter (fail2ban would block on the very first attempt).
+$config->allow2ban->add('login-attempts', threshold: 3, period: 300, banSeconds: 600,
     key: fn($req): string => $req->getServerParams()['REMOTE_ADDR'] ?? '',
-    filter: fn($req): bool => $req->getHeaderLine('X-Login-Failed') === '1'
+    filter: fn($req): bool => $req->getMethod() === 'POST' && $req->getUri()->getPath() === '/login'
 );
 
 $firewall = new Firewall($config);
@@ -53,10 +53,9 @@ for ($i = 1; $i <= 7; ++$i) {
     echo sprintf("  Request #%d: %s\n", $i, $result->isPass() ? 'PASS' : 'THROTTLED');
 }
 
-echo "\nSending 4 failed login attempts from 10.0.0.2...\n";
+echo "\nSending 4 login attempts from 10.0.0.2...\n";
 for ($i = 1; $i <= 4; ++$i) {
-    $request = (new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']))
-        ->withHeader('X-Login-Failed', '1');
+    $request = new ServerRequest('POST', '/login', [], null, '1.1', ['REMOTE_ADDR' => '10.0.0.2']);
     $result = $firewall->decide($request);
     echo sprintf("  Attempt #%d: %s\n", $i, $result->isPass() ? 'PASS' : 'BANNED');
 }
@@ -71,7 +70,7 @@ $result = $firewall->decide($request);
 echo sprintf("  After reset: %s\n", $result->isPass() ? 'PASS' : 'THROTTLED');
 
 echo "\nChecking ban status for 10.0.0.2...\n";
-echo sprintf("  isBanned: %s\n", $firewall->isBanned('login', '10.0.0.2', BanType::Allow2Ban) ? 'YES' : 'no');
+echo sprintf("  isBanned: %s\n", $firewall->isBanned('login-attempts', '10.0.0.2', BanType::Allow2Ban) ? 'YES' : 'no');
 
 // --- Connection examples (not executed, for reference) ---
 

@@ -107,9 +107,14 @@ $config->blocklists->add('scanner-ua', function ($req) use ($scanners): bool {
 echo "  - Scanner User-Agents (" . count($scanners) . " patterns)\n";
 
 // Scanner paths
-$blockedPaths = ['/wp-admin', '/phpmyadmin', '/.env', '/.git', '/phpinfo.php'];
+$blockedPaths = ['/.svn', '/phpmyadmin', '/.env', '/phpinfo.php'];
 $config->blocklists->add('scanner-paths', function ($req) use ($blockedPaths): bool {
     $path = strtolower((string) $req->getUri()->getPath());
+    // Match the .git directory itself, not paths that merely start with it (e.g. /.github).
+    if (preg_match('#/\.git($|/)#', $path) === 1) {
+        return true;
+    }
+
     foreach ($blockedPaths as $blockedPath) {
         if (str_starts_with($path, $blockedPath)) {
             return true;
@@ -118,7 +123,7 @@ $config->blocklists->add('scanner-paths', function ($req) use ($blockedPaths): b
 
     return false;
 });
-echo "  - Scanner paths (" . count($blockedPaths) . " patterns)\n";
+echo "  - Scanner paths (" . (count($blockedPaths) + 1) . " patterns)\n";
 
 // Path traversal
 $config->blocklists->add('path-traversal', function ($req): bool {
@@ -259,7 +264,7 @@ $tests = [
     ['Nikto scanner', 'GET', '/', ['User-Agent' => 'Nikto/2.5'], '1.1.1.2', 403],
 
     // Scanner paths
-    ['WordPress probe', 'GET', '/wp-admin/', [], '1.1.1.3', 403],
+    ['Repo leak probe', 'GET', '/.svn/entries', [], '1.1.1.3', 403],
     ['.env access', 'GET', '/.env', [], '1.1.1.4', 403],
 
     // SQL injection and XSS detection are not built into core; they live in the

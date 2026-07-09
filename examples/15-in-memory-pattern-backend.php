@@ -69,7 +69,7 @@ $pathBackend = $config->blocklists->inMemoryPatternBackend('blocked-paths', [
     new PatternEntry(PatternKind::PATH_EXACT, '/.env'),
 
     // Prefix matches
-    new PatternEntry(PatternKind::PATH_PREFIX, '/wp-'),
+    new PatternEntry(PatternKind::PATH_PREFIX, '/.aws'),
     new PatternEntry(PatternKind::PATH_PREFIX, '/phpmyadmin'),
 
     // Regex matches
@@ -81,7 +81,7 @@ $config->blocklists->fromBackend('block-sensitive-paths', 'blocked-paths');
 echo "Blocked paths:\n";
 echo "  - /admin (exact)\n";
 echo "  - /.env (exact)\n";
-echo "  - /wp-* (prefix)\n";
+echo "  - /.aws* (prefix)\n";
 echo "  - /phpmyadmin* (prefix)\n";
 echo "  - /.git/, /.svn/, /.hg/ (regex)\n\n";
 
@@ -177,7 +177,7 @@ $testCases = [
     // Path tests
     ['Path: /admin', 'GET', '/admin', [], '8.8.8.8', 'BLOCK'],
     ['Path: /.env', 'GET', '/.env', [], '8.8.8.8', 'BLOCK'],
-    ['Path: /wp-admin', 'GET', '/wp-admin/index.php', [], '8.8.8.8', 'BLOCK'],
+    ['Path: /.aws', 'GET', '/.aws/credentials', [], '8.8.8.8', 'BLOCK'],
     ['Path: /.git/config', 'GET', '/.git/config', [], '8.8.8.8', 'BLOCK'],
     ['Path: /api/users', 'GET', '/api/users', [], '8.8.8.8', 'ALLOW'],
 

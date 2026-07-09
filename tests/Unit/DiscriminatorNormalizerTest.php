@@ -105,34 +105,32 @@ final class DiscriminatorNormalizerTest extends TestCase
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
         $config->fail2ban->add(
-            'login-ban',
+            'scanner-probes',
             2,       // threshold
             60,      // period
             300,     // ban seconds
-            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             key: fn($request): string => $request->getHeaderLine('X-User-Id')
         );
 
         $firewall = new Firewall($config);
 
-        $serverRequest = (new ServerRequest('POST', '/login'))
-            ->withHeader('X-Login-Failed', '1')
+        $probeUpper = (new ServerRequest('GET', '/.env'))
             ->withHeader('X-User-Id', 'USER_A');
-        $failedLowerCase = (new ServerRequest('POST', '/login'))
-            ->withHeader('X-Login-Failed', '1')
+        $probeLower = (new ServerRequest('GET', '/.env'))
             ->withHeader('X-User-Id', 'user_a');
 
-        // First failure with "USER_A" — count = 1, match blocked below threshold
-        $this->assertSame(Outcome::BLOCKED, $firewall->decide($serverRequest)->outcome);
+        // First match with "USER_A" — count = 1, match blocked below threshold
+        $this->assertSame(Outcome::BLOCKED, $firewall->decide($probeUpper)->outcome);
 
-        // Second failure with "user_a" — normalized to same key, count = 2, reaches threshold and triggers ban (>= semantic)
-        $firewallResult = $firewall->decide($failedLowerCase);
+        // Second match with "user_a" — normalized to same key, count = 2, reaches threshold and triggers ban (>= semantic)
+        $firewallResult = $firewall->decide($probeLower);
         $this->assertSame(Outcome::BLOCKED, $firewallResult->outcome);
         $this->assertSame('fail2ban', $firewallResult->headers['X-Phirewall'] ?? '');
-        $this->assertSame('login-ban', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
+        $this->assertSame('scanner-probes', $firewallResult->headers['X-Phirewall-Matched'] ?? '');
 
-        // Even a clean request from the same normalized key should be banned
-        $cleanRequest = (new ServerRequest('POST', '/login'))
+        // Even a non-matching request from the same normalized key is blocked by the ban.
+        $cleanRequest = (new ServerRequest('GET', '/'))
             ->withHeader('X-User-Id', 'User_A');
         $bannedResult = $firewall->decide($cleanRequest);
         $this->assertSame(Outcome::BLOCKED, $bannedResult->outcome);
@@ -241,34 +239,33 @@ final class DiscriminatorNormalizerTest extends TestCase
         $config->setDiscriminatorNormalizer(fn(string $key): string => strtolower($key));
 
         $config->fail2ban->add(
-            'login-ban',
+            'scanner-probes',
             2,       // threshold
             60,      // period
             300,     // ban seconds
-            filter: fn($request): bool => $request->getHeaderLine('X-Login-Failed') === '1',
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
             key: fn($request): string => $request->getHeaderLine('X-User-Id')
         );
 
         $firewall = new Firewall($config);
 
         // Trigger ban with UPPERCASE variant only
-        $serverRequest = (new ServerRequest('POST', '/login'))
-            ->withHeader('X-Login-Failed', '1')
+        $serverRequest = (new ServerRequest('GET', '/.env'))
             ->withHeader('X-User-Id', 'USER_A');
 
-        // First failure — count = 1, match blocked below threshold
+        // First match — count = 1, match blocked below threshold
         $this->assertSame(Outcome::BLOCKED, $firewall->decide($serverRequest)->outcome);
 
-        // Second failure — count = 2 reaches threshold (>= 2), triggers the ban
+        // Second match — count = 2 reaches threshold (>= 2), triggers the ban
         $this->assertSame(Outcome::BLOCKED, $firewall->decide($serverRequest)->outcome);
 
-        // Now a clean request from lowercase variant must also be blocked
-        $lowercaseCleanRequest = (new ServerRequest('POST', '/login'))
+        // Now a non-matching request from lowercase variant must also be blocked
+        $lowercaseCleanRequest = (new ServerRequest('GET', '/'))
             ->withHeader('X-User-Id', 'user_a');
         $this->assertSame(Outcome::BLOCKED, $firewall->decide($lowercaseCleanRequest)->outcome);
 
         // Mixed-case variant must also be blocked
-        $mixedCaseCleanRequest = (new ServerRequest('POST', '/login'))
+        $mixedCaseCleanRequest = (new ServerRequest('GET', '/'))
             ->withHeader('X-User-Id', 'User_A');
         $this->assertSame(Outcome::BLOCKED, $firewall->decide($mixedCaseCleanRequest)->outcome);
     }
