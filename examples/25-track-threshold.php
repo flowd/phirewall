@@ -50,7 +50,6 @@ $config->tracks->add(
     'every-login-attempt',
     period: 60,
     filter: fn($request): bool => $request->getUri()->getPath() === '/login',
-    key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '0.0.0.0',
 );
 
 // -----------------------------------------------------------------------------
@@ -61,7 +60,6 @@ $config->tracks->add(
     'suspicious-login-burst',
     period: 60,
     filter: fn($request): bool => $request->getUri()->getPath() === '/login',
-    key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '0.0.0.0',
     limit: 5,
 );
 

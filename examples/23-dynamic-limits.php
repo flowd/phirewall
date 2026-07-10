@@ -30,7 +30,6 @@ $config->throttles->add(
     'role-based',
     fn(ServerRequestInterface $serverRequest): int => $serverRequest->getHeaderLine('X-Role') === 'admin' ? 100 : 5,
     60,
-    fn(ServerRequestInterface $serverRequest): string => $serverRequest->getServerParams()['REMOTE_ADDR'] ?? '127.0.0.1'
 );
 
 $firewall = new Firewall($config);

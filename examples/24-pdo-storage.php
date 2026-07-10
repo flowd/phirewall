@@ -38,7 +38,6 @@ $config->throttles->add('api', limit: 5, period: 60);
 // Count login attempts and ban after 3; the first attempts still pass, so this is
 // allow2ban with a filter (fail2ban would block on the very first attempt).
 $config->allow2ban->add('login-attempts', threshold: 3, period: 300, banSeconds: 600,
-    key: fn($req): string => $req->getServerParams()['REMOTE_ADDR'] ?? '',
     filter: fn($req): bool => $req->getMethod() === 'POST' && $req->getUri()->getPath() === '/login'
 );
 

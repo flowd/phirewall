@@ -155,6 +155,8 @@ echo "Layer 4: Fail2Ban & Allow2Ban\n";
 
 // Fail2Ban: an upstream WAF flags a request as malicious. Fail2Ban blocks every
 // such match on sight (403) and bans the source after a few within the window.
+// Trust boundary: X-Threat must come from the trusted upstream WAF only. Strip
+// any client-supplied X-Threat at the edge so an attacker cannot forge or clear it.
 $config->fail2ban->add('waf-flagged',
     threshold: 3,
     period: 60,
@@ -169,7 +171,6 @@ $config->allow2ban->add('login-brute',
     threshold: 5,
     period: 300,
     banSeconds: 3600,
-    key: fn($req): string => $req->getServerParams()['REMOTE_ADDR'] ?? '',
     filter: fn($req): bool => $req->getMethod() === 'POST' && $req->getUri()->getPath() === '/login',
 );
 echo "  - Login: 5 attempts in 5min = 1 hour ban\n\n";
