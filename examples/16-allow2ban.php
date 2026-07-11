@@ -44,7 +44,6 @@ $config->allow2ban->add(
     threshold: 3,
     period: 60,
     banSeconds: 3600,
-    key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'] ?? '',
     filter: fn($request): bool => $request->getMethod() === 'POST'
         && $request->getUri()->getPath() === '/api/orders',
 );

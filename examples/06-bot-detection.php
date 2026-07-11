@@ -213,15 +213,17 @@ echo "4. Suspicious pattern blocklist configured\n";
 // Rule 5: Fail2Ban for persistent scanners
 // -----------------------------------------------------------------------------
 
+// Fail2ban blocks every request its filter matches, so a filter that matched a
+// real request would reject it outright. Keep the filter closed and report a
+// confirmed scanner hit from your own detection point with
+// RequestContext::recordFailure('persistent-scanner') (see example 27); the
+// firewall then bans the source once the threshold is crossed.
 $config->fail2ban->add(
     name: 'persistent-scanner',
-    threshold: 5,       // 5 blocked requests
+    threshold: 5,       // 5 recorded scanner hits
     period: 60,         // In 1 minute
     ban: 86400,         // 24 hour ban
-    filter: fn(ServerRequestInterface $serverRequest): bool =>
-        // This filter matches requests that hit our blocklist rules
-        // In practice, you'd track this via events
-        $serverRequest->getHeaderLine('X-Scanner-Detected') === '1'
+    filter: fn(ServerRequestInterface $serverRequest): bool => false,
 );
 echo "5. Fail2Ban for persistent scanners configured\n";
 

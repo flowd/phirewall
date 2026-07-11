@@ -98,7 +98,11 @@ $config->throttles->add(
 );
 echo "Throttle rule: 3 requests per 30 seconds per IP\n";
 
-// Fail2Ban for demonstration
+// Fail2Ban for demonstration. The X-Abuse header is a deterministic trigger so
+// the ban counter and its TTL are easy to observe in Redis below; it is not a
+// production pattern. Real rules should match a server-side signal (the closed-
+// filter shape in example 06) or record the hit from your detection point with
+// RequestContext::recordFailure() (example 27), never a client header.
 $config->fail2ban->add(
     name: 'abuse',
     threshold: 2,       // 2 blocked requests

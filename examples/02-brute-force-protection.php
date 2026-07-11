@@ -61,7 +61,6 @@ $config->allow2ban->add(
     threshold: 5,           // matching requests before the ban trips (>= semantic)
     period: 300,            // time window in seconds (5 minutes)
     banSeconds: 3600,       // ban duration in seconds (1 hour)
-    key: fn(ServerRequestInterface $serverRequest): string => $serverRequest->getServerParams()['REMOTE_ADDR'] ?? '',
     filter: fn(ServerRequestInterface $serverRequest): bool => $serverRequest->getMethod() === 'POST'
         && $serverRequest->getUri()->getPath() === '/login',
 );
