@@ -26,7 +26,8 @@ use Flowd\Phirewall\Http\DecisionPath;
  *   $counters->all(); // ['safelisted' => ['total' => 1, 'by_rule' => ['health' => 1]], ...]
  *
  * Categories tracked: safelisted, blocklisted, throttle_exceeded, fail2ban_matched, fail2ban_banned,
- * allow2ban_banned, track_hit, passed, fail2ban_blocked (via PerformanceMeasured).
+ * allow2ban_banned, track_hit, passed, fail2ban_blocked, allow2ban_blocked (the last three via
+ * PerformanceMeasured).
  */
 final class DiagnosticsCounters
 {
@@ -89,9 +90,11 @@ final class DiagnosticsCounters
 
     private function handlePerformanceMeasured(PerformanceMeasured $performanceMeasured): void
     {
-        // PerformanceMeasured fires for every decision — use it for paths
-        // that don't have dedicated events (passed, fail2ban_blocked)
-        if ($performanceMeasured->decisionPath === DecisionPath::Passed || $performanceMeasured->decisionPath === DecisionPath::Fail2BanBlocked) {
+        // PerformanceMeasured fires once per decision. The passed and the two
+        // banned-block paths are counted from it; observing Fail2BanBlocked or
+        // Allow2BanBlocked directly would double-count them.
+        $countedPaths = [DecisionPath::Passed, DecisionPath::Fail2BanBlocked, DecisionPath::Allow2BanBlocked];
+        if (in_array($performanceMeasured->decisionPath, $countedPaths, true)) {
             $this->increment($performanceMeasured->decisionPath->value, $performanceMeasured->ruleName);
         }
     }

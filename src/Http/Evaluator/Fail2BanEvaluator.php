@@ -7,6 +7,7 @@ namespace Flowd\Phirewall\Http\Evaluator;
 use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config\Rule\Fail2BanRule;
 use Flowd\Phirewall\Events\Fail2BanBanned;
+use Flowd\Phirewall\Events\Fail2BanBlocked;
 use Flowd\Phirewall\Events\Fail2BanMatched;
 use Flowd\Phirewall\Http\DecisionPath;
 use Flowd\Phirewall\Http\FirewallResult;
@@ -20,7 +21,9 @@ use Psr\Http\Message\ServerRequestInterface;
  * a match below the threshold blocks via {@see DecisionPath::Fail2BanMatched} and a
  * {@see Fail2BanMatched} event; the Nth (threshold) match additionally bans the key and
  * blocks via {@see DecisionPath::Fail2BanBanned} and a {@see Fail2BanBanned} event. The
- * banning match dispatches only Fail2BanBanned, never both.
+ * banning match dispatches only Fail2BanBanned, never both. A request whose key is
+ * already banned blocks via {@see DecisionPath::Fail2BanBlocked} and a
+ * {@see Fail2BanBlocked} event without evaluating the filter.
  *
  * threshold = N: increment the failure counter on each match; ban on the Nth match.
  * Pre-handler matches (the rule filter, evaluated with the Config's client-IP resolver)
@@ -83,6 +86,12 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
             if ($bannedByKey[$candidate['banKey']] ?? false) {
                 $evaluationContext->decisionPath = DecisionPath::Fail2BanBlocked;
                 $evaluationContext->decisionRule = $name;
+
+                $evaluationContext->dispatch(new Fail2BanBlocked(
+                    rule: $name,
+                    key: $candidate['normalizedKey'],
+                    serverRequest: $serverRequest,
+                ));
 
                 return FirewallResult::blocked($name, 'fail2ban', $evaluationContext->responseHeaders('fail2ban', $name));
             }

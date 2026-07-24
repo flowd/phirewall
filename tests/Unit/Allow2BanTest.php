@@ -8,6 +8,7 @@ use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Config\ClosureKeyExtractor;
 use Flowd\Phirewall\Config\Rule\Allow2BanRule;
 use Flowd\Phirewall\Events\Allow2BanBanned;
+use Flowd\Phirewall\Events\Allow2BanBlocked;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Http\Outcome;
 use Flowd\Phirewall\Store\InMemoryCache;
@@ -135,6 +136,46 @@ final class Allow2BanTest extends TestCase
         $this->assertSame(60, $event->period);
         $this->assertSame(900, $event->banSeconds);
         $this->assertSame(2, $event->count);
+    }
+
+    public function testBlockedBannedKeyDispatchesAllow2BanBlocked(): void
+    {
+        $dispatcher = new class () implements EventDispatcherInterface {
+            /** @var list<object> */
+            public array $events = [];
+
+            public function dispatch(object $event): object
+            {
+                $this->events[] = $event;
+                return $event;
+            }
+        };
+
+        $inMemoryCache = new InMemoryCache();
+        $config = new Config($inMemoryCache, $dispatcher);
+        $config->allow2ban->add('test', threshold: 2, period: 60, banSeconds: 900, key: fn($req): string => $req->getServerParams()['REMOTE_ADDR']);
+
+        $firewall = new Firewall($config);
+        $serverRequest = $this->makeRequest('5.6.7.8');
+
+        // 1st within threshold
+        $firewall->decide($serverRequest);
+        // 2nd reaches the threshold and bans
+        $firewall->decide($serverRequest);
+        // banned key is blocked
+        $result = $firewall->decide($serverRequest);
+
+        $this->assertTrue($result->isBlocked());
+
+        $blockedEvents = array_values(array_filter($dispatcher->events, static fn(object $e): bool => $e instanceof Allow2BanBlocked));
+        $this->assertCount(1, $blockedEvents);
+        /** @var Allow2BanBlocked $event */
+        $event = $blockedEvents[0];
+        $this->assertSame('test', $event->rule);
+        $this->assertSame('5.6.7.8', $event->key);
+
+        // The banning request dispatches only Allow2BanBanned, never Allow2BanBlocked.
+        $this->assertCount(1, array_filter($dispatcher->events, static fn(object $e): bool => $e instanceof Allow2BanBanned));
     }
 
     public function testNullKeySkipsRule(): void

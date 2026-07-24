@@ -5,6 +5,12 @@ All notable changes to Phirewall are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- **`Fail2BanBlocked` and `Allow2BanBlocked` PSR-14 events.** Dispatched when a request is blocked because its key is already banned by a fail2ban or allow2ban rule (the `DecisionPath::Fail2BanBlocked` / `DecisionPath::Allow2BanBlocked` paths, which previously dispatched no event). Fields: `rule`, `key`, `serverRequest`. The events fire on every request of a banned key, so a hammering client produces one event per blocked request; high-volume listeners should aggregate. `DiagnosticsCounters` does not observe the new events (that would double-count against `PerformanceMeasured`): `fail2ban_blocked` was already tracked, and `allow2ban_blocked` is now tracked the same way.
+
 ## 0.8.1 - 2026-07-24
 
 ### Fixed
