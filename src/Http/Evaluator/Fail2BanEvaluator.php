@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Http\Evaluator;
 
 use Flowd\Phirewall\BanType;
+use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Config\Rule\Fail2BanRule;
 use Flowd\Phirewall\Events\Fail2BanBanned;
 use Flowd\Phirewall\Events\Fail2BanBlocked;
@@ -101,7 +102,7 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
             $filterMatch = $this->matchWithClientIpResolver($candidate['rule']->filter(), $serverRequest, $defaultIpResolver);
             if ($filterMatch->isMatch()) {
                 $rule = $candidate['rule'];
-                $count = $this->incrementAndBanIfNeeded($rule, $candidate['normalizedKey'], $serverRequest, $evaluationContext);
+                $count = $this->incrementAndBanIfNeeded($rule, $candidate['normalizedKey'], $serverRequest, $evaluationContext, $filterMatch);
 
                 if ($count >= $rule->threshold()) {
                     $evaluationContext->decisionPath = DecisionPath::Fail2BanBanned;
@@ -113,6 +114,7 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
                         period: $rule->period(),
                         count: $count,
                         serverRequest: $serverRequest,
+                        matchResult: $filterMatch,
                     ));
                     $evaluationContext->decisionPath = DecisionPath::Fail2BanMatched;
                 }
@@ -142,6 +144,7 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
         string $normalizedKey,
         ServerRequestInterface $serverRequest,
         EvaluationContext $evaluationContext,
+        ?MatchResult $matchResult = null,
     ): int {
         $ruleName = $fail2BanRule->name();
         $failKey = $evaluationContext->config->cacheKeyGenerator()->fail2BanFailKey($ruleName, $normalizedKey);
@@ -161,6 +164,7 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
             banSeconds: $fail2BanRule->banSeconds(),
             count: $count,
             serverRequest: $serverRequest,
+            matchResult: $matchResult,
         ));
 
         return $count;

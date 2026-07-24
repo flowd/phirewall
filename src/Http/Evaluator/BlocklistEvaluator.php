@@ -27,7 +27,7 @@ final readonly class BlocklistEvaluator implements EvaluatorInterface
             $name = $blocklistRule->name();
             $match = $this->matchWithClientIpResolver($blocklistRule->matcher(), $serverRequest, $defaultIpResolver);
             if ($match->isMatch()) {
-                $evaluationContext->dispatch(new BlocklistMatched($name, $serverRequest));
+                $evaluationContext->dispatch(new BlocklistMatched($name, $serverRequest, $match));
 
                 $headers = [
                     ...$evaluationContext->diagnosticHeaders($match),

@@ -111,7 +111,7 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
                 }
             }
 
-            if ($this->incrementAndBanIfNeeded($candidate['rule'], $candidate['normalizedKey'], $serverRequest, $evaluationContext)) {
+            if ($this->incrementAndBanIfNeeded($candidate['rule'], $candidate['normalizedKey'], $serverRequest, $evaluationContext, $filterMatch)) {
                 // Keep the batched snapshot consistent: a later rule whose name normalizes to the
                 // same ban key must see this ban (as a live existence check would) and skip its own
                 // increment instead of re-banning the shared key.
@@ -186,6 +186,7 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
         string $normalizedKey,
         ServerRequestInterface $serverRequest,
         EvaluationContext $evaluationContext,
+        ?MatchResult $matchResult = null,
     ): bool {
         $name = $allow2BanRule->name();
         $hitKey = $evaluationContext->config->cacheKeyGenerator()->allow2BanHitKey($name, $normalizedKey);
@@ -206,6 +207,7 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
             banSeconds: $allow2BanRule->banSeconds(),
             count: $count,
             serverRequest: $serverRequest,
+            matchResult: $matchResult,
         ));
 
         return true;
