@@ -5,6 +5,12 @@ All notable changes to Phirewall are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.8.1 - 2026-07-24
+
+### Fixed
+
+- **`RedisCache` counter windows now align to Redis server time.** `RedisCache::increment()` computes the fixed-window expiry inside the Lua script from Redis `TIME` instead of the PHP worker's local clock, so all application servers share the same window boundaries even when their clocks drift. The script also re-arms the expiry when the counter key exists without a TTL, so a key that lost its expiry no longer counts forever. `increment()` now rejects `period < 1` with an `InvalidArgumentException` before the Redis round-trip, matching the `ApcuCache` and `PdoCache` counter backends. Computing the boundary from `TIME` inside the script requires Redis 5.0 or newer (effect-based script replication).
+
 ## 0.8.0 - 2026-07-09
 
 ### Changed
