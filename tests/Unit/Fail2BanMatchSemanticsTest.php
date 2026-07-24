@@ -8,6 +8,7 @@ use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Context\RequestContext;
 use Flowd\Phirewall\Events\Fail2BanBanned;
+use Flowd\Phirewall\Events\Fail2BanBlocked;
 use Flowd\Phirewall\Events\Fail2BanMatched;
 use Flowd\Phirewall\Http\Firewall;
 use Flowd\Phirewall\Http\Outcome;
@@ -110,6 +111,48 @@ final class Fail2BanMatchSemanticsTest extends TestCase
         $this->assertCount(1, array_filter($dispatcher->events, static fn(object $e): bool => $e instanceof Fail2BanMatched));
         $this->assertCount(1, array_filter($dispatcher->events, static fn(object $e): bool => $e instanceof Fail2BanBanned));
         $this->assertTrue($firewall->isBanned('scanner-probes', '203.0.113.5', BanType::Fail2Ban));
+    }
+
+    public function testBlockedBannedKeyDispatchesFail2BanBlocked(): void
+    {
+        $dispatcher = new class () implements EventDispatcherInterface {
+            /** @var list<object> */
+            public array $events = [];
+
+            public function dispatch(object $event): object
+            {
+                $this->events[] = $event;
+                return $event;
+            }
+        };
+        $config = new Config(new InMemoryCache(), $dispatcher);
+        $config->fail2ban->add(
+            'scanner-probes',
+            threshold: 1,
+            period: 60,
+            ban: 600,
+            filter: fn($request): bool => str_starts_with($request->getUri()->getPath(), '/.env'),
+            key: fn($request): string => $request->getServerParams()['REMOTE_ADDR'],
+        );
+
+        $firewall = new Firewall($config);
+        // 1st match reaches the threshold and bans
+        $firewall->decide($this->probeRequest());
+        // banned key is blocked without filter evaluation
+        $result = $firewall->decide($this->probeRequest());
+
+        $this->assertSame(Outcome::BLOCKED, $result->outcome);
+
+        $blocked = array_values(array_filter($dispatcher->events, static fn(object $e): bool => $e instanceof Fail2BanBlocked));
+        $this->assertCount(1, $blocked);
+        /** @var Fail2BanBlocked $event */
+        $event = $blocked[0];
+        $this->assertSame('scanner-probes', $event->rule);
+        $this->assertSame('203.0.113.5', $event->key);
+
+        // The blocked repeat request dispatches neither Matched nor Banned.
+        $this->assertCount(0, array_filter($dispatcher->events, static fn(object $e): bool => $e instanceof Fail2BanMatched));
+        $this->assertCount(1, array_filter($dispatcher->events, static fn(object $e): bool => $e instanceof Fail2BanBanned));
     }
 
     public function testNonMatchingRequestIsNeverBlocked(): void

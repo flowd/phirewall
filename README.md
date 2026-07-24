@@ -134,7 +134,7 @@ The [examples/](examples/) folder contains runnable examples:
 
 ### Observability
 
-- **PSR-14 Events** - `SafelistMatched`, `BlocklistMatched`, `ThrottleExceeded`, `Fail2BanMatched`, `Fail2BanBanned`, `Allow2BanBanned`, `TrackHit`, `FirewallError`
+- **PSR-14 Events** - `SafelistMatched`, `BlocklistMatched`, `ThrottleExceeded`, `Fail2BanMatched`, `Fail2BanBanned`, `Fail2BanBlocked`, `Allow2BanBanned`, `Allow2BanBlocked`, `TrackHit`, `FirewallError`
 - **Fail-Open by Default** - Cache outages don't take down the application; a `FirewallError` event is dispatched via PSR-14. Trade-off: while failing open all rules are skipped, so deployments that must keep blocking during an outage should `setFailOpen(false)` and monitor `FirewallError`
 - **Diagnostics Counters** - Per-rule statistics for monitoring
 - **Standard Headers** - `X-RateLimit-*`, `Retry-After`, `X-Phirewall-*`

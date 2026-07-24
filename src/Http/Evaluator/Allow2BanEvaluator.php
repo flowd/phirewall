@@ -7,6 +7,7 @@ namespace Flowd\Phirewall\Http\Evaluator;
 use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config\Rule\Allow2BanRule;
 use Flowd\Phirewall\Events\Allow2BanBanned;
+use Flowd\Phirewall\Events\Allow2BanBlocked;
 use Flowd\Phirewall\Http\DecisionPath;
 use Flowd\Phirewall\Http\FirewallResult;
 use Flowd\Phirewall\Store\CounterStoreInterface;
@@ -18,7 +19,8 @@ use Psr\SimpleCache\CacheInterface;
  *
  * Processes ALL rules, then returns the first block. A rule counts a request only when it
  * has no filter or the filter matches; non-matching requests skip the rule's counter.
- * Already-banned keys still block EVERY request regardless of the filter.
+ * Already-banned keys still block EVERY request regardless of the filter; the
+ * candidate that captures the block dispatches an {@see Allow2BanBlocked} event.
  * threshold = N: increment on each counted request; ban on the Nth request (>= comparison).
  * Retry-After is always included. X-Phirewall headers are conditional on responseHeadersEnabled.
  *
@@ -80,13 +82,21 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
         $capturedDecision = null;
         foreach ($candidates as $candidate) {
             if ($bannedByKey[$candidate['banKey']] ?? false) {
-                $capturedDecision ??= $this->buildBlock(
-                    DecisionPath::Allow2BanBlocked,
-                    $candidate['rule'],
-                    $candidate['banKey'],
-                    $cache,
-                    $evaluationContext,
-                );
+                if (!$capturedDecision instanceof Allow2BanDecision) {
+                    $capturedDecision = $this->buildBlock(
+                        DecisionPath::Allow2BanBlocked,
+                        $candidate['rule'],
+                        $candidate['banKey'],
+                        $cache,
+                        $evaluationContext,
+                    );
+
+                    $evaluationContext->dispatch(new Allow2BanBlocked(
+                        rule: $candidate['rule']->name(),
+                        key: $candidate['normalizedKey'],
+                        serverRequest: $serverRequest,
+                    ));
+                }
 
                 continue;
             }
