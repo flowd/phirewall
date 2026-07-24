@@ -98,7 +98,8 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
 
             // Every filter match is blocked: the Nth match bans (Fail2BanBanned),
             // an earlier match blocks below the threshold (Fail2BanMatched).
-            if ($this->matchWithClientIpResolver($candidate['rule']->filter(), $serverRequest, $defaultIpResolver)->isMatch()) {
+            $filterMatch = $this->matchWithClientIpResolver($candidate['rule']->filter(), $serverRequest, $defaultIpResolver);
+            if ($filterMatch->isMatch()) {
                 $rule = $candidate['rule'];
                 $count = $this->incrementAndBanIfNeeded($rule, $candidate['normalizedKey'], $serverRequest, $evaluationContext);
 
@@ -118,7 +119,10 @@ final readonly class Fail2BanEvaluator implements EvaluatorInterface
 
                 $evaluationContext->decisionRule = $name;
 
-                return FirewallResult::blocked($name, 'fail2ban', $evaluationContext->responseHeaders('fail2ban', $name));
+                return FirewallResult::blocked($name, 'fail2ban', [
+                    ...$evaluationContext->diagnosticHeaders($filterMatch),
+                    ...$evaluationContext->responseHeaders('fail2ban', $name),
+                ]);
             }
         }
 

@@ -63,7 +63,7 @@ final class Config implements ConfigLayer
 
     private bool $rateLimitHeadersEnabled = false;
 
-    private bool $owaspDiagnosticsHeaderEnabled = false;
+    private bool $diagnosticsHeadersEnabled = false;
 
     private bool $responseHeadersEnabled = false;
 
@@ -203,7 +203,7 @@ final class Config implements ConfigLayer
         $composed->setEnabled($layers[array_key_last($layers)]->enabled);
         $composed->setFailOpen($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->failOpen, $layers), true));
         $composed->enableRateLimitHeaders($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->rateLimitHeadersEnabled, $layers), false));
-        $composed->enableOwaspDiagnosticsHeader($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->owaspDiagnosticsHeaderEnabled, $layers), false));
+        $composed->enableDiagnosticsHeaders($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->diagnosticsHeadersEnabled, $layers), false));
         $composed->enableResponseHeaders($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->responseHeadersEnabled, $layers), false));
         $composed->setKeyPrefix($this->lastExplicit(array_map(static fn(self $layer): string => $layer->keyPrefix, $layers), 'phirewall'));
 
@@ -501,15 +501,39 @@ final class Config implements ConfigLayer
         return $this->rateLimitHeadersEnabled;
     }
 
-    public function enableOwaspDiagnosticsHeader(bool $enabled = true): self
+    /**
+     * Enable copying matcher-provided diagnostic headers onto blocked responses.
+     *
+     * A matcher opts in per match via the `diagnostic_headers` metadata key on
+     * its {@see Config\MatchResult} (header => value, names
+     * must start with `X-Phirewall-`). The headers expose which rule fired, so
+     * keep this off in production unless you need the diagnostics.
+     */
+    public function enableDiagnosticsHeaders(bool $enabled = true): self
     {
-        $this->owaspDiagnosticsHeaderEnabled = $enabled;
+        $this->diagnosticsHeadersEnabled = $enabled;
         return $this;
     }
 
+    public function diagnosticsHeadersEnabled(): bool
+    {
+        return $this->diagnosticsHeadersEnabled;
+    }
+
+    /**
+     * @deprecated Use {@see enableDiagnosticsHeaders()}; both drive the same flag.
+     */
+    public function enableOwaspDiagnosticsHeader(bool $enabled = true): self
+    {
+        return $this->enableDiagnosticsHeaders($enabled);
+    }
+
+    /**
+     * @deprecated Use {@see diagnosticsHeadersEnabled()}.
+     */
     public function owaspDiagnosticsHeaderEnabled(): bool
     {
-        return $this->owaspDiagnosticsHeaderEnabled;
+        return $this->diagnosticsHeadersEnabled;
     }
 
     public function enableResponseHeaders(bool $enabled = true): self

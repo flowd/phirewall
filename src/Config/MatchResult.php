@@ -7,10 +7,14 @@ namespace Flowd\Phirewall\Config;
 /**
  * Result of evaluating a request against a matcher.
  * Carries a binary decision and optional metadata for diagnostics.
+ *
+ * The `diagnostic_headers` metadata key (header => value, names prefixed
+ * `X-Phirewall-`) is copied onto blocked responses when
+ * {@see \Flowd\Phirewall\Config::enableDiagnosticsHeaders()} is active.
  */
 final readonly class MatchResult
 {
-    /** @param array<string, scalar> $metadata */
+    /** @param array<string, scalar|array<string, scalar>> $metadata */
     private function __construct(
         private bool $matched,
         private string $source,
@@ -18,7 +22,7 @@ final readonly class MatchResult
     ) {
     }
 
-    /** @param array<string, scalar> $metadata */
+    /** @param array<string, scalar|array<string, scalar>> $metadata */
     public static function matched(string $source, array $metadata = []): self
     {
         return new self(true, $source, $metadata);
@@ -44,7 +48,7 @@ final readonly class MatchResult
     }
 
     /**
-     * @return array<string, scalar>
+     * @return array<string, scalar|array<string, scalar>>
      */
     public function metadata(): array
     {

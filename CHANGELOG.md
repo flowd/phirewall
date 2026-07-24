@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **`RedisCache` counter windows now align to Redis server time.** `RedisCache::increment()` computes the fixed-window expiry inside the Lua script from Redis `TIME` instead of the PHP worker's local clock, so all application servers share the same window boundaries even when their clocks drift. The script also re-arms the expiry when the counter key exists without a TTL, so a key that lost its expiry no longer counts forever. `increment()` now rejects `period < 1` with an `InvalidArgumentException` before the Redis round-trip, matching the `ApcuCache` and `PdoCache` counter backends. Computing the boundary from `TIME` inside the script requires Redis 5.0 or newer (effect-based script replication).
+- **Matcher-provided diagnostic headers on blocked responses.** A matcher can attach response headers to a block via the `diagnostic_headers` metadata key on its `MatchResult` (e.g. `['X-Phirewall-Owasp-Rule' => '942100']`); `Config::enableDiagnosticsHeaders()` (default off) copies them onto the blocked response. Applies wherever the blocking decision is carried by a matcher: blocklist matches, fail2ban filter matches (both the sub-threshold and the banning block) and the allow2ban banning request; banned-key blocks evaluate no filter and carry none. Only `X-Phirewall-`-prefixed header names are copied and values are sanitized (CR/LF/NUL stripped), so a matcher cannot override security-relevant response headers. The portable schema gained the `diagnosticsHeaders` option (`PortableConfig::enableDiagnosticsHeaders()`); the legacy `owaspDiagnosticsHeader` key still imports as an alias, so existing serialized and signed configs load unchanged and `typ` stays `phirewall.config.v1`.
+
+### Deprecated
+
+- **`Config::enableOwaspDiagnosticsHeader()` / `owaspDiagnosticsHeaderEnabled()` and `PortableConfig::enableOwaspDiagnosticsHeader()`** - use the generic `enableDiagnosticsHeaders()` / `diagnosticsHeadersEnabled()`; both drive the same flag.
+
+### Removed
+
+- **BREAKING: the hardcoded `owasp_rule_id` to `X-Phirewall-Owasp-Rule` mapping in the blocklist evaluator.** The header now comes exclusively from the generic `diagnostic_headers` mechanism, so it requires a `flowd/phirewall-preset-owasp-crs` version whose matcher emits `diagnostic_headers`. `EvaluationContext`'s constructor parameter `owaspDiagnosticsHeaderEnabled` was renamed to `diagnosticsHeadersEnabled`.
 
 ## 0.8.0 - 2026-07-09
 

@@ -58,7 +58,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * @phpstan-type SchemaTracks list<array{name: string, period: int, filter: Filter, key: Key, limit?: int}>
  * @phpstan-type SchemaPatternBackends list<array{name: string, entries: list<PatternEntryArray>}>
  * @phpstan-type SchemaPatternBlocklists list<array{name: string, backend: string}>
- * @phpstan-type SchemaOptions array{rateLimitHeaders?: bool, responseHeaders?: bool, owaspDiagnosticsHeader?: bool, failOpen?: bool, keyPrefix?: string}
+ * @phpstan-type SchemaOptions array{rateLimitHeaders?: bool, responseHeaders?: bool, diagnosticsHeaders?: bool, owaspDiagnosticsHeader?: bool, failOpen?: bool, keyPrefix?: string}
  * @phpstan-type Schema array{
  *   safelists: SchemaSafelists,
  *   blocklists: SchemaBlocklists,
@@ -124,6 +124,22 @@ final class PortableConfig implements ConfigLayer
         return $this;
     }
 
+    /**
+     * Enable matcher-provided diagnostic headers on blocked responses.
+     *
+     * Mirrors {@see Config::enableDiagnosticsHeaders()}.
+     */
+    public function enableDiagnosticsHeaders(bool $enabled = true): self
+    {
+        $this->schema['options']['diagnosticsHeaders'] = $enabled;
+        return $this;
+    }
+
+    /**
+     * @deprecated Use {@see enableDiagnosticsHeaders()}. Kept writing the legacy
+     *             schema key so serialized configs stay loadable on older
+     *             phirewall versions.
+     */
     public function enableOwaspDiagnosticsHeader(bool $enabled = true): self
     {
         $this->schema['options']['owaspDiagnosticsHeader'] = $enabled;
@@ -859,8 +875,10 @@ final class PortableConfig implements ConfigLayer
             $config->enableResponseHeaders(true);
         }
 
-        if (isset($options['owaspDiagnosticsHeader']) && $options['owaspDiagnosticsHeader']) {
-            $config->enableOwaspDiagnosticsHeader(true);
+        if ((isset($options['diagnosticsHeaders']) && $options['diagnosticsHeaders'])
+            || (isset($options['owaspDiagnosticsHeader']) && $options['owaspDiagnosticsHeader'])
+        ) {
+            $config->enableDiagnosticsHeaders(true);
         }
 
         if (array_key_exists('failOpen', $options)) {

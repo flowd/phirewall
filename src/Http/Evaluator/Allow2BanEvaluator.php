@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Http\Evaluator;
 
 use Flowd\Phirewall\BanType;
+use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Config\Rule\Allow2BanRule;
 use Flowd\Phirewall\Events\Allow2BanBanned;
 use Flowd\Phirewall\Events\Allow2BanBlocked;
@@ -102,8 +103,12 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
             }
 
             $filter = $candidate['rule']->filter();
-            if ($filter !== null && !$this->matchWithClientIpResolver($filter, $serverRequest, $defaultIpResolver)->isMatch()) {
-                continue;
+            $filterMatch = null;
+            if ($filter !== null) {
+                $filterMatch = $this->matchWithClientIpResolver($filter, $serverRequest, $defaultIpResolver);
+                if (!$filterMatch->isMatch()) {
+                    continue;
+                }
             }
 
             if ($this->incrementAndBanIfNeeded($candidate['rule'], $candidate['normalizedKey'], $serverRequest, $evaluationContext)) {
@@ -117,6 +122,7 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
                     $candidate['banKey'],
                     $cache,
                     $evaluationContext,
+                    $filterMatch,
                 );
             }
         }
@@ -144,6 +150,7 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
         string $banKey,
         CacheInterface $cache,
         EvaluationContext $evaluationContext,
+        ?MatchResult $matchResult = null,
     ): Allow2BanDecision {
         $name = $allow2BanRule->name();
 
@@ -153,7 +160,8 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
         }
 
         $headers = ['Retry-After' => (string) $retryAfter]
-            + $evaluationContext->responseHeaders('allow2ban', $name);
+            + $evaluationContext->responseHeaders('allow2ban', $name)
+            + $evaluationContext->diagnosticHeaders($matchResult);
 
         return new Allow2BanDecision(
             $decisionPath,
