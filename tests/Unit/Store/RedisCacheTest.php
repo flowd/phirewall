@@ -56,6 +56,30 @@ final class RedisCacheTest extends TestCase
         $this->assertSame('default', (new RedisCache($client))->get('valid.key', 'default'));
     }
 
+    public function testIncrementWithZeroPeriodThrows(): void
+    {
+        $this->requirePredisOrSkip();
+
+        $client = $this->createMock(\Predis\ClientInterface::class);
+        $client->expects($this->never())->method('eval');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Period must be at least 1');
+        (new RedisCache($client))->increment('counter', 0);
+    }
+
+    public function testIncrementWithNegativePeriodThrows(): void
+    {
+        $this->requirePredisOrSkip();
+
+        $client = $this->createMock(\Predis\ClientInterface::class);
+        $client->expects($this->never())->method('eval');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Period must be at least 1');
+        (new RedisCache($client))->increment('counter', -5);
+    }
+
     public function testIncrementRethrowsAndTriggersWarningWhenEvalThrows(): void
     {
         if (!interface_exists(\Predis\ClientInterface::class)) {

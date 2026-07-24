@@ -154,6 +154,12 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
     public function increment(string $key, int $period): int
     {
         $this->validateKey($key);
+        if ($period < 1) {
+            throw new \InvalidArgumentException(
+                sprintf('Period must be at least 1, got %d.', $period),
+            );
+        }
+
         $namespacedKey = $this->prefixKey($key);
 
         $script = <<<'LUA'
