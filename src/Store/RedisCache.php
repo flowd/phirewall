@@ -154,24 +154,28 @@ final readonly class RedisCache implements CacheInterface, CounterStoreInterface
     public function increment(string $key, int $period): int
     {
         $this->validateKey($key);
+        if ($period < 1) {
+            throw new \InvalidArgumentException(
+                sprintf('Period must be at least 1, got %d.', $period),
+            );
+        }
+
         $namespacedKey = $this->prefixKey($key);
-        $now = time();
-        $windowStart = intdiv($now, $period) * $period;
-        $windowEnd = $windowStart + $period; // unix timestamp (seconds)
 
         $script = <<<'LUA'
         local key = KEYS[1]
-        local window_end = tonumber(ARGV[1])
+        local period = tonumber(ARGV[1])
+        local now = tonumber(redis.call('TIME')[1])
+        local window_end = (math.floor(now / period) + 1) * period
         local val = redis.call('INCR', key)
-        -- If this is the first hit for this window, align expiry to window_end
-        if val == 1 then
+        if val == 1 or redis.call('TTL', key) < 0 then
             redis.call('EXPIREAT', key, window_end)
         end
         return val
-LUA;
+        LUA;
 
         try {
-            $counter = $this->client->eval($script, 1, $namespacedKey, (string)$windowEnd);
+            $counter = $this->client->eval($script, 1, $namespacedKey, (string)$period);
         } catch (\Throwable $throwable) {
             // Diagnostic visibility: emit a warning so operators see infrastructure
             // failures even when an upstream catch converts the exception. Some
