@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Tests\Config;
 
 use Flowd\Phirewall\Config\DiagnosticsCounters;
 use Flowd\Phirewall\Config\DiagnosticsDispatcher;
+use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Events\BlocklistMatched;
 use Flowd\Phirewall\Events\SafelistMatched;
 use Nyholm\Psr7\ServerRequest;
@@ -36,7 +37,7 @@ final class DiagnosticsDispatcherTest extends TestCase
         $dispatcher = new DiagnosticsDispatcher($counters, $innerDispatcher);
 
         $request = new ServerRequest('GET', '/');
-        $event = new SafelistMatched('health', $request);
+        $event = new SafelistMatched('health', $request, MatchResult::matched('custom'));
         $returned = $dispatcher->dispatch($event);
 
         // Event is returned
@@ -58,7 +59,7 @@ final class DiagnosticsDispatcherTest extends TestCase
         $dispatcher = new DiagnosticsDispatcher($counters);
 
         $request = new ServerRequest('GET', '/admin');
-        $event = new BlocklistMatched('admin-block', $request);
+        $event = new BlocklistMatched('admin-block', $request, MatchResult::matched('custom'));
         $returned = $dispatcher->dispatch($event);
 
         $this->assertSame($event, $returned);
@@ -83,9 +84,9 @@ final class DiagnosticsDispatcherTest extends TestCase
 
         $request = new ServerRequest('GET', '/');
 
-        $dispatcher->dispatch(new SafelistMatched('health', $request));
-        $dispatcher->dispatch(new SafelistMatched('health', $request));
-        $dispatcher->dispatch(new BlocklistMatched('scanners', $request));
+        $dispatcher->dispatch(new SafelistMatched('health', $request, MatchResult::matched('custom')));
+        $dispatcher->dispatch(new SafelistMatched('health', $request, MatchResult::matched('custom')));
+        $dispatcher->dispatch(new BlocklistMatched('scanners', $request, MatchResult::matched('custom')));
 
         $all = $counters->all();
         $this->assertSame(2, $all['safelisted']['total']);

@@ -23,7 +23,8 @@ final readonly class TrackEvaluator implements EvaluatorInterface
 
         foreach ($evaluationContext->config->tracks->rules() as $trackRule) {
             $name = $trackRule->name();
-            if ($this->matchWithClientIpResolver($trackRule->filter(), $serverRequest, $defaultIpResolver)->isMatch()) {
+            $match = $this->matchWithClientIpResolver($trackRule->filter(), $serverRequest, $defaultIpResolver);
+            if ($match->isMatch()) {
                 $key = $evaluationContext->config->resolveKey($trackRule->keyExtractor(), $serverRequest);
                 if ($key !== null) {
                     $normalizedKey = ($evaluationContext->normalize)((string) $key);
@@ -37,6 +38,7 @@ final readonly class TrackEvaluator implements EvaluatorInterface
                         count: $count,
                         serverRequest: $serverRequest,
                         limit: $trackRule->limit(),
+                        matchResult: $match,
                     ));
                 }
             }

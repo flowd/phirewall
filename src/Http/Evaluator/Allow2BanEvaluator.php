@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Http\Evaluator;
 
 use Flowd\Phirewall\BanType;
+use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Config\Rule\Allow2BanRule;
 use Flowd\Phirewall\Events\Allow2BanBanned;
 use Flowd\Phirewall\Events\Allow2BanBlocked;
@@ -102,11 +103,15 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
             }
 
             $filter = $candidate['rule']->filter();
-            if ($filter !== null && !$this->matchWithClientIpResolver($filter, $serverRequest, $defaultIpResolver)->isMatch()) {
-                continue;
+            $filterMatch = null;
+            if ($filter !== null) {
+                $filterMatch = $this->matchWithClientIpResolver($filter, $serverRequest, $defaultIpResolver);
+                if (!$filterMatch->isMatch()) {
+                    continue;
+                }
             }
 
-            if ($this->incrementAndBanIfNeeded($candidate['rule'], $candidate['normalizedKey'], $serverRequest, $evaluationContext)) {
+            if ($this->incrementAndBanIfNeeded($candidate['rule'], $candidate['normalizedKey'], $serverRequest, $evaluationContext, $filterMatch)) {
                 // Keep the batched snapshot consistent: a later rule whose name normalizes to the
                 // same ban key must see this ban (as a live existence check would) and skip its own
                 // increment instead of re-banning the shared key.
@@ -117,6 +122,7 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
                     $candidate['banKey'],
                     $cache,
                     $evaluationContext,
+                    $filterMatch,
                 );
             }
         }
@@ -144,6 +150,7 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
         string $banKey,
         CacheInterface $cache,
         EvaluationContext $evaluationContext,
+        ?MatchResult $matchResult = null,
     ): Allow2BanDecision {
         $name = $allow2BanRule->name();
 
@@ -152,8 +159,14 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
             $retryAfter = $allow2BanRule->banSeconds();
         }
 
-        $headers = ['Retry-After' => (string) $retryAfter]
-            + $evaluationContext->responseHeaders('allow2ban', $name);
+        // Diagnostics first: headers are applied sequentially via withHeader(),
+        // so the built-in headers listed later stay authoritative even against
+        // differently-cased diagnostic names.
+        $headers = [
+            ...$evaluationContext->diagnosticHeaders($matchResult),
+            'Retry-After' => (string) $retryAfter,
+            ...$evaluationContext->responseHeaders('allow2ban', $name),
+        ];
 
         return new Allow2BanDecision(
             $decisionPath,
@@ -178,6 +191,7 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
         string $normalizedKey,
         ServerRequestInterface $serverRequest,
         EvaluationContext $evaluationContext,
+        ?MatchResult $matchResult = null,
     ): bool {
         $name = $allow2BanRule->name();
         $hitKey = $evaluationContext->config->cacheKeyGenerator()->allow2BanHitKey($name, $normalizedKey);
@@ -198,6 +212,7 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
             banSeconds: $allow2BanRule->banSeconds(),
             count: $count,
             serverRequest: $serverRequest,
+            matchResult: $matchResult,
         ));
 
         return true;

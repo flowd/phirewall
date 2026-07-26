@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Tests\Infrastructure;
 
+use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Events\BlocklistMatched;
 use Flowd\Phirewall\Events\Fail2BanBanned;
 use Flowd\Phirewall\Infrastructure\InfrastructureBanListener;
@@ -26,7 +27,7 @@ final class InfrastructureBanListenerTest extends TestCase
             blockOnBlocklist: false,
         );
 
-        $fail2BanBanned = new Fail2BanBanned('login', '203.0.113.50', 5, 300, 3600, 5, new ServerRequest('GET', '/'));
+        $fail2BanBanned = new Fail2BanBanned('login', '203.0.113.50', 5, 300, 3600, 5, new ServerRequest('GET', '/'), null);
         $infrastructureBanListener->onFail2BanBanned($fail2BanBanned);
 
         $this->assertSame([
@@ -45,7 +46,7 @@ final class InfrastructureBanListenerTest extends TestCase
             blockOnBlocklist: false,
         );
 
-        $fail2BanBanned = new Fail2BanBanned('login', '203.0.113.50', 5, 300, 3600, 5, new ServerRequest('GET', '/'));
+        $fail2BanBanned = new Fail2BanBanned('login', '203.0.113.50', 5, 300, 3600, 5, new ServerRequest('GET', '/'), null);
         $infrastructureBanListener->onFail2BanBanned($fail2BanBanned);
 
         $this->assertSame([], $recordingBlocker->calls, 'No calls should be made when Fail2Ban blocking is disabled');
@@ -63,7 +64,7 @@ final class InfrastructureBanListenerTest extends TestCase
             keyToIp: static fn(string $key): ?string => null,
         );
 
-        $fail2BanBanned = new Fail2BanBanned('login', 'user:99', 5, 300, 3600, 5, new ServerRequest('GET', '/'));
+        $fail2BanBanned = new Fail2BanBanned('login', 'user:99', 5, 300, 3600, 5, new ServerRequest('GET', '/'), null);
         $infrastructureBanListener->onFail2BanBanned($fail2BanBanned);
 
         $this->assertSame([], $recordingBlocker->calls, 'No calls should be made when keyToIp returns null');
@@ -81,7 +82,7 @@ final class InfrastructureBanListenerTest extends TestCase
             keyToIp: static fn(string $key): string => '',
         );
 
-        $fail2BanBanned = new Fail2BanBanned('login', 'user:42', 5, 300, 3600, 5, new ServerRequest('GET', '/'));
+        $fail2BanBanned = new Fail2BanBanned('login', 'user:42', 5, 300, 3600, 5, new ServerRequest('GET', '/'), null);
         $infrastructureBanListener->onFail2BanBanned($fail2BanBanned);
 
         $this->assertSame([], $recordingBlocker->calls, 'No calls should be made when keyToIp returns empty string');
@@ -113,7 +114,7 @@ final class InfrastructureBanListenerTest extends TestCase
             blockOnBlocklist: false,
         );
 
-        $fail2BanBanned = new Fail2BanBanned('login', '203.0.113.50', 5, 300, 3600, 5, new ServerRequest('GET', '/'));
+        $fail2BanBanned = new Fail2BanBanned('login', '203.0.113.50', 5, 300, 3600, 5, new ServerRequest('GET', '/'), null);
 
         // Should not throw -- exception is swallowed by the runner and listener
         $infrastructureBanListener->onFail2BanBanned($fail2BanBanned);
@@ -132,7 +133,7 @@ final class InfrastructureBanListenerTest extends TestCase
         );
 
         $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.77']);
-        $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest);
+        $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest, MatchResult::matched('custom'));
         $infrastructureBanListener->onBlocklistMatched($blocklistMatched);
 
         $this->assertSame([
@@ -152,7 +153,7 @@ final class InfrastructureBanListenerTest extends TestCase
         );
 
         $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.77']);
-        $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest);
+        $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest, MatchResult::matched('custom'));
         $infrastructureBanListener->onBlocklistMatched($blocklistMatched);
 
         $this->assertSame([], $recordingBlocker->calls, 'No calls should be made when blocklist blocking is disabled');
@@ -171,7 +172,7 @@ final class InfrastructureBanListenerTest extends TestCase
 
         // ServerRequest without REMOTE_ADDR
         $serverRequest = new ServerRequest('GET', '/');
-        $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest);
+        $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest, MatchResult::matched('custom'));
         $infrastructureBanListener->onBlocklistMatched($blocklistMatched);
 
         $this->assertSame([], $recordingBlocker->calls, 'No calls should be made when request has no IP');
@@ -204,7 +205,7 @@ final class InfrastructureBanListenerTest extends TestCase
         );
 
         $serverRequest = new ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.77']);
-        $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest);
+        $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest, MatchResult::matched('custom'));
 
         // Should not throw -- exception is swallowed
         $infrastructureBanListener->onBlocklistMatched($blocklistMatched);
@@ -224,7 +225,7 @@ final class InfrastructureBanListenerTest extends TestCase
         );
 
         $serverRequest = (new ServerRequest('GET', '/'))->withHeader('X-Real-IP', '10.0.0.42');
-        $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest);
+        $blocklistMatched = new BlocklistMatched('rule-x', $serverRequest, MatchResult::matched('custom'));
         $infrastructureBanListener->onBlocklistMatched($blocklistMatched);
 
         $this->assertSame([

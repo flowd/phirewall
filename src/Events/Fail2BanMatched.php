@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flowd\Phirewall\Events;
 
+use Flowd\Phirewall\Config\MatchResult;
 use Psr\Http\Message\ServerRequestInterface;
 
 /**
@@ -20,6 +21,7 @@ final readonly class Fail2BanMatched
         public int $period,
         public int $count,
         public ServerRequestInterface $serverRequest,
+        public MatchResult $matchResult,
     ) {
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flowd\Phirewall\Http\Evaluator;
 
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Http\DecisionPath;
 use Flowd\Phirewall\Throttle\FixedWindowCounter;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -32,7 +33,7 @@ final class EvaluationContext
         public readonly \Closure $normalize,
         public readonly bool $responseHeadersEnabled,
         public readonly bool $rateLimitHeadersEnabled,
-        public readonly bool $owaspDiagnosticsHeaderEnabled,
+        public readonly bool $diagnosticsHeadersEnabled,
         public readonly FixedWindowCounter $counter,
     ) {
     }
@@ -58,5 +59,52 @@ final class EvaluationContext
         return $this->responseHeadersEnabled
             ? ['X-Phirewall' => $type, 'X-Phirewall-Matched' => $rule]
             : [];
+    }
+
+    /**
+     * Extract sanitized diagnostic headers from a match when enabled.
+     *
+     * Matchers opt in via the `diagnostic_headers` metadata key (header => value).
+     * Only `X-Phirewall-`-prefixed header names are copied, and the reserved
+     * built-in names (`X-Phirewall-Matched`, `X-Phirewall-Safelist`) are rejected
+     * case-insensitively, so a matcher cannot spoof security-relevant response
+     * headers regardless of how a consumer merges {@see \Flowd\Phirewall\Http\FirewallResult::$headers}.
+     * Values are cast from scalars with CR/LF/NUL stripped.
+     *
+     * @return array<string, string>
+     */
+    public function diagnosticHeaders(?MatchResult $matchResult): array
+    {
+        if (!$this->diagnosticsHeadersEnabled || !$matchResult instanceof MatchResult) {
+            return [];
+        }
+
+        $declaredHeaders = $matchResult->metadata()['diagnostic_headers'] ?? null;
+        if (!is_array($declaredHeaders)) {
+            return [];
+        }
+
+        $headers = [];
+        foreach ($declaredHeaders as $name => $value) {
+            if (!is_string($name)) {
+                continue;
+            }
+
+            if (!is_scalar($value)) {
+                continue;
+            }
+
+            if (preg_match('/^X-Phirewall-[A-Za-z0-9-]+$/i', $name) !== 1) {
+                continue;
+            }
+
+            if (in_array(strtolower($name), ['x-phirewall-matched', 'x-phirewall-safelist'], true)) {
+                continue;
+            }
+
+            $headers[$name] = str_replace(["\r", "\n", "\0"], '', (string) $value);
+        }
+
+        return $headers;
     }
 }

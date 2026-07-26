@@ -39,8 +39,12 @@ final class ThrottleEvaluator implements EvaluatorInterface
             // A scope filter restricts which requests this throttle counts; an
             // IP-aware scope late-binds the client-IP resolver like any other matcher.
             $scope = $throttleRule->scope();
-            if ($scope instanceof RequestMatcherInterface && !$this->matchWithClientIpResolver($scope, $serverRequest, $defaultIpResolver)->isMatch()) {
-                continue;
+            $scopeMatch = null;
+            if ($scope instanceof RequestMatcherInterface) {
+                $scopeMatch = $this->matchWithClientIpResolver($scope, $serverRequest, $defaultIpResolver);
+                if (!$scopeMatch->isMatch()) {
+                    continue;
+                }
             }
 
             $key = $evaluationContext->config->resolveKey($throttleRule->keyExtractor(), $serverRequest);
@@ -74,6 +78,7 @@ final class ThrottleEvaluator implements EvaluatorInterface
                     count: $count,
                     retryAfter: $retryAfter,
                     serverRequest: $serverRequest,
+                    matchResult: $scopeMatch,
                 ));
 
                 $headers = ['Retry-After' => (string) max(1, $retryAfter)]

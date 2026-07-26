@@ -9,7 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Matcher-carried events expose the `MatchResult`.** `SafelistMatched`, `BlocklistMatched`, `ThrottleExceeded`, `TrackHit`, `Fail2BanMatched`, `Fail2BanBanned` and `Allow2BanBanned` gained a required `MatchResult $matchResult` constructor parameter carrying the match (or filter/scope match) that triggered the event, so listeners can read matcher metadata such as `diagnostic_headers` without enabling the attacker-visible response headers. It is nullable only where no matcher may have run: `ThrottleExceeded` (unscoped throttles), `Fail2BanBanned` and `Allow2BanBanned` (post-handler `recordFailure()`/`recordHit()` signals, filterless allow2ban rules); `TrackHit`'s optional `limit` moved behind it. `Fail2BanBlocked`/`Allow2BanBlocked` stay without it (banned-key blocks evaluate no filter). **BREAKING** only for code constructing these events directly (tests, examples, custom dispatch code); listeners are unaffected.
 - **`Fail2BanBlocked` and `Allow2BanBlocked` PSR-14 events.** Dispatched when a request is blocked because its key is already banned by a fail2ban or allow2ban rule (the `DecisionPath::Fail2BanBlocked` / `DecisionPath::Allow2BanBlocked` paths, which previously dispatched no event). Fields: `rule`, `key`, `serverRequest`. The events fire on every request of a banned key, so a hammering client produces one event per blocked request; high-volume listeners should aggregate. `DiagnosticsCounters` does not observe the new events (that would double-count against `PerformanceMeasured`): `fail2ban_blocked` was already tracked, and `allow2ban_blocked` is now tracked the same way.
+
+- **Matcher-provided diagnostic headers on blocked responses.** A matcher can attach response headers to a block via the `diagnostic_headers` metadata key on its `MatchResult` (e.g. `['X-Phirewall-Owasp-Rule' => '942100']`); `Config::enableDiagnosticsHeaders()` (default off) copies them onto the blocked response. Applies wherever the blocking decision is carried by a matcher: blocklist matches, fail2ban filter matches (both the sub-threshold and the banning block) and the allow2ban banning request; banned-key blocks evaluate no filter and carry none. Only `X-Phirewall-`-prefixed header names are copied, the reserved built-in names (`X-Phirewall-Matched`, `X-Phirewall-Safelist`) are rejected case-insensitively, and values are sanitized (CR/LF/NUL stripped), so a matcher cannot spoof security-relevant response headers. The portable schema gained the `diagnosticsHeaders` option (`PortableConfig::enableDiagnosticsHeaders()`); the legacy `owaspDiagnosticsHeader` key still imports as an alias, so existing serialized and signed configs load unchanged and `typ` stays `phirewall.config.v1`.
+
+### Deprecated
+
+- **`Config::enableOwaspDiagnosticsHeader()` / `owaspDiagnosticsHeaderEnabled()` and `PortableConfig::enableOwaspDiagnosticsHeader()`** - use the generic `enableDiagnosticsHeaders()` / `diagnosticsHeadersEnabled()`; both drive the same flag.
+
+### Removed
+
+- **BREAKING: the hardcoded `owasp_rule_id` to `X-Phirewall-Owasp-Rule` mapping in the blocklist evaluator.** The header now comes exclusively from the generic `diagnostic_headers` mechanism, so it requires a `flowd/phirewall-preset-owasp-crs` version whose matcher emits `diagnostic_headers`. `EvaluationContext`'s constructor parameter `owaspDiagnosticsHeaderEnabled` was renamed to `diagnosticsHeadersEnabled`.
 
 ## 0.8.1 - 2026-07-24
 

@@ -24,7 +24,7 @@ final readonly class SafelistEvaluator implements EvaluatorInterface
             $name = $safelistRule->name();
             $match = $this->matchWithClientIpResolver($safelistRule->matcher(), $serverRequest, $defaultIpResolver);
             if ($match->isMatch()) {
-                $evaluationContext->dispatch(new SafelistMatched($name, $serverRequest));
+                $evaluationContext->dispatch(new SafelistMatched($name, $serverRequest, $match));
 
                 $evaluationContext->decisionPath = DecisionPath::Safelisted;
                 $evaluationContext->decisionRule = $name;

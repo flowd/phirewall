@@ -12,7 +12,8 @@ use Psr\Http\Message\ServerRequestInterface;
 /**
  * Evaluates blocklist rules: returns a blocked result on the first match.
  *
- * Includes OWASP diagnostics header when enabled and the match source is 'owasp'.
+ * Copies matcher-provided diagnostic headers onto the blocked response when
+ * enabled ({@see EvaluationContext::diagnosticHeaders()}).
  */
 final readonly class BlocklistEvaluator implements EvaluatorInterface
 {
@@ -26,15 +27,12 @@ final readonly class BlocklistEvaluator implements EvaluatorInterface
             $name = $blocklistRule->name();
             $match = $this->matchWithClientIpResolver($blocklistRule->matcher(), $serverRequest, $defaultIpResolver);
             if ($match->isMatch()) {
-                $evaluationContext->dispatch(new BlocklistMatched($name, $serverRequest));
+                $evaluationContext->dispatch(new BlocklistMatched($name, $serverRequest, $match));
 
-                $headers = $evaluationContext->responseHeaders('blocklist', $name);
-                if ($evaluationContext->owaspDiagnosticsHeaderEnabled && $match->source() === 'owasp') {
-                    $meta = $match->metadata();
-                    if (isset($meta['owasp_rule_id'])) {
-                        $headers['X-Phirewall-Owasp-Rule'] = (string) $meta['owasp_rule_id'];
-                    }
-                }
+                $headers = [
+                    ...$evaluationContext->diagnosticHeaders($match),
+                    ...$evaluationContext->responseHeaders('blocklist', $name),
+                ];
 
                 $evaluationContext->decisionPath = DecisionPath::Blocklisted;
                 $evaluationContext->decisionRule = $name;

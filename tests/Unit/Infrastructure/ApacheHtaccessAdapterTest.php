@@ -703,6 +703,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
             banSeconds: 3600,
             count: 5,
             serverRequest: new \Nyholm\Psr7\ServerRequest('GET', '/'),
+            matchResult: null,
         );
 
         $listener->onFail2BanBanned($event);
@@ -724,7 +725,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
         );
 
         $request = new \Nyholm\Psr7\ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '198.51.100.77']);
-        $event = new \Flowd\Phirewall\Events\BlocklistMatched('rule-x', $request);
+        $event = new \Flowd\Phirewall\Events\BlocklistMatched('rule-x', $request, \Flowd\Phirewall\Config\MatchResult::matched('custom'));
 
         $listener->onBlocklistMatched($event);
 
@@ -750,6 +751,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
             banSeconds: 3600,
             count: 5,
             serverRequest: new \Nyholm\Psr7\ServerRequest('GET', '/'),
+            matchResult: null,
         );
 
         $listener->onFail2BanBanned($event);
@@ -778,6 +780,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
             banSeconds: 3600,
             count: 5,
             serverRequest: new \Nyholm\Psr7\ServerRequest('GET', '/'),
+            matchResult: null,
         );
 
         $listener->onFail2BanBanned($event);
@@ -792,6 +795,7 @@ final class ApacheHtaccessAdapterTest extends TestCase
             banSeconds: 3600,
             count: 5,
             serverRequest: new \Nyholm\Psr7\ServerRequest('GET', '/'),
+            matchResult: null,
         );
 
         $listener->onFail2BanBanned($event2);

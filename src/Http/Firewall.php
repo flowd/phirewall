@@ -234,7 +234,7 @@ final readonly class Firewall
             normalize: $normalize,
             responseHeadersEnabled: $this->config->responseHeadersEnabled(),
             rateLimitHeadersEnabled: $this->config->rateLimitHeadersEnabled(),
-            owaspDiagnosticsHeaderEnabled: $this->config->owaspDiagnosticsHeaderEnabled(),
+            diagnosticsHeadersEnabled: $this->config->diagnosticsHeadersEnabled(),
             counter: $this->counter,
         );
     }
