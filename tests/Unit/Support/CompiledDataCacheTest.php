@@ -129,6 +129,57 @@ final class CompiledDataCacheTest extends TestCase
         $this->assertSame(2, $counter->count);
     }
 
+    public function testWrongShapeArtifactFallsBackToTheBuilder(): void
+    {
+        $root = vfsStream::setup('cache');
+        [$builder, $counter] = $this->countingBuilder();
+        (new CompiledDataCache($root->url()))->load('rules', [], $builder);
+
+        $compiledFiles = $this->compiledFiles($root->url());
+        $this->assertCount(1, $compiledFiles);
+
+        // Parses fine, but data is not an array.
+        file_put_contents($compiledFiles[0], "<?php return ['sourcesMtime' => 0, 'data' => 'not-an-array'];");
+        CompiledDataCache::clearProcessCache();
+        (new CompiledDataCache($root->url()))->load('rules', [], $builder);
+        $this->assertSame(2, $counter->count);
+
+        // Parses fine, but the artifact is not the expected structure at all.
+        file_put_contents($compiledFiles[0], '<?php return 42;');
+        CompiledDataCache::clearProcessCache();
+        (new CompiledDataCache($root->url()))->load('rules', [], $builder);
+        $this->assertSame(3, $counter->count);
+    }
+
+    public function testRebuildsWhenTheSourceMtimeMovesBackwards(): void
+    {
+        $root = vfsStream::setup('cache');
+        $sourceFile = vfsStream::newFile('rules.conf')->at($root)->setContent('rule v2');
+        $sourceFile->lastModified(1_000_100);
+
+        $cache = new CompiledDataCache($root->url());
+        [$builder, $counter] = $this->countingBuilder();
+        $cache->load('rules', [$sourceFile->url()], $builder);
+        $this->assertSame(1, $counter->count);
+
+        // A rollback restores an OLDER mtime; the equality check must
+        // still treat it as a change.
+        $sourceFile->lastModified(1_000_000);
+        clearstatcache();
+        $cache->load('rules', [$sourceFile->url()], $builder);
+        $this->assertSame(2, $counter->count);
+    }
+
+    public function testRejectsTopLevelObjects(): void
+    {
+        $root = vfsStream::setup('cache');
+        $cache = new CompiledDataCache($root->url());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('plain data');
+        $cache->load('rules', [], static fn(): array => [new \stdClass()]);
+    }
+
     public function testUnwritableDirectoryStillServesTheData(): void
     {
         $root = vfsStream::setup('cache');

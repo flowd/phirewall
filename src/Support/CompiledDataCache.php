@@ -17,9 +17,11 @@ namespace Flowd\Phirewall\Support;
  * trusted, non-web-accessible cache location (the same trust level as a
  * compiled DI container). Only plain data (scalars, null, nested arrays) is
  * accepted; objects are rejected instead of being revived through
- * __set_state(). A read failure, a corrupt artifact, or an unwritable
- * directory silently degrades to rebuilding via the builder: a cache must
- * never take the firewall down.
+ * __set_state(). That rejection guards the write path - the read path
+ * deliberately performs no re-validation, so protection against a tampered
+ * artifact is solely the directory trust. A read failure, a corrupt
+ * artifact, or an unwritable directory silently degrades to rebuilding via
+ * the builder: a cache must never take the firewall down.
  */
 final class CompiledDataCache
 {
@@ -33,10 +35,14 @@ final class CompiledDataCache
     /**
      * Load the data for the identifier, building and caching it when stale.
      *
+     * @param string $identifier Developer-defined and bounded; never derive it
+     *                           from request input (one artifact per identifier).
      * @param list<string> $sourceFiles Files whose newest mtime invalidates the
-     *                                  cache; an empty list disables invalidation.
+     *                                  cache; an empty list disables invalidation
+     *                                  (bump the identifier to bust).
      * @param callable(): array<mixed> $builder Builds the data on a cache miss.
      * @return array<mixed>
+     * @throws \InvalidArgumentException When the builder returns non-plain data.
      */
     public function load(string $identifier, array $sourceFiles, callable $builder): array
     {
@@ -137,6 +143,7 @@ final class CompiledDataCache
 
         $temporaryFile = $compiledFile . '.' . uniqid('tmp', true);
         if (@file_put_contents($temporaryFile, $php) === false) {
+            @unlink($temporaryFile);
             return;
         }
 
