@@ -107,6 +107,7 @@ The [examples/](examples/) folder contains runnable examples:
 | 29 | [portable-config](examples/29-portable-config.php) | PortableConfig as data: round-trip, signing, and DB hot-reload |
 | 30 | [config-composition](examples/30-config-composition.php) | Layer vendor + environment + tenant + deployment Configs into one |
 | 31 | [presets](examples/31-presets.php) | Ready-to-use rule bundles: standalone use, portable inspection, composition, and version checks |
+| 32 | [compiled-data-cache](examples/32-compiled-data-cache.php) | Skip re-parsing expensive preset data: process memoization, OPcache artifact, mtime rebuilds |
 
 ## Features
 

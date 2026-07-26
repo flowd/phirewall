@@ -69,6 +69,7 @@ php examples/01-basic-setup.php
 | [29-portable-config.php](29-portable-config.php) | PortableConfig as data: round-trip, signing, and database hot-reload |
 | [30-config-composition.php](30-config-composition.php) | Layer vendor + environment + tenant + deployment Configs into one effective Config |
 | [31-presets.php](31-presets.php) | Ready-to-use rule bundles (scanner & sensitive-path blocking): standalone use, portable inspection, composition with override-by-name, and the `Presets::VERSION` update check |
+| [32-compiled-data-cache.php](32-compiled-data-cache.php) | Skip re-parsing expensive preset data: per-process memoization, OPcache-served compiled artifact, and mtime-driven rebuilds |
 
 ## Optional Dependencies
 
