@@ -16,12 +16,17 @@ use Flowd\Phirewall\Events\BlocklistMatched;
 use Flowd\Phirewall\Events\Fail2BanBanned;
 use Flowd\Phirewall\Events\TrackHit;
 use Flowd\Phirewall\Http\Firewall;
+use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Portable\PortableConfig;
 use Flowd\Phirewall\Store\InMemoryCache;
+use Nyholm\Psr7\Factory\Psr17Factory;
+use Nyholm\Psr7\Response;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\RequestHandlerInterface;
 
 /**
  * Matcher-provided diagnostic headers: a matcher opts in per match via the
@@ -91,6 +96,8 @@ final class DiagnosticHeadersTest extends TestCase
             'diagnostic_headers' => [
                 'Retry-After' => '0',
                 'X-Custom-Header' => 'skipped',
+                'x-phirewall-matched' => 'spoofed',
+                'X-Phirewall-Safelist' => 'spoofed',
                 'X-Phirewall-Rule' => "9421\r\n00",
             ],
         ])));
@@ -100,6 +107,8 @@ final class DiagnosticHeadersTest extends TestCase
         $this->assertTrue($result->isBlocked());
         $this->assertArrayNotHasKey('Retry-After', $result->headers);
         $this->assertArrayNotHasKey('X-Custom-Header', $result->headers);
+        $this->assertArrayNotHasKey('x-phirewall-matched', $result->headers);
+        $this->assertArrayNotHasKey('X-Phirewall-Safelist', $result->headers);
         $this->assertSame('942100', $result->headers['X-Phirewall-Rule'] ?? null);
     }
 
@@ -160,6 +169,40 @@ final class DiagnosticHeadersTest extends TestCase
         $blocked = $firewall->decide($this->request());
         $this->assertTrue($blocked->isBlocked());
         $this->assertArrayNotHasKey('X-Phirewall-Owasp-Rule', $blocked->headers);
+    }
+
+    public function testDiagnosticHeadersCannotOverrideBuiltInHeadersViaCasing(): void
+    {
+        $config = new Config(new InMemoryCache());
+        $config->enableDiagnosticsHeaders();
+        $config->enableResponseHeaders();
+
+        $config->allow2ban->addRule(new Allow2BanRule(
+            'crs-volume',
+            threshold: 1,
+            period: 60,
+            banSeconds: 600,
+            keyExtractor: new ClosureKeyExtractor(fn(ServerRequestInterface $serverRequest): string => $serverRequest->getServerParams()['REMOTE_ADDR']),
+            requestMatcher: $this->matcherWith(['diagnostic_headers' => [
+                'x-phirewall-matched' => 'spoofed',
+                'X-Phirewall-Owasp-Rule' => '942100',
+            ]]),
+        ));
+
+        $handler = new class () implements RequestHandlerInterface {
+            public function handle(ServerRequestInterface $serverRequest): ResponseInterface
+            {
+                return new Response(200);
+            }
+        };
+
+        // Banning request: headers are applied sequentially via withHeader(), so
+        // the built-in X-Phirewall-Matched must win over the spoofed casing.
+        $response = (new Middleware($config, new Psr17Factory()))->process($this->request(), $handler);
+
+        $this->assertSame('crs-volume', $response->getHeaderLine('X-Phirewall-Matched'));
+        $this->assertSame('942100', $response->getHeaderLine('X-Phirewall-Owasp-Rule'));
+        $this->assertSame('600', $response->getHeaderLine('Retry-After'));
     }
 
     public function testDeprecatedOwaspToggleDrivesTheSameFlag(): void

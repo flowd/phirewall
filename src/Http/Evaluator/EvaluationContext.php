@@ -65,9 +65,11 @@ final class EvaluationContext
      * Extract sanitized diagnostic headers from a match when enabled.
      *
      * Matchers opt in via the `diagnostic_headers` metadata key (header => value).
-     * Only `X-Phirewall-`-prefixed header names are copied so a matcher cannot
-     * override security-relevant response headers; values are cast from scalars
-     * with CR/LF/NUL stripped.
+     * Only `X-Phirewall-`-prefixed header names are copied, and the reserved
+     * built-in names (`X-Phirewall-Matched`, `X-Phirewall-Safelist`) are rejected
+     * case-insensitively, so a matcher cannot spoof security-relevant response
+     * headers regardless of how a consumer merges {@see \Flowd\Phirewall\Http\FirewallResult::$headers}.
+     * Values are cast from scalars with CR/LF/NUL stripped.
      *
      * @return array<string, string>
      */
@@ -93,6 +95,10 @@ final class EvaluationContext
             }
 
             if (preg_match('/^X-Phirewall-[A-Za-z0-9-]+$/i', $name) !== 1) {
+                continue;
+            }
+
+            if (in_array(strtolower($name), ['x-phirewall-matched', 'x-phirewall-safelist'], true)) {
                 continue;
             }
 

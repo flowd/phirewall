@@ -159,9 +159,14 @@ final readonly class Allow2BanEvaluator implements EvaluatorInterface
             $retryAfter = $allow2BanRule->banSeconds();
         }
 
-        $headers = ['Retry-After' => (string) $retryAfter]
-            + $evaluationContext->responseHeaders('allow2ban', $name)
-            + $evaluationContext->diagnosticHeaders($matchResult);
+        // Diagnostics first: headers are applied sequentially via withHeader(),
+        // so the built-in headers listed later stay authoritative even against
+        // differently-cased diagnostic names.
+        $headers = [
+            ...$evaluationContext->diagnosticHeaders($matchResult),
+            'Retry-After' => (string) $retryAfter,
+            ...$evaluationContext->responseHeaders('allow2ban', $name),
+        ];
 
         return new Allow2BanDecision(
             $decisionPath,
