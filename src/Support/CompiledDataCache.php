@@ -25,7 +25,7 @@ namespace Flowd\Phirewall\Support;
  */
 final class CompiledDataCache
 {
-    /** @var array<string, array{sourcesMtime: int, data: array<mixed>}> */
+    /** @var array<string, array<string, array{sourcesMtime: int, data: array<mixed>}>> Keyed by directory, then identifier. */
     private static array $processCache = [];
 
     public function __construct(private readonly string $directory)
@@ -47,9 +47,10 @@ final class CompiledDataCache
     public function load(string $identifier, array $sourceFiles, callable $builder): array
     {
         $sourcesMtime = $this->latestMtime($sourceFiles);
-        $processKey = $this->directory . '|' . $identifier;
 
-        $memoized = self::$processCache[$processKey] ?? null;
+        // Nested keys (directory, then identifier) so neither can collide via a
+        // shared delimiter.
+        $memoized = self::$processCache[$this->directory][$identifier] ?? null;
         if ($memoized !== null && $memoized['sourcesMtime'] === $sourcesMtime) {
             return $memoized['data'];
         }
@@ -63,7 +64,7 @@ final class CompiledDataCache
             $this->writeCompiled($compiledFile, $sourcesMtime, $data);
         }
 
-        self::$processCache[$processKey] = ['sourcesMtime' => $sourcesMtime, 'data' => $data];
+        self::$processCache[$this->directory][$identifier] = ['sourcesMtime' => $sourcesMtime, 'data' => $data];
 
         return $data;
     }

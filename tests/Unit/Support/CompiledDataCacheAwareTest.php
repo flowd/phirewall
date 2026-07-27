@@ -146,4 +146,24 @@ final class CompiledDataCacheAwareTest extends TestCase
         $this->assertTrue($ipMatcher->match($craftedRequest)->isMatch());
         $this->assertFalse($ipMatcher->match($originalRequest)->isMatch());
     }
+
+    public function testIpMatcherRecompilesWhenTheArtifactShapeIsUnexpected(): void
+    {
+        $root = vfsStream::setup('cache');
+        $compiledDataCache = new CompiledDataCache($root->url());
+        $entries = ['203.0.113.0/24'];
+
+        // Seed a parseable but wrong-shape artifact (no cidrs/exact keys). The
+        // matcher must fall back to compiling from its entries, not match
+        // nothing (which for a blocklist would be fail-open).
+        $identifier = 'ip-matcher-v1-' . sha1(implode("\n", $entries));
+        $compiledDataCache->load($identifier, [], static fn(): array => ['unexpected' => true]);
+        CompiledDataCache::clearProcessCache();
+
+        $ipMatcher = new \Flowd\Phirewall\Matchers\IpMatcher($entries);
+        $ipMatcher->useCompiledDataCache($compiledDataCache);
+
+        $request = new \Nyholm\Psr7\ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.99']);
+        $this->assertTrue($ipMatcher->match($request)->isMatch());
+    }
 }

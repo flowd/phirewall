@@ -136,14 +136,21 @@ final class IpMatcher implements RequestMatcherInterface, ClientIpResolverAware,
             $tables = self::compileTables($entries);
         }
 
-        $cidrs = $tables['cidrs'] ?? [];
-        $exact = $tables['exact'] ?? [];
-        if (is_array($cidrs) && is_array($exact)) {
-            /** @var list<array{network: string, bits: int}> $cidrs */
-            /** @var array<string, bool> $exact */
-            $this->compiled = $cidrs;
-            $this->exactIps = $exact;
+        $cidrs = $tables['cidrs'] ?? null;
+        $exact = $tables['exact'] ?? null;
+        if (!is_array($cidrs) || !is_array($exact)) {
+            // A stale, corrupt, or otherwise unexpected artifact shape would
+            // leave the tables empty, silently matching nothing (fail-open for
+            // a blocklist). Recompile from the entries we still hold instead.
+            $tables = self::compileTables($entries);
+            $cidrs = $tables['cidrs'];
+            $exact = $tables['exact'];
         }
+
+        /** @var list<array{network: string, bits: int}> $cidrs */
+        /** @var array<string, bool> $exact */
+        $this->compiled = $cidrs;
+        $this->exactIps = $exact;
     }
 
     /**
