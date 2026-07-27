@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Http;
 
 use Flowd\Phirewall\BanType;
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Config\RequestMatcherInterface;
 use Flowd\Phirewall\Context\RecordedSignal;
 use Flowd\Phirewall\Events\PerformanceMeasured;
 use Flowd\Phirewall\Http\Evaluator\Allow2BanEvaluator;
@@ -16,6 +17,8 @@ use Flowd\Phirewall\Http\Evaluator\Fail2BanEvaluator;
 use Flowd\Phirewall\Http\Evaluator\SafelistEvaluator;
 use Flowd\Phirewall\Http\Evaluator\ThrottleEvaluator;
 use Flowd\Phirewall\Http\Evaluator\TrackEvaluator;
+use Flowd\Phirewall\Matchers\CompiledDataCacheAware;
+use Flowd\Phirewall\Support\CompiledDataCache;
 use Flowd\Phirewall\Throttle\FixedWindowCounter;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -69,6 +72,63 @@ final readonly class Firewall
             new ThrottleEvaluator(),
             $this->allow2BanEvaluator,
         ];
+
+        $this->injectCompiledDataCache();
+    }
+
+    /**
+     * Hand the Config's compiled-data cache to every aware matcher, filter,
+     * and throttle scope. Runs at construction, so rules must be registered
+     * before the Firewall (and thus the Middleware) is built.
+     */
+    private function injectCompiledDataCache(): void
+    {
+        $compiledDataCache = $this->config->compiledDataCache();
+        if (!$compiledDataCache instanceof CompiledDataCache) {
+            return;
+        }
+
+        foreach ($this->collectMatchers() as $requestMatcher) {
+            if ($requestMatcher instanceof CompiledDataCacheAware) {
+                $requestMatcher->useCompiledDataCache($compiledDataCache);
+            }
+        }
+    }
+
+    /**
+     * @return \Generator<int, RequestMatcherInterface>
+     */
+    private function collectMatchers(): \Generator
+    {
+        foreach ($this->config->safelists->rules() as $safelistRule) {
+            yield $safelistRule->matcher();
+        }
+
+        foreach ($this->config->blocklists->rules() as $blocklistRule) {
+            yield $blocklistRule->matcher();
+        }
+
+        foreach ($this->config->fail2ban->rules() as $fail2BanRule) {
+            yield $fail2BanRule->filter();
+        }
+
+        foreach ($this->config->allow2ban->rules() as $allow2BanRule) {
+            $filter = $allow2BanRule->filter();
+            if ($filter instanceof RequestMatcherInterface) {
+                yield $filter;
+            }
+        }
+
+        foreach ($this->config->tracks->rules() as $trackRule) {
+            yield $trackRule->filter();
+        }
+
+        foreach ($this->config->throttles->rules() as $throttleRule) {
+            $scope = $throttleRule->scope();
+            if ($scope instanceof RequestMatcherInterface) {
+                yield $scope;
+            }
+        }
     }
 
     /**

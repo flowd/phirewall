@@ -184,6 +184,7 @@ final class CompiledDataCacheTest extends TestCase
     {
         $root = vfsStream::setup('cache');
         $root->chmod(0o555);
+
         $cache = new CompiledDataCache($root->url());
         [$builder, $counter] = $this->countingBuilder();
 
