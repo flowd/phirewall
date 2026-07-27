@@ -132,7 +132,7 @@ final class CompiledDataCacheAwareTest extends TestCase
         // Seed the content-addressed artifact with tables for a DIFFERENT
         // address; the matcher must follow the artifact, proving it never
         // recompiles the entries.
-        $identifier = 'ip-matcher-' . sha1(implode("\n", $entries));
+        $identifier = 'ip-matcher-v1-' . sha1(implode("\n", $entries));
         $crafted = ['cidrs' => [], 'exact' => [inet_pton('192.0.2.1') => true]];
         $compiledDataCache->load($identifier, [], static fn(): array => $crafted);
         CompiledDataCache::clearProcessCache();

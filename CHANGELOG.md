@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`IpMatcher` compiles its lookup tables on the first match instead of at construction.** With a compiled-data cache on the evaluating `Config` the binary tables load from a content-addressed artifact (`Matchers\CompiledDataCacheAware`), so large IP lists (threat feeds, `PortableConfig::filterIp()`) skip the per-request compilation entirely. Error behaviour is unchanged: non-string entries still throw at construction, unparseable entries are still skipped silently.
+- **`IpMatcher` compiles its lookup tables on the first match instead of at construction.** With a compiled-data cache on the evaluating `Config` the binary tables load from a content-addressed artifact (`Matchers\CompiledDataCacheAware`), so large IP lists (threat feeds, `PortableConfig::filterIp()`) skip the per-request compilation entirely. The artifact identifier carries a table-format version, so a phirewall upgrade that changes the compiled shape rebuilds automatically. Error behaviour is unchanged: non-string entries still throw at construction, unparseable entries are still skipped silently.
 
 ### Deprecated
 

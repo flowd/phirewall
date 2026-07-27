@@ -29,6 +29,14 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final class IpMatcher implements RequestMatcherInterface, ClientIpResolverAware, CompiledDataCacheAware
 {
+    /**
+     * Format version of the compiled lookup tables. The compiled-cache
+     * identifier is keyed on the entry content alone (no source files), so
+     * bump this whenever {@see compileTables()} or {@see CidrMatcher} changes
+     * the table shape, to force existing artifacts to rebuild after an upgrade.
+     */
+    private const COMPILED_SCHEMA_VERSION = 1;
+
     /** @var list<string>|null Entries awaiting compilation; null once compiled. */
     private ?array $pendingEntries;
 
@@ -122,7 +130,7 @@ final class IpMatcher implements RequestMatcherInterface, ClientIpResolverAware,
         if ($this->compiledDataCache instanceof CompiledDataCache) {
             // Content-addressed identifier: a changed list gets a fresh
             // artifact, so no source files need watching.
-            $identifier = 'ip-matcher-' . sha1(implode("\n", $entries));
+            $identifier = 'ip-matcher-v' . self::COMPILED_SCHEMA_VERSION . '-' . sha1(implode("\n", $entries));
             $tables = $this->compiledDataCache->load($identifier, [], static fn(): array => self::compileTables($entries));
         } else {
             $tables = self::compileTables($entries);
