@@ -109,4 +109,41 @@ final class CompiledDataCacheAwareTest extends TestCase
 
         $this->assertNull($matcher->received);
     }
+
+    public function testIpMatcherCompilesLazilyAndWritesAnArtifact(): void
+    {
+        $root = vfsStream::setup('cache');
+        $compiledDataCache = new CompiledDataCache($root->url());
+
+        $ipMatcher = new \Flowd\Phirewall\Matchers\IpMatcher(['203.0.113.0/24', '198.51.100.7']);
+        $ipMatcher->useCompiledDataCache($compiledDataCache);
+
+        $request = new \Nyholm\Psr7\ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.99']);
+        $this->assertTrue($ipMatcher->match($request)->isMatch());
+        $this->assertNotSame([], $root->getChildren(), 'The compiled tables must be persisted.');
+    }
+
+    public function testIpMatcherConsumesTheCompiledArtifact(): void
+    {
+        $root = vfsStream::setup('cache');
+        $compiledDataCache = new CompiledDataCache($root->url());
+        $entries = ['203.0.113.0/24'];
+
+        // Seed the content-addressed artifact with tables for a DIFFERENT
+        // address; the matcher must follow the artifact, proving it never
+        // recompiles the entries.
+        $identifier = 'ip-matcher-' . sha1(implode("\n", $entries));
+        $crafted = ['cidrs' => [], 'exact' => [inet_pton('192.0.2.1') => true]];
+        $compiledDataCache->load($identifier, [], static fn(): array => $crafted);
+        CompiledDataCache::clearProcessCache();
+
+        $ipMatcher = new \Flowd\Phirewall\Matchers\IpMatcher($entries);
+        $ipMatcher->useCompiledDataCache($compiledDataCache);
+
+        $craftedRequest = new \Nyholm\Psr7\ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '192.0.2.1']);
+        $originalRequest = new \Nyholm\Psr7\ServerRequest('GET', '/', [], null, '1.1', ['REMOTE_ADDR' => '203.0.113.99']);
+
+        $this->assertTrue($ipMatcher->match($craftedRequest)->isMatch());
+        $this->assertFalse($ipMatcher->match($originalRequest)->isMatch());
+    }
 }
