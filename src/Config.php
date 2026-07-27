@@ -21,6 +21,7 @@ use Flowd\Phirewall\Pattern\SnapshotBlocklistMatcher;
 use Flowd\Phirewall\Portable\PortableConfig;
 use Flowd\Phirewall\Store\CacheKeyRules;
 use Flowd\Phirewall\Store\ClockInterface;
+use Flowd\Phirewall\Support\CompiledDataCache;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -82,6 +83,8 @@ final class Config implements ConfigLayer
     /** Fail open on firewall-internal errors. See {@see setFailOpen()} for the security trade-off. */
     private bool $failOpen = true;
 
+    private ?CompiledDataCache $compiledDataCache = null;
+
     public function __construct(
         public readonly CacheInterface $cache,
         public readonly ?EventDispatcherInterface $eventDispatcher = null,
@@ -136,8 +139,9 @@ final class Config implements ConfigLayer
      *    ({@see clientIpResolver()}, {@see resolveKey()}), so a later layer's
      *    resolver applies to rules carried over from earlier layers. Only a matcher
      *    given an EXPLICIT resolver at construction keeps it regardless of layering.
-     *  - **Infrastructure** (the PSR-16 cache, the PSR-14 event dispatcher and the
-     *    clock) is inherited from the base layer; overlays do not override it.
+     *  - **Infrastructure** (the PSR-16 cache, the PSR-14 event dispatcher, the
+     *    clock and the compiled-data cache) is inherited from the base layer;
+     *    overlays do not override it.
      *
      * Rules are shared by reference, which is safe because rule objects are
      * immutable value objects ({@see Config\Rule\RuleInterface}).
@@ -152,6 +156,8 @@ final class Config implements ConfigLayer
     private function compose(self $base, self ...$overlays): self
     {
         $composed = new self($base->cache, $base->eventDispatcher, $base->clock);
+        $composed->setCompiledDataCache($base->compiledDataCache);
+
         $layers = [$base, ...$overlays];
 
         // Merge every layer's pattern backends first (last-wins) so the composed
@@ -466,6 +472,22 @@ final class Config implements ConfigLayer
     public function isFailOpen(): bool
     {
         return $this->failOpen;
+    }
+
+    /**
+     * Provide a compiled-data cache for matchers that build expensive data
+     * lazily ({@see Matchers\CompiledDataCacheAware}). Infrastructure like the
+     * PSR-16 cache: composition inherits it from the base layer.
+     */
+    public function setCompiledDataCache(?CompiledDataCache $compiledDataCache): self
+    {
+        $this->compiledDataCache = $compiledDataCache;
+        return $this;
+    }
+
+    public function compiledDataCache(): ?CompiledDataCache
+    {
+        return $this->compiledDataCache;
     }
 
     // ── PSR-17 integration ────────────────────────────────────────────────

@@ -107,6 +107,7 @@ The [examples/](examples/) folder contains runnable examples:
 | 29 | [portable-config](examples/29-portable-config.php) | PortableConfig as data: round-trip, signing, and DB hot-reload |
 | 30 | [config-composition](examples/30-config-composition.php) | Layer vendor + environment + tenant + deployment Configs into one |
 | 31 | [presets](examples/31-presets.php) | Ready-to-use rule bundles: standalone use, portable inspection, composition, and version checks |
+| 32 | [compiled-data-cache](examples/32-compiled-data-cache.php) | Skip re-parsing expensive preset data: process memoization, OPcache artifact, mtime rebuilds |
 
 ## Features
 
@@ -149,6 +150,8 @@ The [examples/](examples/) folder contains runnable examples:
 | `PdoCache` | SQL-backed persistence (MySQL, PostgreSQL, SQLite) |
 
 All backends are PSR-16 caches and validate keys accordingly: a key must be a non-empty string with none of the PSR-16 reserved characters (`{}()/\@:`). As an additional restriction of its own (beyond PSR-16), Phirewall also rejects control and whitespace characters, and the multi-key methods reject non-string keys. Invalid keys raise `Flowd\Phirewall\Store\InvalidCacheKeyException` (a `Psr\SimpleCache\InvalidArgumentException`). Phirewall's own keys are always compliant.
+
+For expensive-to-build plain data (parsed rule sets, IP feeds), `Flowd\Phirewall\Support\CompiledDataCache` offers a two-level cache for preset packages: per-process memoization plus an OPcache-served compiled PHP artifact, both revalidated against the source files' mtimes. It is not a PSR-16 backend and stores no counters or bans - it only caches expensively built preset data. Cache failures degrade silently to rebuilding; keep the artifact directory outside the web root.
 
 ## Documentation
 
