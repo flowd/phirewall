@@ -69,13 +69,9 @@ $config->throttles->add(
     name: 'write-ops',
     limit: 30,
     period: 60,
-    key: function (ServerRequestInterface $serverRequest): ?string {
-        if (in_array($serverRequest->getMethod(), ['POST', 'PUT', 'PATCH', 'DELETE'])) {
-            return $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
-        }
-
-        return null; // Skip for GET requests
-    }
+    // Scope restricts which requests count; keyless rules count per client IP.
+    scope: fn(ServerRequestInterface $serverRequest): bool =>
+        in_array($serverRequest->getMethod(), ['POST', 'PUT', 'PATCH', 'DELETE'], true)
 );
 echo "3. Write ops limit: 30 req/min per IP\n";
 
@@ -88,13 +84,8 @@ $config->throttles->add(
     name: 'search',
     limit: 10,
     period: 60,
-    key: function (ServerRequestInterface $serverRequest): ?string {
-        if ($serverRequest->getUri()->getPath() === '/api/search') {
-            return $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
-        }
-
-        return null;
-    }
+    scope: fn(ServerRequestInterface $serverRequest): bool =>
+        $serverRequest->getUri()->getPath() === '/api/search'
 );
 echo "4. Search endpoint: 10 req/min per IP\n";
 
@@ -103,13 +94,8 @@ $config->throttles->add(
     name: 'export',
     limit: 2,
     period: 300, // 5 minutes
-    key: function (ServerRequestInterface $serverRequest): ?string {
-        if (str_starts_with($serverRequest->getUri()->getPath(), '/api/export')) {
-            return $serverRequest->getServerParams()['REMOTE_ADDR'] ?? null;
-        }
-
-        return null;
-    }
+    scope: fn(ServerRequestInterface $serverRequest): bool =>
+        str_starts_with($serverRequest->getUri()->getPath(), '/api/export')
 );
 echo "5. Export endpoint: 2 req/5min per IP\n";
 

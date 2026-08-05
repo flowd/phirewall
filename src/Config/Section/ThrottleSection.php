@@ -6,6 +6,7 @@ namespace Flowd\Phirewall\Config\Section;
 
 use Closure;
 use Flowd\Phirewall\Config\ClosureKeyExtractor;
+use Flowd\Phirewall\Config\ClosureRequestMatcher;
 use Flowd\Phirewall\Config\Rule\ThrottleRule;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -16,14 +17,22 @@ final class ThrottleSection
 
     /**
      * Add a throttle rule. Omit $key to key on the client IP (Config IP resolver, else REMOTE_ADDR).
+     * $scope restricts which requests the throttle counts; non-matching requests skip the rule.
      *
      * @param int|Closure(ServerRequestInterface): int $limit
      * @param int|Closure(ServerRequestInterface): int $period
      * @param (Closure(ServerRequestInterface): ?string)|null $key
+     * @param (Closure(ServerRequestInterface): bool)|null $scope
      */
-    public function add(string $name, int|Closure $limit, int|Closure $period, ?Closure $key = null): self
+    public function add(string $name, int|Closure $limit, int|Closure $period, ?Closure $key = null, ?Closure $scope = null): self
     {
-        return $this->addRule(new ThrottleRule($name, $limit, $period, $key instanceof Closure ? new ClosureKeyExtractor($key) : null));
+        return $this->addRule(new ThrottleRule(
+            $name,
+            $limit,
+            $period,
+            $key instanceof Closure ? new ClosureKeyExtractor($key) : null,
+            scope: $scope instanceof Closure ? new ClosureRequestMatcher($scope) : null,
+        ));
     }
 
     /**
@@ -33,15 +42,24 @@ final class ThrottleSection
      * average of the current and previous window counters to prevent the
      * "double burst" problem at window boundaries.
      *
-     * When $key is omitted it defaults to the client IP (see {@see add()}).
+     * When $key is omitted it defaults to the client IP, and $scope restricts
+     * which requests are counted (see {@see add()}).
      *
      * @param int|Closure(ServerRequestInterface): int $limit
      * @param int|Closure(ServerRequestInterface): int $period
      * @param (Closure(ServerRequestInterface): ?string)|null $key
+     * @param (Closure(ServerRequestInterface): bool)|null $scope
      */
-    public function sliding(string $name, int|Closure $limit, int|Closure $period, ?Closure $key = null): self
+    public function sliding(string $name, int|Closure $limit, int|Closure $period, ?Closure $key = null, ?Closure $scope = null): self
     {
-        return $this->addRule(new ThrottleRule($name, $limit, $period, $key instanceof Closure ? new ClosureKeyExtractor($key) : null, sliding: true));
+        return $this->addRule(new ThrottleRule(
+            $name,
+            $limit,
+            $period,
+            $key instanceof Closure ? new ClosureKeyExtractor($key) : null,
+            sliding: true,
+            scope: $scope instanceof Closure ? new ClosureRequestMatcher($scope) : null,
+        ));
     }
 
     /**
@@ -53,12 +71,14 @@ final class ThrottleSection
      * Example: $config->throttles->multi('api', [1 => 3, 60 => 100], $key)
      *   → creates "api:1s" (3 req/s burst) and "api:60s" (100 req/min sustained).
      *
-     * When $key is omitted it defaults to the client IP (see {@see add()}).
+     * When $key is omitted it defaults to the client IP, and $scope restricts
+     * which requests are counted (see {@see add()}).
      *
      * @param array<int, int> $windowLimits Map of period (seconds) => limit (max requests)
      * @param (Closure(ServerRequestInterface): ?string)|null $key
+     * @param (Closure(ServerRequestInterface): bool)|null $scope
      */
-    public function multi(string $name, array $windowLimits, ?Closure $key = null): self
+    public function multi(string $name, array $windowLimits, ?Closure $key = null, ?Closure $scope = null): self
     {
         if ($windowLimits === []) {
             throw new \InvalidArgumentException(
@@ -82,7 +102,7 @@ final class ThrottleSection
                 );
             }
 
-            $this->add($name . ':' . $period . 's', $limit, $period, $key);
+            $this->add($name . ':' . $period . 's', $limit, $period, $key, $scope);
         }
 
         return $this;

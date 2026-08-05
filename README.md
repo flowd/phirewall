@@ -39,6 +39,11 @@ $config->blocklists->add('scanners', fn($req) => (bool) preg_match('#/\.git($|/)
 // Rate limit: 100 requests per minute per IP
 $config->throttles->add('api', limit: 100, period: 60 /* seconds */);
 
+// Scoped rate limit: only /search requests count, still per client IP
+$config->throttles->add('search', limit: 10, period: 60,
+    scope: fn($req) => $req->getUri()->getPath() === '/search',
+);
+
 // Ban IP after 5 failed logins in 5 minutes. Fail2Ban blocks EVERY filter match,
 // so a login rule keeps its filter closed (fn($req) => false) and is driven by
 // handler-signaled failures via RequestContext instead of a request-time filter
@@ -434,12 +439,11 @@ $config->throttles->add('user', fn($req) => $req->getHeaderLine('X-Plan') === 'p
 ### Login Protection
 
 ```php
-// Throttle login attempts
-$config->throttles->add('login', limit: 10, period: 60, key: function($req) {
-    return $req->getUri()->getPath() === '/login'
-        ? $req->getServerParams()['REMOTE_ADDR']
-        : null;
-});
+// Throttle login attempts: scope restricts which requests count,
+// the keyless rule counts per client IP (Config IP resolver, else REMOTE_ADDR).
+$config->throttles->add('login', limit: 10, period: 60,
+    scope: fn($req) => $req->getUri()->getPath() === '/login',
+);
 
 // Ban after failures — signaled via RequestContext from your handler.
 // Fail2Ban blocks on any filter match, and a real login POST is legitimate, so the
