@@ -59,7 +59,7 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientI
         }
 
         $rebound = new self($patternBackend, $this->ipExtractor, $this->backendName);
-        $rebound->failOpen = $this->failOpen;
+        $rebound->useFailOpen($this->failOpen);
         return $rebound;
     }
 
