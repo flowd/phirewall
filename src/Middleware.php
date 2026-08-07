@@ -50,7 +50,10 @@ final readonly class Middleware implements MiddlewareInterface
         // Process any fail2ban signals recorded by the handler
         if ($context->hasRecordedSignals()) {
             try {
-                $this->processContextSignals($context, $serverRequest);
+                $signalBanResult = $this->processContextSignals($context, $serverRequest);
+                if ($signalBanResult instanceof Http\FirewallResult && $this->config->blockOnSignalBanEnabled()) {
+                    return $this->buildBlockedResponse($signalBanResult, $serverRequest);
+                }
             } catch (\Throwable $throwable) {
                 if (!$this->config->isFailOpen()) {
                     throw $throwable;
@@ -76,12 +79,19 @@ final readonly class Middleware implements MiddlewareInterface
 
     /**
      * Process all signals recorded by the handler via RequestContext.
+     *
+     * Every signal is processed (counted) even after one imposed a ban; the
+     * first ban's blocked result is returned, null when no signal banned.
      */
-    private function processContextSignals(RequestContext $requestContext, ServerRequestInterface $serverRequest): void
+    private function processContextSignals(RequestContext $requestContext, ServerRequestInterface $serverRequest): ?Http\FirewallResult
     {
+        $signalBanResult = null;
         foreach ($requestContext->getRecordedSignals() as $recordedSignal) {
-            $this->firewall->processRecordedSignal($recordedSignal, $serverRequest);
+            $result = $this->firewall->processRecordedSignal($recordedSignal, $serverRequest);
+            $signalBanResult ??= $result;
         }
+
+        return $signalBanResult;
     }
 
     private function handleError(

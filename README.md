@@ -466,6 +466,11 @@ if (!$authenticated && $context instanceof RequestContext) {
 }
 ```
 
+By default a banning signal leaves the current response untouched; the ban
+applies from the next request. Opt in to a 403 for the banning request itself
+with `$config->enableBlockOnSignalBan()` — the middleware then replaces the
+handler response with the regular blocked response.
+
 No failure signal available from your handler? Use **Allow2Ban with a filter**
 and count every login attempt instead: matching requests are counted but pass
 until the threshold, then the key is banned. Pick the threshold generously,
