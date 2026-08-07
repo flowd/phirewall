@@ -468,8 +468,15 @@ if (!$authenticated && $context instanceof RequestContext) {
 
 By default a banning signal leaves the current response untouched; the ban
 applies from the next request. Opt in to a 403 for the banning request itself
-with `$config->enableBlockOnSignalBan()` — the middleware then replaces the
+with `$config->enableBlockOnSignalBan()` - the middleware then replaces the
 handler response with the regular blocked response.
+
+Note that this 403 is applied only after the handler has fully run: the
+application has already processed the possibly malicious request, and its side
+effects (database writes, e-mails, state changes) have happened. The flag only
+changes what the client sees. When processing must stop as soon as the failure
+is known, that decision belongs in your handler - record the signal and abort
+your own processing there.
 
 No failure signal available from your handler? Use **Allow2Ban with a filter**
 and count every login attempt instead: matching requests are counted but pass
