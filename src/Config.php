@@ -83,6 +83,9 @@ final class Config implements ConfigLayer
     /** Fail open on firewall-internal errors. See {@see setFailOpen()} for the security trade-off. */
     private bool $failOpen = true;
 
+    /** Replace the handler response with the blocked response when a post-handler signal bans. */
+    private bool $blockOnSignalBanEnabled = false;
+
     private ?CompiledDataCache $compiledDataCache = null;
 
     public function __construct(
@@ -211,6 +214,7 @@ final class Config implements ConfigLayer
         $composed->enableRateLimitHeaders($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->rateLimitHeadersEnabled, $layers), false));
         $composed->enableDiagnosticsHeaders($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->diagnosticsHeadersEnabled, $layers), false));
         $composed->enableResponseHeaders($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->responseHeadersEnabled, $layers), false));
+        $composed->enableBlockOnSignalBan($this->lastExplicit(array_map(static fn(self $layer): bool => $layer->blockOnSignalBanEnabled, $layers), false));
         $composed->setKeyPrefix($this->lastExplicit(array_map(static fn(self $layer): string => $layer->keyPrefix, $layers), 'phirewall'));
 
         $ipResolver = $this->lastExplicit(array_map(static fn(self $layer): ?\Closure => $layer->ipResolver, $layers), null);
@@ -472,6 +476,27 @@ final class Config implements ConfigLayer
     public function isFailOpen(): bool
     {
         return $this->failOpen;
+    }
+
+    /**
+     * Turn the handler response into the regular blocked response (403) when a
+     * post-handler signal ({@see Context\RequestContext::recordFailure()} /
+     * {@see Context\RequestContext::recordHit()}) imposes a ban on the current
+     * request. Off by default: signals then only count and ban, and the ban
+     * takes effect from the next request.
+     *
+     * The handler has already run when the ban is imposed; enabling this only
+     * replaces the outgoing response, it does not undo the handler's work.
+     */
+    public function enableBlockOnSignalBan(bool $enabled = true): self
+    {
+        $this->blockOnSignalBanEnabled = $enabled;
+        return $this;
+    }
+
+    public function blockOnSignalBanEnabled(): bool
+    {
+        return $this->blockOnSignalBanEnabled;
     }
 
     /**

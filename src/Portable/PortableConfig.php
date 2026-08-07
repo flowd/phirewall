@@ -58,7 +58,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * @phpstan-type SchemaTracks list<array{name: string, period: int, filter: Filter, key: Key, limit?: int}>
  * @phpstan-type SchemaPatternBackends list<array{name: string, entries: list<PatternEntryArray>}>
  * @phpstan-type SchemaPatternBlocklists list<array{name: string, backend: string}>
- * @phpstan-type SchemaOptions array{rateLimitHeaders?: bool, responseHeaders?: bool, diagnosticsHeaders?: bool, owaspDiagnosticsHeader?: bool, failOpen?: bool, keyPrefix?: string}
+ * @phpstan-type SchemaOptions array{rateLimitHeaders?: bool, responseHeaders?: bool, diagnosticsHeaders?: bool, owaspDiagnosticsHeader?: bool, failOpen?: bool, blockOnSignalBan?: bool, keyPrefix?: string}
  * @phpstan-type Schema array{
  *   safelists: SchemaSafelists,
  *   blocklists: SchemaBlocklists,
@@ -156,6 +156,16 @@ final class PortableConfig implements ConfigLayer
     public function setFailOpen(bool $failOpen): self
     {
         $this->schema['options']['failOpen'] = $failOpen;
+        return $this;
+    }
+
+    /**
+     * Replace the handler response with the blocked response when a
+     * post-handler signal imposes a ban. Mirrors {@see Config::enableBlockOnSignalBan()}.
+     */
+    public function enableBlockOnSignalBan(bool $enabled = true): self
+    {
+        $this->schema['options']['blockOnSignalBan'] = $enabled;
         return $this;
     }
 
@@ -625,6 +635,10 @@ final class PortableConfig implements ConfigLayer
             throw new \InvalidArgumentException('PortableConfig option "failOpen" must be a boolean.');
         }
 
+        if (array_key_exists('blockOnSignalBan', $options) && !is_bool($options['blockOnSignalBan'])) {
+            throw new \InvalidArgumentException('PortableConfig option "blockOnSignalBan" must be a boolean.');
+        }
+
         $self->schema['options'] = $options;
         // Validate content. Every section entry must be a JSON object; a scalar
         // (or other non-array) from decoded JSON is a malformed transport payload
@@ -883,6 +897,10 @@ final class PortableConfig implements ConfigLayer
 
         if (array_key_exists('failOpen', $options)) {
             $config->setFailOpen($options['failOpen']);
+        }
+
+        if (array_key_exists('blockOnSignalBan', $options)) {
+            $config->enableBlockOnSignalBan($options['blockOnSignalBan']);
         }
 
         if (isset($options['keyPrefix']) && is_string($options['keyPrefix'])) {

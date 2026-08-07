@@ -206,10 +206,15 @@ final readonly class Firewall
      * ignored (the handler may post signals defensively without checking
      * config). Already-banned keys short-circuit so a second signal in the
      * same window does not double-count or re-emit the event.
+     *
+     * Returns the blocked result when this signal imposed a ban, null
+     * otherwise. Callers decide what to do with it; the Middleware turns it
+     * into the blocked response when {@see Config::enableBlockOnSignalBan()}
+     * is active.
      */
-    public function processRecordedSignal(RecordedSignal $recordedSignal, ServerRequestInterface $serverRequest): void
+    public function processRecordedSignal(RecordedSignal $recordedSignal, ServerRequestInterface $serverRequest): ?FirewallResult
     {
-        match ($recordedSignal->banType) {
+        return match ($recordedSignal->banType) {
             BanType::Fail2Ban => $this->processRecordedFail2BanSignal($recordedSignal, $serverRequest),
             BanType::Allow2Ban => $this->processRecordedAllow2BanSignal($recordedSignal, $serverRequest),
         };
@@ -218,49 +223,68 @@ final readonly class Firewall
     private function processRecordedFail2BanSignal(
         RecordedSignal $recordedSignal,
         ServerRequestInterface $serverRequest,
-    ): void {
+    ): ?FirewallResult {
         $rule = $this->config->fail2ban->rules()[$recordedSignal->ruleName] ?? null;
         if ($rule === null) {
-            return;
+            return null;
         }
 
         $rawKey = $recordedSignal->key ?? $this->config->resolveKey($rule->keyExtractor(), $serverRequest);
         if ($rawKey === null || $rawKey === '') {
-            return;
+            return null;
         }
 
         $normalizedKey = $this->normalizeDiscriminator($rawKey);
 
         $banKey = $this->config->cacheKeyGenerator()->fail2BanBanKey($recordedSignal->ruleName, $normalizedKey);
         if ($this->config->cache->has($banKey)) {
-            return;
+            return null;
         }
 
-        $this->fail2BanEvaluator->incrementAndBanIfNeeded($rule, $normalizedKey, $serverRequest, $this->createContext());
+        $evaluationContext = $this->createContext();
+        $count = $this->fail2BanEvaluator->incrementAndBanIfNeeded($rule, $normalizedKey, $serverRequest, $evaluationContext);
+        if ($count < $rule->threshold()) {
+            return null;
+        }
+
+        return FirewallResult::blocked(
+            $recordedSignal->ruleName,
+            'fail2ban',
+            $evaluationContext->responseHeaders('fail2ban', $recordedSignal->ruleName),
+        );
     }
 
     private function processRecordedAllow2BanSignal(
         RecordedSignal $recordedSignal,
         ServerRequestInterface $serverRequest,
-    ): void {
+    ): ?FirewallResult {
         $rule = $this->config->allow2ban->rules()[$recordedSignal->ruleName] ?? null;
         if ($rule === null) {
-            return;
+            return null;
         }
 
         $rawKey = $recordedSignal->key ?? $this->config->resolveKey($rule->keyExtractor(), $serverRequest);
         if ($rawKey === null || $rawKey === '') {
-            return;
+            return null;
         }
 
         $normalizedKey = $this->normalizeDiscriminator($rawKey);
 
         $banKey = $this->config->cacheKeyGenerator()->allow2BanBanKey($recordedSignal->ruleName, $normalizedKey);
         if ($this->config->cache->has($banKey)) {
-            return;
+            return null;
         }
 
-        $this->allow2BanEvaluator->incrementAndBanIfNeeded($rule, $normalizedKey, $serverRequest, $this->createContext());
+        $evaluationContext = $this->createContext();
+        if (!$this->allow2BanEvaluator->incrementAndBanIfNeeded($rule, $normalizedKey, $serverRequest, $evaluationContext)) {
+            return null;
+        }
+
+        // The ban was imposed just now, so Retry-After is the full ban duration.
+        $headers = ['Retry-After' => (string) max(1, $rule->banSeconds())]
+            + $evaluationContext->responseHeaders('allow2ban', $recordedSignal->ruleName);
+
+        return FirewallResult::blocked($recordedSignal->ruleName, 'allow2ban', $headers);
     }
 
     public function decide(ServerRequestInterface $serverRequest): FirewallResult

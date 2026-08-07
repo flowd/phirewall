@@ -50,9 +50,11 @@ final class RequestContext
      * request itself (e.g. a user id looked up from a session).
      *
      * The signal bypasses the rule filter: it counts and may ban the key once the
-     * threshold is reached, but never blocks the current request and never dispatches
-     * a Fail2BanMatched event. This is the way to drive a signal-only rule whose
-     * filter is `fn() => false`.
+     * threshold is reached, and never dispatches a Fail2BanMatched event. By default
+     * it never blocks the current request either; with
+     * {@see \Flowd\Phirewall\Config::enableBlockOnSignalBan()} the middleware turns
+     * the banning request into the blocked response. This is the way to drive a
+     * signal-only rule whose filter is `fn() => false`.
      */
     public function recordFailure(string $ruleName, ?string $key = null): void
     {
@@ -71,8 +73,10 @@ final class RequestContext
      * delivered a duplicate payload, a third-party API quota was charged.
      *
      * The signal bypasses the rule filter: it counts and may ban the key once the
-     * threshold is reached, but never blocks the current request. This is the way to
-     * drive a signal-only rule whose filter is `fn() => false`.
+     * threshold is reached. By default it never blocks the current request; with
+     * {@see \Flowd\Phirewall\Config::enableBlockOnSignalBan()} the middleware turns
+     * the banning request into the blocked response. This is the way to drive a
+     * signal-only rule whose filter is `fn() => false`.
      */
     public function recordHit(string $ruleName, ?string $key = null): void
     {

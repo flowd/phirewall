@@ -852,6 +852,25 @@ final class PortableConfigTest extends TestCase
         $this->assertFalse($config->isFailOpen());
     }
 
+    public function testOptionsBlockOnSignalBanRoundTrip(): void
+    {
+        $portableConfig = $this->roundTrip(
+            PortableConfig::create()->enableBlockOnSignalBan()
+        );
+
+        $this->assertTrue($portableConfig->toArray()['options']['blockOnSignalBan'] ?? false);
+
+        $config = (new Config(new InMemoryCache()))->with($portableConfig);
+        $this->assertTrue($config->blockOnSignalBanEnabled());
+    }
+
+    public function testFromArrayRejectsNonBooleanBlockOnSignalBan(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/blockOnSignalBan.*boolean/');
+        PortableConfig::fromArray(['options' => ['blockOnSignalBan' => 'true']]);
+    }
+
     public function testFromArrayRejectsNullThrottleScope(): void
     {
         // A present-but-null throttle "scope" is rejected at the boundary
