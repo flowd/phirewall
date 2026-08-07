@@ -80,8 +80,10 @@ final readonly class Middleware implements MiddlewareInterface
     /**
      * Process all signals recorded by the handler via RequestContext.
      *
-     * Every signal is processed (counted) even after one imposed a ban; the
-     * first ban's blocked result is returned, null when no signal banned.
+     * Processing continues after a signal imposed a ban, so signals for other
+     * rules or keys still count; a later signal for the just-banned rule and
+     * key short-circuits on the existing ban. The first ban's blocked result
+     * is returned, null when no signal banned.
      */
     private function processContextSignals(RequestContext $requestContext, ServerRequestInterface $serverRequest): ?Http\FirewallResult
     {

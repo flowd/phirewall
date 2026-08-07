@@ -485,8 +485,10 @@ final class Config implements ConfigLayer
      * request. Off by default: signals then only count and ban, and the ban
      * takes effect from the next request.
      *
-     * The handler has already run when the ban is imposed; enabling this only
-     * replaces the outgoing response, it does not undo the handler's work.
+     * The handler has already run when the ban is imposed: this only replaces
+     * the outgoing response, the application has still fully processed the
+     * request and its side effects have happened. When processing must stop as
+     * soon as the failure is known, the handler itself has to abort.
      */
     public function enableBlockOnSignalBan(bool $enabled = true): self
     {
