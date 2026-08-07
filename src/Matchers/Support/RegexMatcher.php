@@ -47,4 +47,26 @@ final class RegexMatcher
         // Pattern was already validated in compile() — @-suppression is sufficient here
         return @preg_match($pattern, $subject) === 1;
     }
+
+    /**
+     * Blocklist match that fails closed on a PCRE engine error.
+     *
+     * A null pattern (compile failed) stays disabled and returns false. A live
+     * engine error, such as the backtrack limit being exceeded on a
+     * compile-valid pattern, counts as a match so an attacker cannot bypass a
+     * block rule by forcing the error.
+     */
+    public static function matchesFailClosed(?string $pattern, string $subject): bool
+    {
+        if ($pattern === null) {
+            return false;
+        }
+
+        if (strlen($subject) > self::MAX_SUBJECT_LENGTH) {
+            $subject = substr($subject, 0, self::MAX_SUBJECT_LENGTH);
+        }
+
+        // 1 (match) and false (engine error) both count as a match; only a clean 0 does not.
+        return @preg_match($pattern, $subject) !== 0;
+    }
 }

@@ -5,6 +5,12 @@ All notable changes to Phirewall are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Security
+
+- **Pattern blocklist regex matching honours the failure policy on a PCRE engine error.** A compile-valid pattern that errors at match time (e.g. the backtrack limit exceeded) previously counted as "no match" unconditionally, letting an attacker who could force the error slip past a block rule. `SnapshotBlocklistMatcher` now follows `Config::setFailOpen()`: under the fail-open default an engine error still counts as no match (a broken pattern must not block legitimate traffic), while a fail-closed firewall (`setFailOpen(false)`) treats the error as a match at the `PATH_REGEX`, `REQUEST_REGEX`, and `HEADER_REGEX` sites via the new `RegexMatcher::matchesFailClosed()`. The policy reaches the matcher through the new `Matchers\FailOpenAware` capability, injected by the `Firewall` at construction like `CompiledDataCacheAware`. Generic regex filters (the `PortableConfig` filter factories, also used by safelists) are unchanged: there an engine error must never count as a match, since a filter match can safelist a request.
+
 ## 0.9.0 - 2026-07-27
 
 ### Added
