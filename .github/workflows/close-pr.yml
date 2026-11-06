@@ -1,0 +1,22 @@
+name: Close pull requests
+
+# This repository is a read-only mirror of flowd/phirewall-src. It is overwritten on
+# every release, so pull requests cannot be merged here.
+on:
+  pull_request_target:
+    types: [ opened, reopened ]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    steps:
+      # Never checks out or runs the code of the pull request.
+      - name: Close the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh pr close "$PR_URL" --comment "Thank you for your contribution! This repository is a read-only mirror, the development happens in https://github.com/flowd/phirewall-src. Please open this pull request there."

@@ -3,7 +3,10 @@
 declare(strict_types=1);
 
 $projectRoot = dirname(__DIR__, 2);
-require $projectRoot . '/vendor/autoload.php';
+// Package checkout (own vendor/) or monorepo root (vendor/ above packages/).
+require is_file($projectRoot . '/vendor/autoload.php')
+    ? $projectRoot . '/vendor/autoload.php'
+    : dirname($projectRoot, 2) . '/vendor/autoload.php';
 
 use Flowd\Phirewall\Config;
 use Flowd\Phirewall\Middleware;

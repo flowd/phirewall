@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Read-only mirror.** This repository is generated from the monorepo [`flowd/phirewall-src`](https://github.com/flowd/phirewall-src) on every release. Please open issues and pull requests there.
+
 # Phirewall
 
 <img src="docs/assets/logo.svg" width="200" alt="Phirewall Logo" align="right">

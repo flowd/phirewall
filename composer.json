@@ -1,84 +1,62 @@
 {
-  "name": "flowd/phirewall",
-  "description": "A PHP Firewall and rate limiter based on PSR-7 and PSR-15 middleware (safelists, blocklists, throttles, fail2ban)",
-  "type": "library",
-  "license": [
-    "LGPL-3.0-or-later",
-    "proprietary"
-  ],
-  "authors": [
-    {
-      "name": "Sascha Egerer",
-      "email": "sascha.egerer@flowd.de",
-      "role": "Developer",
-      "homepage": "https://flowd.de"
-    }
-  ],
-  "require": {
-    "php": ">=8.2",
-    "psr/http-message": "^1.1 || ^2.0",
-    "psr/http-server-middleware": "^1.0",
-    "psr/http-server-handler": "^1.0",
-    "psr/http-factory": "^1.1",
-    "psr/simple-cache": "^3.0",
-    "psr/event-dispatcher": "^1.0"
-  },
-  "suggest": {
-    "predis/predis": "Optional: use RedisCache for distributed counters",
-    "ext-apcu": "Optional: use ApcuCache for fast in-process counters (enable with apc.enable_cli=1 for CLI)",
-    "flowd/phirewall-preset-bad-ips": "Block requests from known-bad IPs using a bundled public-domain threat-intelligence feed snapshot",
-    "flowd/phirewall-preset-bots": "Block AI crawlers and rate-limit aggressive SEO bots with curated user-agent presets",
-    "flowd/phirewall-preset-owasp-crs": "OWASP CRS detection (SQL injection, XSS, ...): the SecRule engine plus per-paranoia-level presets"
-  },
-  "require-dev": {
-    "phpunit/phpunit": "^11.5",
-    "phpstan/phpstan": "^1.12",
-    "friendsofphp/php-cs-fixer": "^3.89",
-    "infection/infection": "^0.29",
-    "rector/rector": "^1.2",
-    "nyholm/psr7": "^1.8",
-    "mikey179/vfsstream": "^1.6"
-  },
-  "autoload": {
-    "psr-4": {
-      "Flowd\\Phirewall\\": "src/"
-    }
-  },
-  "autoload-dev": {
-    "psr-4": {
-        "Flowd\\Phirewall\\Tests\\": ["tests/Unit/", "tests/"]
-      }
+    "name": "flowd/phirewall",
+    "description": "A PHP Firewall and rate limiter based on PSR-7 and PSR-15 middleware (safelists, blocklists, throttles, fail2ban)",
+    "type": "library",
+    "license": [
+        "LGPL-3.0-or-later",
+        "proprietary"
+    ],
+    "authors": [
+        {
+            "name": "Sascha Egerer",
+            "email": "sascha.egerer@flowd.de",
+            "role": "Developer",
+            "homepage": "https://flowd.de"
+        }
+    ],
+    "require": {
+        "php": ">=8.2",
+        "psr/http-message": "^1.1 || ^2.0",
+        "psr/http-server-middleware": "^1.0",
+        "psr/http-server-handler": "^1.0",
+        "psr/http-factory": "^1.1",
+        "psr/simple-cache": "^3.0",
+        "psr/event-dispatcher": "^1.0"
     },
-  "scripts": {
-    "phpunit": "XDEBUG_MODE=coverage vendor/bin/phpunit --color=always",
-    "phpstan": "vendor/bin/phpstan",
-    "rector:check": "vendor/bin/rector --dry-run",
-    "rector:fix": "vendor/bin/rector",
-    "cs:check": "vendor/bin/php-cs-fixer fix --diff --dry-run --verbose",
-    "cs:fix": "vendor/bin/php-cs-fixer fix --diff --verbose",
-    "infection": "vendor/bin/infection --threads=4 --logger-html=.build/infection.html --min-msi=0 --min-covered-msi=0",
-    "infection:coverage": "XDEBUG_MODE=coverage vendor/bin/infection --threads=4 --logger-html=.build/infection.html --initial-tests-php-options=\"-dxdebug.mode=coverage\" --min-msi=0 --min-covered-msi=0",
-    "fix": [
-        "@rector:fix",
-        "@cs:fix"
-    ],
-    "test": [
-        "@rector:check",
-        "@cs:check",
-        "@phpunit",
-        "@phpstan"
-    ],
-    "test:database": "bin/test-databases.sh",
-    "test:phpt": "XDEBUG_MODE=off vendor/bin/phpunit --testsuite Integration --no-coverage"
-  },
-  "config": {
-    "allow-plugins": {
-      "infection/extension-installer": false
+    "suggest": {
+        "predis/predis": "Optional: use RedisCache for distributed counters",
+        "ext-apcu": "Optional: use ApcuCache for fast in-process counters (enable with apc.enable_cli=1 for CLI)",
+        "flowd/phirewall-preset-bad-ips": "Block requests from known-bad IPs using a bundled public-domain threat-intelligence feed snapshot",
+        "flowd/phirewall-preset-bots": "Block AI crawlers and rate-limit aggressive SEO bots with curated user-agent presets",
+        "flowd/phirewall-preset-owasp-crs": "OWASP CRS detection (SQL injection, XSS, ...): the SecRule engine plus per-paranoia-level presets"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5",
+        "nyholm/psr7": "^1.8",
+        "mikey179/vfsstream": "^1.6.8"
+    },
+    "autoload": {
+        "psr-4": {
+            "Flowd\\Phirewall\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Flowd\\Phirewall\\Tests\\": [
+                "tests/Unit/",
+                "tests/"
+            ]
+        }
+    },
+    "scripts": {
+        "phpunit": "XDEBUG_MODE=coverage vendor/bin/phpunit --color=always",
+        "test:database": "bin/test-databases.sh",
+        "test:phpt": "XDEBUG_MODE=off vendor/bin/phpunit --testsuite Integration --no-coverage",
+        "test": "@phpunit"
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-main": "0.12.x-dev"
+        }
     }
-  },
-  "extra": {
-    "branch-alias": {
-      "dev-main": "0.10.x-dev"
-    }
-  }
 }
