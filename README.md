@@ -27,6 +27,7 @@ composer require flowd/phirewall
 
 ```php
 use Flowd\Phirewall\Config;
+use Flowd\Phirewall\Http\PathNormalizer;
 use Flowd\Phirewall\Middleware;
 use Flowd\Phirewall\Store\InMemoryCache;
 
@@ -36,8 +37,9 @@ $config = new Config(new InMemoryCache());
 // Allow health checks to bypass all rules
 $config->safelists->add('health', fn($req) => $req->getUri()->getPath() === '/health');
 
-// Block common scanner paths
-$config->blocklists->add('scanners', fn($req) => (bool) preg_match('#/\.git($|/)#', $req->getUri()->getPath()));
+// Block common scanner paths. Normalise first: getPath() is still percent-encoded,
+// so `/%2egit/config` would otherwise slip past (built-in path rules do this for you).
+$config->blocklists->add('scanners', fn($req) => (bool) preg_match('#/\.git($|/)#', PathNormalizer::normalize($req->getUri()->getPath())));
 
 // Rate limit: 100 requests per minute per IP
 $config->throttles->add('api', limit: 100, period: 60 /* seconds */);
@@ -335,6 +337,8 @@ $config = (new Config($cache))->with(PortableConfig::fromArray($array));
 ```
 
 **Supported rule types:** safelists, blocklists, throttles (incl. `sliding` and an optional `scope` filter that restricts which requests the throttle counts — e.g. `filterPathPrefix('/api')`), fail2ban, allow2ban (incl. an optional `filter` that restricts which requests the rule counts), tracks, and pattern backends. **Filters:** `all`, `none`, `path_equals`, `path_prefix`, `path_regex`, `method_equals`, `method_in`, `header_equals`, `header_present`, `header_regex`, plus the matcher-backed `ip`, `known_scanners`, and `suspicious_headers`. **Key extractors:** `ip`, `method`, `path`, `header`, `hashed_header`.
+
+**Path normalisation:** path filters, path pattern kinds and the `path` key match the path normalised by `Flowd\Phirewall\Http\PathNormalizer` (percent-decoded once, `%2f` as `/`, duplicate slashes collapsed, dot-segments resolved, cut at NUL), so `/%2eenv` or `/./admin` cannot sidestep a rule for `/.env` or `/admin`. Exact and prefix values are normalised too. Restricting rules also match the raw path; safelist path filters never match an ambiguous path (dot-segments, encoded slashes, backslashes, ...). Case, trailing slashes and `;` path parameters are not normalised.
 
 ### Signed transport
 

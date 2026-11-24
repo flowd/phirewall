@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flowd\Phirewall;
 
 use Closure;
+use Flowd\Phirewall\Http\PathNormalizer;
 use Flowd\Phirewall\Http\TrustedProxyResolver;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -50,15 +51,18 @@ final class KeyExtractors
     }
 
     /**
-     * Extract request path (pathname only).
+     * Extract the normalised request path (pathname only).
+     *
+     * The path is normalised by {@see PathNormalizer} (percent-decoded once,
+     * dot-segments resolved, duplicate slashes collapsed; an empty path is `/`),
+     * so `/login`, `/%6cogin` and `/./login` share one counter and a client
+     * cannot split a path-keyed throttle across spellings of the same path.
+     *
      * @return Closure(ServerRequestInterface): string
      */
     public static function path(): Closure
     {
-        return static function (ServerRequestInterface $serverRequest): string {
-            $path = $serverRequest->getUri()->getPath();
-            return $path === '' ? '/' : $path;
-        };
+        return static fn(ServerRequestInterface $serverRequest): string => PathNormalizer::fromRequest($serverRequest)->normalized;
     }
 
     /**

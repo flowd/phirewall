@@ -5,6 +5,35 @@ All notable changes to Phirewall are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.11.1 - 2026-11-24
+
+### Security
+
+- **Path rules match the normalised request path.** PSR-7 `getPath()` is still percent-encoded and keeps dot-segments, so path rules compared against it could be sidestepped by any spelling the web server or router resolves to the same resource: with `Presets::sensitivePathBlocking()` and a `filterPathPrefix('/admin')` blocklist, `/.env`, `/.git/config` and `/admin/x` were blocked but `/%2eenv`, `/%2Eenv`, `/%2egit/config`, `/%61dmin/x` and `/./admin/x` passed. The same applied to throttle scopes, fail2ban/allow2ban filters and tracks keyed on a path. The new `Http\PathNormalizer` decodes the path exactly once (`%252e` stays `%2e`; invalid escapes stay literal), treats `%2f` as `/`, collapses duplicate slashes, resolves dot-segments per RFC 3986 (never above the root), cuts the path at a decoded NUL byte, and re-encodes bytes that are not valid UTF-8 as `%XX`, so a `/u` regex can no longer fail to a silent no-match on a crafted path. Used by the portable `path_equals` / `path_prefix` / `path_regex` filters, the `PATH_EXACT` / `PATH_PREFIX` / `PATH_REGEX` pattern kinds, the path part of the `REQUEST_REGEX` subject, and `KeyExtractors::path()` (portable `keyPath()`). Case, trailing slashes, backslashes and `;` path parameters are deliberately not normalised.
+- **Safelist path filters no longer match ambiguous paths.** A safelist `path_prefix` / `path_regex` previously matched the raw path, so `/public/../admin` or `/public/..%2fadmin` was safelisted by a `/public` filter while the server resolved it to `/admin`. A safelist path filter now matches only the normalised path, and never a path the normaliser flags as ambiguous (a dot-segment, an encoded slash, a backslash, duplicate slashes, a control character, invalid UTF-8, or no leading `/`), because servers and routers disagree on what such a path addresses.
+
+### Changed
+
+- **Behavioural: path rules see decoded paths.** Integrators will notice:
+  - Restricting rules (blocklists, fail2ban/allow2ban filters, throttle scopes, tracks, pattern blocklists) match when either the normalised path matches the normalised rule value or the raw path matches the value as written, so they only ever match more requests than before. A rule written against the raw form (e.g. a regex looking for `%2e%2e` or `../`) keeps matching.
+  - `path_equals` / `path_prefix` values and `PATH_EXACT` / `PATH_PREFIX` entries are normalised once at compile time: `'/my%20file'` and `'/my file'` are now the same rule, and `'/a//b'` or `'/a/./b'` mean `/a/b`.
+  - **Regex patterns cannot be normalised.** A `path_regex` / `PATH_REGEX` / `REQUEST_REGEX` pattern now also runs against the decoded path, so a pattern containing a literal escape (`#^/my%20file#`) matches only through the raw path. In safelists, where only the normalised path is used, such a pattern stops matching: rewrite it against the decoded form (`#^/my file#`).
+  - Safelist path filters stop matching ambiguous paths (see Security) and requests whose decoded form differs (`/%70ublic` now matches `'/public'`).
+  - `KeyExtractors::path()` / `keyPath()` returns the normalised path, so `/login`, `/%6cogin` and `/./login` share one counter; existing path-keyed counters for encoded spellings start fresh.
+  - An empty `PATH_PREFIX` entry no longer matches every request (the portable schema already rejected empty pattern values).
+
+### Added
+
+- **`Http\PathNormalizer`** (`normalize()`, `analyze()`, `fromRequest()`) and the `Http\NormalizedPath` value object (`raw`, `normalized`, `ambiguous`), public so hand-written closures can match the same path the built-in rules see: `PathNormalizer::normalize($request->getUri()->getPath())`.
+
+### Fixed
+
+- **`ApacheHtaccessAdapter` no longer takes the site down with the first ban.** The managed section held bare `Require not ip` lines, which Apache 2.4 rejects outside `<RequireAll>` (`negative Require directive has no effect in <RequireAny> directive`), answering every request in the directory with HTTP 500. The adapter now wraps the lines in `<If "true">` with `AuthMerging And` and a `<RequireAll>` that starts with `Require all granted`; with no blocked addresses only the markers are written. The `<If>`/`AuthMerging And` wrapper ANDs the block with the server configuration, parent directories and the site's own directives in the same `.htaccess`, so it can only deny: a bare top-level `<RequireAll>` would be OR-ed with the site's own `Require` directives (bypassing e.g. `Require valid-user`) and would replace a parent directory's restriction. Verified on Apache 2.4.71 with `AllowOverride AuthConfig`. Files in the old format are still read, and the next `blockIp()`/`unblockIp()`/`blockMany()`/`unblockMany()` call with at least one address rewrites them into the new format even when the set of blocked addresses is unchanged; `isBlocked()` never writes. Limitation: an `<If>`/`<ElseIf>`/`<Else>` section with its own `Require` directives that Apache merges after the managed section (below it in the same file, or in a subdirectory `.htaccess`) replaces the block unless it carries `AuthMerging And` itself.
+
+## 0.11.0 - 2026-11-06
+
+No changes to the code of this package. From this version on, all Phirewall packages are released together under one version number.
+
 ## 0.10.0 - 2026-08-07
 
 ### Added

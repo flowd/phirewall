@@ -6,9 +6,12 @@ namespace Flowd\Phirewall\Pattern;
 
 use Flowd\Phirewall\Config\MatchResult;
 use Flowd\Phirewall\Config\RequestMatcherInterface;
+use Flowd\Phirewall\Http\NormalizedPath;
+use Flowd\Phirewall\Http\PathNormalizer;
 use Flowd\Phirewall\Matchers\ClientIpResolverAware;
 use Flowd\Phirewall\Matchers\FailOpenAware;
 use Flowd\Phirewall\Matchers\Support\CidrMatcher;
+use Flowd\Phirewall\Matchers\Support\PathMatcher;
 use Flowd\Phirewall\Matchers\Support\RegexMatcher;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -93,7 +96,9 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientI
         $resolver = $this->ipExtractor ?? $defaultResolver;
         $patternSnapshot = $this->loadSnapshot();
         $ip = $resolver($serverRequest);
-        $path = $serverRequest->getUri()->getPath();
+        // Path entries match the normalised path or the raw path (PathMatcher's
+        // restrictive mode): this matcher only ever blocks.
+        $requestPath = PathNormalizer::fromRequest($serverRequest);
         $query = $serverRequest->getUri()->getQuery();
 
         // Pre-compute binary IP once (used by CIDR matching)
@@ -126,20 +131,21 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientI
 
                     break;
                 case PatternKind::PATH_EXACT:
-                    if ($path === $entry->value) {
+                    if ($compiled instanceof NormalizedPath && PathMatcher::equals($requestPath, $compiled, false)) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
                     break;
                 case PatternKind::PATH_PREFIX:
-                    if (str_starts_with($path, $entry->value)) {
+                    if ($compiled instanceof NormalizedPath && PathMatcher::startsWith($requestPath, $compiled, false)) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
                     break;
                 case PatternKind::PATH_REGEX:
                     $pathPattern = is_string($compiled) ? $compiled : null;
-                    if ($this->matchesRegex($pathPattern, $path)) {
+                    $matchesPath = fn(string $subject): bool => $this->matchesRegex($pathPattern, $subject);
+                    if (PathMatcher::matchesRegex($requestPath, $matchesPath, false)) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
@@ -165,9 +171,16 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientI
                     // Only REQUEST_REGEX needs the full normalized header map; build
                     // it lazily once, and only when such an entry is actually present.
                     $normalizedHeaders ??= $this->normalizeHeaders($serverRequest->getHeaders());
-                    $requestSubject ??= $this->buildRequestSubject($path, $query, $normalizedHeaders);
+                    // Two subjects, as for PATH_REGEX: one with the normalised path,
+                    // one with the raw path (built only when the two differ).
+                    $requestSubject ??= $this->buildRequestSubject($requestPath->normalized, $query, $normalizedHeaders);
+                    $rawRequestSubject ??= $requestPath->raw === $requestPath->normalized
+                        ? null
+                        : $this->buildRequestSubject($requestPath->raw, $query, $normalizedHeaders);
                     $requestPattern = is_string($compiled) ? $compiled : null;
-                    if ($this->matchesRegex($requestPattern, $requestSubject)) {
+                    if ($this->matchesRegex($requestPattern, $requestSubject)
+                        || ($rawRequestSubject !== null && $this->matchesRegex($requestPattern, $rawRequestSubject))
+                    ) {
                         return MatchResult::matched('pattern_backend', ['kind' => $entry->kind->value, 'value' => $entry->value]);
                     }
 
@@ -220,6 +233,8 @@ final class SnapshotBlocklistMatcher implements RequestMatcherInterface, ClientI
             // for every entry on every request (mirrors IpMatcher's keying).
             PatternKind::IP => CidrMatcher::canonicalizeIp($patternEntry->value),
             PatternKind::PATH_REGEX, PatternKind::HEADER_REGEX, PatternKind::REQUEST_REGEX => RegexMatcher::compile($patternEntry->value),
+            // Literal path entries match in both forms; normalise the value once here.
+            PatternKind::PATH_EXACT, PatternKind::PATH_PREFIX => PathMatcher::compileLiteral($patternEntry->value),
             default => $patternEntry->value,
         };
     }

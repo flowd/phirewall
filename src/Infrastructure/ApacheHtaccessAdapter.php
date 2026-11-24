@@ -14,14 +14,69 @@ use RuntimeException;
  *   # BEGIN Phirewall
  *   # END Phirewall
  *
- * Within this section, it writes "Require not ip <IP>" lines using mod_authz_core syntax
- * (Apache 2.4+). It preserves content outside the managed section.
+ * With at least one blocked address, the section holds a single mod_authz_core block
+ * (Apache 2.4+, mod_authz_core plus ap_expr for <If>):
+ *
+ *   # BEGIN Phirewall
+ *   <If "true">
+ *       AuthMerging And
+ *       <RequireAll>
+ *           Require all granted
+ *           Require not ip 203.0.113.250
+ *       </RequireAll>
+ *   </If>
+ *   # END Phirewall
+ *
+ * Without blocked addresses, the section contains only the two markers. Content outside
+ * the managed section is preserved.
+ *
+ * Why this shape:
+ * - Apache rejects a negated "Require not ip" outside <RequireAll>/<RequireNone> with
+ *   "negative Require directive has no effect in <RequireAny> directive" and answers every
+ *   request in the directory with HTTP 500. Versions before this shape wrote bare
+ *   "Require not ip" lines between the markers; such files are still read, and the next
+ *   block/unblock call rewrites them into the form above.
+ * - A bare top-level <RequireAll>Require all granted / Require not ip</RequireAll> is not
+ *   safe either: top-level authorization directives of one .htaccess are merged into an
+ *   implicit <RequireAny>, so it would sit next to the site's own directives (for example
+ *   "Require valid-user") and grant every non-blocked client access without them. Because
+ *   AuthMerging defaults to Off, it would also replace a restriction from the parent
+ *   directory's configuration.
+ * - The <If "true"> section is merged after the .htaccess, so it is its own authorization
+ *   section, and "AuthMerging And" combines it with everything that applies before it
+ *   (server config, parent directories, the site's own directives in this .htaccess) by
+ *   logical AND. The block can therefore only deny: blocked addresses get 403, every other
+ *   client is decided by the surrounding configuration exactly as without the block. The
+ *   <If> section is also inherited by subdirectories and merged after their own .htaccess,
+ *   so a subdirectory "Require all granted" does not lift the block.
+ *
+ * Known limitation: an <If>/<ElseIf>/<Else> section with its own Require directives that
+ * Apache merges after this one - placed below the managed section in the same .htaccess, or
+ * in a subdirectory's .htaccess - replaces the block for the requests it applies to, because
+ * AuthMerging defaults to Off. Such a section needs "AuthMerging And" itself.
+ * <If> in .htaccess works with "AllowOverride AuthConfig", the same override the previous
+ * Require lines needed.
  */
 final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInterface
 {
     private const BEGIN_MARK = '# BEGIN Phirewall';
 
     private const END_MARK   = '# END Phirewall';
+
+    /**
+     * Wrapper lines around the "Require not ip" lines, see the class docblock.
+     */
+    private const BLOCK_OPEN = [
+        '<If "true">',
+        '    AuthMerging And',
+        '    <RequireAll>',
+        '        Require all granted',
+    ];
+
+    private const BLOCK_CLOSE = [
+        '    </RequireAll>',
+        '</If>',
+    ];
 
     public function __construct(
         private string $htaccessPath,
@@ -145,10 +200,12 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
             $existingEntries = $this->parseManaged($managed);
             $entries = $mutator($existingEntries);
 
-            // Skip the full read-modify-rewrite when the managed entry set is unchanged. Without
-            // this, an already-blocked client that keeps hitting the firewall drives an O(file)
-            // rewrite under the exclusive lock on every request.
-            if ($entries === $existingEntries) {
+            // Skip the full read-modify-rewrite when the managed entry set is unchanged and the
+            // section is already in the current format. Without this, an already-blocked client
+            // that keeps hitting the firewall drives an O(file) rewrite under the exclusive lock
+            // on every request. A section in any other form (notably the bare "Require not ip"
+            // lines older versions wrote, which make Apache answer HTTP 500) is rewritten once.
+            if ($entries === $existingEntries && $this->isCurrentFormat($managed, $entries)) {
                 return;
             }
 
@@ -226,6 +283,47 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
     }
 
     /**
+     * Whether the managed body (content between the markers) is exactly what writeSections()
+     * produces for the given entries. A file without a managed section counts as current while
+     * there is nothing to block, so a no-op call never creates or touches the file.
+     *
+     * @param list<string> $entries
+     */
+    private function isCurrentFormat(string $managedBody, array $entries): bool
+    {
+        if ($managedBody === '' && $entries === []) {
+            return true;
+        }
+
+        return $managedBody === "\n" . $this->renderManaged($entries);
+    }
+
+    /**
+     * Render the lines between the markers, each terminated by a newline. Empty for no entries.
+     *
+     * @param list<string> $entries
+     */
+    private function renderManaged(array $entries): string
+    {
+        if ($entries === []) {
+            return '';
+        }
+
+        $lines = self::BLOCK_OPEN;
+        foreach ($entries as $entry) {
+            $lines[] = '        Require not ip ' . $entry;
+        }
+
+        array_push($lines, ...self::BLOCK_CLOSE);
+
+        return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * Collects the "Require not ip" entries of the managed section. Every other line - the
+     * <If>/<RequireAll> wrapper, "AuthMerging And", "Require all granted" - is ignored, so both
+     * the current format and the bare lines written by older versions are read.
+     *
      * @param string $managedBody Content between markers (excluding markers)
      * @return list<string> list of IP addresses
      */
@@ -258,10 +356,7 @@ final readonly class ApacheHtaccessAdapter implements InfrastructureBlockerInter
      */
     private function writeSections(string $before, array $entries, string $after): void
     {
-        $managedBody = '';
-        foreach ($entries as $entry) {
-            $managedBody .= 'Require not ip ' . $entry . "\n";
-        }
+        $managedBody = $this->renderManaged($entries);
 
         $newContent = rtrim($before)
             . (rtrim($before) === '' ? '' : "\n\n")

@@ -54,19 +54,33 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter = new ApacheHtaccessAdapter($this->htaccess);
         $adapter->blockIp('203.0.113.10');
 
-        // Introduce a duplicate managed line. A rewrite regenerates the managed body from the
-        // de-duplicated entry set and would collapse this to one line; skipping the rewrite on a
-        // no-op leaves the file as-is. The surviving duplicate proves no rewrite occurred.
-        $line = 'Require not ip 203.0.113.10' . "\n";
-        file_put_contents($this->htaccess, str_replace($line, $line . $line, $this->readHtaccess()));
+        // Backdate the file. A rewrite replaces it through an atomic rename of a fresh temp
+        // file and resets the mtime; skipping the rewrite on a no-op leaves it untouched.
+        touch($this->htaccess, 1_000_000);
+        clearstatcache();
+
+        $adapter->blockIp('203.0.113.10');
+        $adapter->unblockIp('203.0.113.99');
+        clearstatcache();
+
+        $this->assertSame(1_000_000, filemtime($this->htaccess), 'A no-op block/unblock must not rewrite the htaccess file');
+    }
+
+    public function testNonCanonicalManagedSectionIsNormalizedOnNextCall(): void
+    {
+        $adapter = new ApacheHtaccessAdapter($this->htaccess);
+        $adapter->blockIp('203.0.113.10');
+
+        $expected = $this->readHtaccess();
+
+        // A hand-edited managed section (duplicate line) is not what the adapter writes, so
+        // the next call rewrites it even though the entry set is unchanged.
+        $line = '        Require not ip 203.0.113.10' . "\n";
+        file_put_contents($this->htaccess, str_replace($line, $line . $line, $expected));
 
         $adapter->blockIp('203.0.113.10');
 
-        $this->assertSame(
-            2,
-            substr_count($this->readHtaccess(), 'Require not ip 203.0.113.10'),
-            'A no-op block must not rewrite the htaccess file',
-        );
+        $this->assertSame($expected, $this->readHtaccess());
     }
 
     // ─── IPv6 ────────────────────────────────────────────────────────
@@ -364,23 +378,153 @@ final class ApacheHtaccessAdapterTest extends TestCase
         $adapter->blockIp('203.0.113.1');
         $adapter->blockIp('203.0.113.2');
 
-        $content = $this->readHtaccess();
-        $beginPos = strpos($content, '# BEGIN Phirewall');
-        $endPos = strpos($content, '# END Phirewall');
-        $this->assertNotFalse($beginPos);
-        $this->assertNotFalse($endPos);
+        // A negated Require is only valid inside <RequireAll> (Apache answers HTTP 500
+        // otherwise); the <If "true"> section with AuthMerging And keeps the block from
+        // widening access granted or denied by the surrounding configuration.
+        $this->assertSame(
+            "# BEGIN Phirewall\n"
+            . "<If \"true\">\n"
+            . "    AuthMerging And\n"
+            . "    <RequireAll>\n"
+            . "        Require all granted\n"
+            . "        Require not ip 203.0.113.1\n"
+            . "        Require not ip 203.0.113.2\n"
+            . "    </RequireAll>\n"
+            . "</If>\n"
+            . "# END Phirewall\n",
+            $this->readHtaccess(),
+        );
+    }
 
-        // Extract managed section
-        $managed = substr($content, $beginPos, ($endPos + strlen('# END Phirewall')) - $beginPos);
-        $lines = explode("\n", $managed);
+    public function testManagedSectionHasNoBareRequireLines(): void
+    {
+        $adapter = new ApacheHtaccessAdapter($this->htaccess);
+        $adapter->blockMany(['203.0.113.1', '2001:db8::1']);
 
-        // First line is begin marker
-        $this->assertSame('# BEGIN Phirewall', $lines[0]);
-        // Directives in the middle
-        $this->assertSame('Require not ip 203.0.113.1', $lines[1]);
-        $this->assertSame('Require not ip 203.0.113.2', $lines[2]);
-        // Last line is end marker
-        $this->assertSame('# END Phirewall', $lines[3]);
+        $this->assertDoesNotMatchRegularExpression('/^Require/m', $this->readHtaccess());
+    }
+
+    // ─── Legacy format (bare "Require not ip" lines) ─────────────────
+
+    public function testLegacyFormatIsReadByIsBlocked(): void
+    {
+        file_put_contents($this->htaccess, "# BEGIN Phirewall\nRequire not ip 203.0.113.1\nRequire not ip 2001:db8::1\n# END Phirewall\n");
+        $adapter = new ApacheHtaccessAdapter($this->htaccess);
+
+        $this->assertTrue($adapter->isBlocked('203.0.113.1'));
+        $this->assertTrue($adapter->isBlocked('2001:db8::1'));
+        $this->assertFalse($adapter->isBlocked('203.0.113.2'));
+    }
+
+    public function testIsBlockedDoesNotUpgradeLegacyFormat(): void
+    {
+        $legacy = "# BEGIN Phirewall\nRequire not ip 203.0.113.1\n# END Phirewall\n";
+        file_put_contents($this->htaccess, $legacy);
+
+        (new ApacheHtaccessAdapter($this->htaccess))->isBlocked('203.0.113.1');
+
+        $this->assertSame($legacy, $this->readHtaccess());
+    }
+
+    /**
+     * @return iterable<string, array{callable(ApacheHtaccessAdapter): void, list<string>}>
+     */
+    public static function legacyUpgradeProvider(): iterable
+    {
+        yield 'block of an already listed IP (unchanged entry set)' => [
+            static fn(ApacheHtaccessAdapter $apacheHtaccessAdapter) => $apacheHtaccessAdapter->blockIp('203.0.113.1'),
+            ['203.0.113.1', '203.0.113.2'],
+        ];
+        yield 'unblock of an unlisted IP (unchanged entry set)' => [
+            static fn(ApacheHtaccessAdapter $apacheHtaccessAdapter) => $apacheHtaccessAdapter->unblockIp('198.51.100.9'),
+            ['203.0.113.1', '203.0.113.2'],
+        ];
+        yield 'block of a new IP' => [
+            static fn(ApacheHtaccessAdapter $apacheHtaccessAdapter) => $apacheHtaccessAdapter->blockIp('198.51.100.9'),
+            ['203.0.113.1', '203.0.113.2', '198.51.100.9'],
+        ];
+        yield 'unblock of a listed IP' => [
+            static fn(ApacheHtaccessAdapter $apacheHtaccessAdapter) => $apacheHtaccessAdapter->unblockIp('203.0.113.1'),
+            ['203.0.113.2'],
+        ];
+    }
+
+    /**
+     * @param callable(ApacheHtaccessAdapter): void $change
+     * @param list<string> $expectedEntries
+     */
+    #[DataProvider('legacyUpgradeProvider')]
+    public function testLegacyFormatIsUpgradedOnNextChange(callable $change, array $expectedEntries): void
+    {
+        file_put_contents(
+            $this->htaccess,
+            "RewriteEngine On\n\n# BEGIN Phirewall\nRequire not ip 203.0.113.1\nRequire not ip 203.0.113.2\n# END Phirewall\n\nErrorDocument 404 /404.html\n",
+        );
+        $adapter = new ApacheHtaccessAdapter($this->htaccess);
+
+        $change($adapter);
+
+        $lines = '';
+        foreach ($expectedEntries as $expectedEntry) {
+            $lines .= '        Require not ip ' . $expectedEntry . "\n";
+            $this->assertTrue($adapter->isBlocked($expectedEntry));
+        }
+
+        $this->assertSame(
+            "RewriteEngine On\n\n"
+            . "# BEGIN Phirewall\n"
+            . "<If \"true\">\n"
+            . "    AuthMerging And\n"
+            . "    <RequireAll>\n"
+            . "        Require all granted\n"
+            . $lines
+            . "    </RequireAll>\n"
+            . "</If>\n"
+            . "# END Phirewall\n\n"
+            . "ErrorDocument 404 /404.html\n",
+            $this->readHtaccess(),
+        );
+    }
+
+    public function testLegacyEmptySectionIsAlreadyCurrent(): void
+    {
+        $empty = "# BEGIN Phirewall\n# END Phirewall\n";
+        file_put_contents($this->htaccess, $empty);
+
+        (new ApacheHtaccessAdapter($this->htaccess))->unblockIp('203.0.113.1');
+
+        $this->assertSame($empty, $this->readHtaccess());
+    }
+
+    public function testNoOpUnblockDoesNotCreateMissingFile(): void
+    {
+        (new ApacheHtaccessAdapter($this->htaccess))->unblockIp('203.0.113.1');
+
+        $this->assertFileDoesNotExist($this->htaccess);
+    }
+
+    public function testBlockUnblockIsBlockedRoundTrip(): void
+    {
+        $adapter = new ApacheHtaccessAdapter($this->htaccess);
+        $adapter->blockMany(['203.0.113.1', '2001:db8::1', '198.51.100.7']);
+
+        $this->assertTrue($adapter->isBlocked('203.0.113.1'));
+        $this->assertTrue($adapter->isBlocked('2001:0db8:0000:0000:0000:0000:0000:0001'));
+        $this->assertTrue($adapter->isBlocked('198.51.100.7'));
+
+        $adapter->unblockIp('2001:db8::1');
+        $this->assertFalse($adapter->isBlocked('2001:db8::1'));
+        $this->assertTrue($adapter->isBlocked('203.0.113.1'));
+        $this->assertTrue($adapter->isBlocked('198.51.100.7'));
+
+        // A second instance reads the wrapped format back identically.
+        $second = new ApacheHtaccessAdapter($this->htaccess);
+        $this->assertTrue($second->isBlocked('198.51.100.7'));
+        $second->unblockMany(['203.0.113.1', '198.51.100.7']);
+
+        $this->assertFalse($adapter->isBlocked('203.0.113.1'));
+        $this->assertFalse($adapter->isBlocked('198.51.100.7'));
+        $this->assertSame("# BEGIN Phirewall\n# END Phirewall\n", $this->readHtaccess());
     }
 
     // ─── Edge cases: empty IP, invalid IP format ─────────────────────
@@ -815,10 +959,8 @@ final class ApacheHtaccessAdapterTest extends TestCase
 
         $adapter->unblockMany(['203.0.113.1', '203.0.113.2']);
 
-        $content = $this->readHtaccess();
-        $this->assertStringContainsString('# BEGIN Phirewall', $content);
-        $this->assertStringContainsString('# END Phirewall', $content);
-        $this->assertStringNotContainsString('Require not ip', $content);
+        // Only the markers remain: no empty <RequireAll> or stray wrapper lines.
+        $this->assertSame("# BEGIN Phirewall\n# END Phirewall\n", $this->readHtaccess());
     }
 
     // ─── New file permissions ───────────────────────────────────

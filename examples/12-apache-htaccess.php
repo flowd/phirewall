@@ -14,6 +14,12 @@
  * - IPv4 and IPv6 support
  * - Atomic file updates (safe for concurrent writes)
  *
+ * The managed section wraps the "Require not ip" lines in <If "true"> with
+ * "AuthMerging And" and a <RequireAll>: Apache rejects bare negated Require
+ * lines with HTTP 500, and the wrapper keeps the block from granting access
+ * that the rest of the configuration denies (see the "Current .htaccess
+ * Contents" output below).
+ *
  * Requirements:
  * - Apache 2.4+ with mod_authz_core
  * - Writable .htaccess file location
@@ -221,7 +227,7 @@ echo "   - Ensure .htaccess is writable by PHP process\n";
 echo "   - Use appropriate file permissions (644 recommended)\n\n";
 
 echo "2. Apache Configuration:\n";
-echo "   - Ensure AllowOverride includes Limit and AuthConfig\n";
+echo "   - Ensure AllowOverride includes AuthConfig (covers the <If> section)\n";
 echo "   - Test with: httpd -t -D DUMP_MODULES | grep authz\n\n";
 
 echo "3. Performance:\n";

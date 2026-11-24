@@ -12,8 +12,8 @@ Phirewall is pre-1.0. Only the latest minor release receives security fixes.
 
 | Version | Supported |
 | ------- | --------- |
-| 0.4.x   | Yes       |
-| < 0.4   | No        |
+| 0.11.x  | Yes       |
+| < 0.11  | No        |
 
 ## Coordinated Disclosure
 

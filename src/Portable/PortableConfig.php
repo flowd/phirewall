@@ -16,9 +16,11 @@ use Flowd\Phirewall\Config\Rule\SafelistRule;
 use Flowd\Phirewall\Config\Rule\ThrottleRule;
 use Flowd\Phirewall\Config\Rule\TrackRule;
 use Flowd\Phirewall\ConfigLayer;
+use Flowd\Phirewall\Http\PathNormalizer;
 use Flowd\Phirewall\KeyExtractors;
 use Flowd\Phirewall\Matchers\IpMatcher;
 use Flowd\Phirewall\Matchers\KnownScannerMatcher;
+use Flowd\Phirewall\Matchers\Support\PathMatcher;
 use Flowd\Phirewall\Matchers\Support\RegexMatcher;
 use Flowd\Phirewall\Matchers\SuspiciousHeadersMatcher;
 use Flowd\Phirewall\Pattern\InMemoryPatternBackend;
@@ -170,6 +172,16 @@ final class PortableConfig implements ConfigLayer
     }
 
     /**
+     * Match requests whose path equals the given path.
+     *
+     * Both sides are normalised ({@see PathNormalizer}):
+     * percent-decoded once, dot-segments resolved, duplicate slashes collapsed.
+     * `'/my%20file'` and `'/my file'` are the same rule, and `/%61dmin` or
+     * `/./admin` match `'/admin'`. Case and trailing slash are significant.
+     * In restricting rules (blocklists, fail2ban, throttle scopes, ...) the raw
+     * path is also compared against the value as written; in safelists an
+     * ambiguous path (dot-segments, encoded slashes, ...) never matches.
+     *
      * @return FilterPathEquals
      */
     public static function filterPathEquals(string $path): array
@@ -220,6 +232,10 @@ final class PortableConfig implements ConfigLayer
     /**
      * Match requests whose path starts with the given prefix.
      *
+     * Both sides are normalised like {@see filterPathEquals()}. The prefix is a
+     * plain string prefix: `'/admin'` also matches `/administrator`; use
+     * `'/admin/'` to stop at the segment boundary.
+     *
      * @return FilterPathPrefix
      */
     public static function filterPathPrefix(string $prefix): array
@@ -229,6 +245,12 @@ final class PortableConfig implements ConfigLayer
 
     /**
      * Match requests whose path matches the given PCRE pattern (delimiters included, e.g. `#^/admin#`).
+     *
+     * The pattern runs against the normalised path
+     * ({@see PathNormalizer}), which is always valid
+     * UTF-8, so `/u` patterns are safe. In blocklists and other restricting
+     * rules it also runs against the raw (percent-encoded) path; in safelists it
+     * never matches an ambiguous path (dot-segments, encoded slashes, ...).
      *
      * @return FilterPathRegex
      */
@@ -911,7 +933,7 @@ final class PortableConfig implements ConfigLayer
         foreach ($this->schema['safelists'] as $s) {
             $config->safelists->addRule(new SafelistRule(
                 $s['name'],
-                $this->compileFilterMatcher($s['filter']),
+                $this->compileFilterMatcher($s['filter'], permissive: true),
             ));
         }
 
@@ -988,15 +1010,18 @@ final class PortableConfig implements ConfigLayer
 
     /**
      * @param Filter $filter
+     * @param bool $permissive True for safelists: path filters then refuse an
+     *                         ambiguous path instead of matching its normalised form
+     *                         (see {@see PathMatcher}).
      */
-    private function compileFilterMatcher(array $filter): RequestMatcherInterface
+    private function compileFilterMatcher(array $filter, bool $permissive = false): RequestMatcherInterface
     {
         $type = (string)($filter['type'] ?? '');
         return match ($type) {
             'ip' => new IpMatcher(self::toStringList($filter['ips'] ?? [])),
             'known_scanners' => new KnownScannerMatcher(isset($filter['patterns']) ? self::toStringList($filter['patterns']) : null),
             'suspicious_headers' => new SuspiciousHeadersMatcher(isset($filter['headers']) ? self::toStringList($filter['headers']) : null),
-            default => new ClosureRequestMatcher($this->compileFilterClosure($filter)),
+            default => new ClosureRequestMatcher($this->compileFilterClosure($filter, $permissive)),
         };
     }
 
@@ -1006,21 +1031,24 @@ final class PortableConfig implements ConfigLayer
      * @param Filter $filter
      * @return \Closure(ServerRequestInterface): bool
      */
-    private function compileFilterClosure(array $filter): \Closure
+    private function compileFilterClosure(array $filter, bool $permissive): \Closure
     {
         $type = (string)($filter['type'] ?? '');
         return match ($type) {
-            'path_equals' => static function (ServerRequestInterface $serverRequest) use ($filter): bool {
-                $path = (string)($filter['path'] ?? '/');
-                return $serverRequest->getUri()->getPath() === $path;
-            },
-            'path_prefix' => static function (ServerRequestInterface $serverRequest) use ($filter): bool {
-                $prefix = (string)($filter['prefix'] ?? '');
-                return $prefix !== '' && str_starts_with($serverRequest->getUri()->getPath(), $prefix);
-            },
-            'path_regex' => (static function () use ($filter): \Closure {
+            // Path filters match the normalised path (PathNormalizer); a safelist
+            // ($permissive) never matches an ambiguous path, see PathMatcher.
+            'path_equals' => (static function () use ($filter, $permissive): \Closure {
+                $path = PathMatcher::compileLiteral((string)($filter['path'] ?? '/'));
+                return static fn(ServerRequestInterface $serverRequest): bool => PathMatcher::equals(PathNormalizer::fromRequest($serverRequest), $path, $permissive);
+            })(),
+            'path_prefix' => (static function () use ($filter, $permissive): \Closure {
+                $prefix = PathMatcher::compileLiteral((string)($filter['prefix'] ?? ''));
+                return static fn(ServerRequestInterface $serverRequest): bool => PathMatcher::startsWith(PathNormalizer::fromRequest($serverRequest), $prefix, $permissive);
+            })(),
+            'path_regex' => (static function () use ($filter, $permissive): \Closure {
                 $pattern = RegexMatcher::compile((string)($filter['pattern'] ?? ''));
-                return static fn(ServerRequestInterface $serverRequest): bool => RegexMatcher::matches($pattern, $serverRequest->getUri()->getPath());
+                $matches = static fn(string $subject): bool => RegexMatcher::matches($pattern, $subject);
+                return static fn(ServerRequestInterface $serverRequest): bool => PathMatcher::matchesRegex(PathNormalizer::fromRequest($serverRequest), $matches, $permissive);
             })(),
             'method_equals' => static function (ServerRequestInterface $serverRequest) use ($filter): bool {
                 $method = strtoupper((string)($filter['method'] ?? ''));
